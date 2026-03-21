@@ -803,21 +803,46 @@ class AttachmentReinforcement(object):
             "material_code": self.material_code,
         }
     
-    def _get_profile_section(self, rib, num_points=30):
-        """Get a section of the profile around the attachment point."""
-        profile = rib.profile_2d
+    def _get_profile_section(self, rib, num_points=30, glider=None):
+        """
+        Retourne une section du profil délimitée par l'intersection du cercle
+        de rayon halfmoon_radius centré sur le point d'accroche avec le profil hull.
+        """
+        from openglider.glider.rib.rib import SingleSkinRib
+
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+
         chord = rib.chord
         
-        # Calculate position range based on radius (width = 2 * radius approximately)
-        half_width_normalized = self.halfmoon_radius / chord
-        start_pos = self.position - half_width_normalized
-        end_pos = self.position + half_width_normalized
+        # Point d'accroche = centre de l'arc
+        center_idx = profile(self.position)
+        arc_center = np.array(profile[center_idx]) * chord
         
-        # Get indices
-        start_idx = profile(start_pos)
-        end_idx = profile(end_pos)
+        # --- Trouver les bornes par intersection cercle/profil ---
+        all_pts = np.array(profile.data) * chord  # tous les points du profil en mètres
+
+        def find_intersection_idx(pts, center, radius, from_idx, direction):
+            """Parcourt pts depuis from_idx dans 'direction' (+1 ou -1)."""
+            n = len(pts)
+            i = from_idx
+            while 0 < i < n - 1:
+                i += direction
+                d = np.linalg.norm(pts[i] - center)
+                if d >= radius:
+                    d_prev = np.linalg.norm(pts[i - direction] - center)
+                    t = (radius - d_prev) / (d - d_prev) if abs(d - d_prev) > 1e-12 else 0.5
+                    return (i - direction) + t * direction
+            return float(i)  # bord du profil
+
+        start_idx = find_intersection_idx(all_pts, arc_center, self.halfmoon_radius, int(center_idx), -1)
+        end_idx   = find_intersection_idx(all_pts, arc_center, self.halfmoon_radius, int(center_idx), +1)
         
-        # Sample points along profile
         if start_idx > end_idx:
             start_idx, end_idx = end_idx, start_idx
         
@@ -828,11 +853,9 @@ class AttachmentReinforcement(object):
         profile_normvectors = PolyLine2D(profile.normvectors)
         
         for idx in indices:
-            # Get point on profile
             pt = profile[idx] * chord
             points.append(np.array(pt))
             
-            # Get normal at this point
             int_idx = int(min(idx, len(profile_normvectors.data) - 1))
             norm = np.array(profile_normvectors.data[int_idx])
             norm_len = np.linalg.norm(norm)
@@ -842,20 +865,28 @@ class AttachmentReinforcement(object):
         
         return points, normals
     
-    def get_halfmoon_points(self, rib, num_points=30):
+    def get_halfmoon_points(self, rib, num_points=30, glider=None):
         """
         Get the half-moon (crescent) fabric reinforcement outline.
         
         - Outer edge: follows profile curve (with surface_offset)
         - Inner edge: circular ARC centered on attachment point
         """
-        points, normals = self._get_profile_section(rib, num_points)
+        points, normals = self._get_profile_section(rib, num_points, glider=glider)
         
         if not points:
             return []
         
         # Get attachment point (center of the circular arc)
-        profile = rib.profile_2d
+        from openglider.glider.rib.rib import SingleSkinRib
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+
         center_idx = profile(self.position)
         arc_center = np.array(profile[center_idx]) * rib.chord
         
@@ -896,7 +927,7 @@ class AttachmentReinforcement(object):
         
         return halfmoon
     
-    def get_rod_sleeve_points(self, rib, num_points=30):
+    def get_rod_sleeve_points(self, rib, num_points=30, glider=None):
         """
         Get the rod sleeve that sits INSIDE the half-moon arc.
         Uses relative offsets from the half-moon arc and end offset to avoid touching edges.
@@ -904,13 +935,21 @@ class AttachmentReinforcement(object):
         if not self.rod_enabled:
             return [], []
         
-        points, normals = self._get_profile_section(rib, num_points)
+        points, normals = self._get_profile_section(rib, num_points, glider=glider)
         
         if not points:
             return [], []
         
         # Get attachment point (center of arcs)
-        profile = rib.profile_2d
+        from openglider.glider.rib.rib import SingleSkinRib
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+
         center_idx = profile(self.position)
         arc_center = np.array(profile[center_idx]) * rib.chord
         
@@ -968,10 +1007,10 @@ class AttachmentReinforcement(object):
         
         return inner_curve, outer_curve
     
-    def get_flattened(self, rib, num_points=30):
+    def get_flattened(self, rib, num_points=30, glider=None):
         """Get the flattened 2D representation."""
-        halfmoon_points = self.get_halfmoon_points(rib, num_points)
-        inner_rod, outer_rod = self.get_rod_sleeve_points(rib, num_points)
+        halfmoon_points = self.get_halfmoon_points(rib, num_points, glider=glider)
+        inner_rod, outer_rod = self.get_rod_sleeve_points(rib, num_points, glider=glider)
         
         # Create closed polygon for rod sleeve
         rod_points = []
@@ -983,9 +1022,9 @@ class AttachmentReinforcement(object):
             'rod_sleeve': PolyLine2D(rod_points),
         }
     
-    def get_3d(self, rib, num_points=30):
+    def get_3d(self, rib, num_points=30, glider=None):
         """Get 3D representation."""
-        flat = self.get_flattened(rib, num_points)
+        flat = self.get_flattened(rib, num_points, glider=glider)
         return {
             'halfmoon': [rib.align([p[0], p[1], 0], scale=False) for p in flat['halfmoon'].data],
             'rod_sleeve': [rib.align([p[0], p[1], 0], scale=False) for p in flat['rod_sleeve'].data],

@@ -185,7 +185,7 @@ class PlotMaker(object):
             if hasattr(rib, "reinforcements") and rib.reinforcements:
                 for reinf_idx, reinforcement in enumerate(rib.reinforcements):
                     try:
-                        flat = reinforcement.get_flattened(rib)
+                        flat = reinforcement.get_flattened(rib, glider=self.glider_3d)
                         unique_name = reinforcement.name or f"R{rib_idx+1}_{reinf_idx+1}"
                         
                         # Halfmoon part

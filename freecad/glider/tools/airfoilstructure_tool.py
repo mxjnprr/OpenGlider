@@ -514,8 +514,18 @@ class AirfoilStructureTool(BaseTool):
         if not rib:
             return
 
+        glider_instance = self.obj.Proxy.getGliderInstance()
+
         # Draw profile outline - scaled by chord
-        profile_points = [p * rib.chord for p in rib.profile_2d.data]
+        if hasattr(rib, 'get_hull') and glider_instance is not None:
+            try:
+                hull_profile = rib.get_hull(glider_instance)
+            except Exception:
+                hull_profile = rib.profile_2d
+            profile_points = [p * rib.chord for p in hull_profile.data]
+        else:
+            profile_points = [p * rib.chord for p in rib.profile_2d.data]
+            
         profile_3d = [[p[0], p[1], 0] for p in profile_points]
         self.preview_root.addChild(Line_old(profile_3d + [profile_3d[0]], width=2).object)
         
@@ -528,11 +538,11 @@ class AirfoilStructureTool(BaseTool):
 
         # Draw extrados sleeves
         for sleeve in self.extradosGroup.get_rod_sleeves():
-            self._draw_sleeve(sleeve, rib, color='blue')
+            self._draw_sleeve(sleeve, rib, color='blue', glider=glider_instance)
 
         # Draw intrados sleeves
         for sleeve in self.intradosGroup.get_rod_sleeves():
-            self._draw_sleeve(sleeve, rib, color='green')
+            self._draw_sleeve(sleeve, rib, color='green', glider=glider_instance)
 
         # Draw attachment reinforcements if enabled and suspended
         if is_suspended and self.reinforcementEnabledCheckBox.isChecked():
@@ -551,7 +561,7 @@ class AirfoilStructureTool(BaseTool):
                 
                 if config['enabled']:
                     reinforcement = self._create_reinforcement(ap.rib_pos, config)
-                    self._draw_reinforcement(reinforcement, rib)
+                    self._draw_reinforcement(reinforcement, rib, glider=glider_instance)
 
     def _create_reinforcement(self, position, config, name=""):
         """Create an AttachmentReinforcement from config values."""
@@ -567,11 +577,11 @@ class AirfoilStructureTool(BaseTool):
         )
 
 
-    def _draw_sleeve(self, sleeve, rib, color='blue'):
+    def _draw_sleeve(self, sleeve, rib, color='blue', glider=None):
         """Draw a rod sleeve preview with terminations."""
         try:
             # Get full sleeve with terminations
-            inner_points, outer_points = sleeve.get_full_sleeve_points(rib)
+            inner_points, outer_points = sleeve.get_full_sleeve_points(rib, glider=glider)
             
             if inner_points and outer_points:
                 # Draw inner edge
@@ -617,10 +627,10 @@ class AirfoilStructureTool(BaseTool):
         
         self.preview_root.addChild(Line_old(marker_points, color='red', width=3).object)
 
-    def _draw_reinforcement(self, reinforcement, rib):
+    def _draw_reinforcement(self, reinforcement, rib, glider=None):
         """Draw an attachment reinforcement preview."""
         try:
-            flat = reinforcement.get_flattened(rib)
+            flat = reinforcement.get_flattened(rib, glider=glider)
             
             # Draw half-moon fabric reinforcement in yellow
             halfmoon_points = [[p[0], p[1], 0] for p in flat['halfmoon'].data]

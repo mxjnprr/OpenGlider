@@ -364,16 +364,26 @@ class HoleDesignTool(BaseTool):
         rib = self.get_representative_rib(suspended=is_suspended)
         if not rib: return
 
+        glider_instance = self.obj.Proxy.getGliderInstance()
+
         # Draw profile outline - scaled by chord (like airfoil structure)
         scale = rib.chord  # All preview elements should be scaled by this
-        profile_points = [p * scale for p in rib.profile_2d.data]
+        
+        if hasattr(rib, 'get_hull') and glider_instance is not None:
+            try:
+                hull_profile = rib.get_hull(glider_instance)
+            except Exception:
+                hull_profile = rib.profile_2d
+            profile_points = [p * scale for p in hull_profile.data]
+        else:
+            profile_points = [p * scale for p in rib.profile_2d.data]
+            
         profile_3d = [[p[0], p[1], 0] for p in profile_points]
         self.preview_root.addChild(Line_old(profile_3d + [profile_3d[0]], width=2).object)
 
         no_hole_zones = []
         halfmoon_circles = []  # List of (center, radius) for each halfmoon - used for exclusion
         if is_suspended:
-            glider_instance = self.obj.Proxy.getGliderInstance()
             all_attachment_points = glider_instance.get_rib_attachment_points(rib)
             # Filter to exclude brake tabs (>90% chord) - only true suspension attachments
             attachment_points = [ap for ap in all_attachment_points if hasattr(ap, 'rib_pos') and ap.rib_pos <= 0.9]

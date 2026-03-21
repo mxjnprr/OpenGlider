@@ -86,7 +86,7 @@ class RibPlot(object):
 
         # reinforcements (half-moon and rod sleeve)
         for reinforcement in self.rib.reinforcements:
-            flat = reinforcement.get_flattened(self.rib)
+            flat = reinforcement.get_flattened(self.rib, glider=glider)
             
             # Draw halfmoon outline
             if flat.get('halfmoon') and len(flat['halfmoon'].data) > 0:
