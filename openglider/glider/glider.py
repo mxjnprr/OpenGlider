@@ -496,9 +496,16 @@ class Glider(object):
         if include_mirrored:
             if hasattr(rib, "mirrored_rib") and rib.mirrored_rib:
                 rib = rib.mirrored_rib
+        rib_name = getattr(rib, "name", None)
         for att in self.attachment_points:
             if hasattr(att, "rib"):
-                if att.rib == rib:
+                # Match by identity/equality, or fallback to name
+                # (robust with SingleSkinRib replacements)
+                match = (att.rib is rib) or (
+                    rib_name is not None and
+                    getattr(att.rib, "name", None) == rib_name
+                )
+                if match:
                     if not ((not brake) and att.rib_pos == 1.0):
                         attach_pts.append(att)
         return attach_pts

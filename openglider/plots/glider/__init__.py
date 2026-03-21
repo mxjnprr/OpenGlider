@@ -302,7 +302,7 @@ class PlotMaker(object):
             if hasattr(rib, "rod_sleeves") and rib.rod_sleeves:
                 for sleeve_idx, sleeve in enumerate(rib.rod_sleeves):
                     try:
-                        flat = sleeve.get_flattened(rib)
+                        flat = sleeve.get_flattened(rib, glider=self.glider_3d)
                         surface_label = "E" if sleeve.surface == 'extrados' else "I"
                         unique_name = f"{rib.name}_{surface_label}{sleeve_idx+1}"
                         

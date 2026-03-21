@@ -295,6 +295,8 @@ class SingleSkinRib(Rib):
         startpos=0.0,
         rigidfoils=None,
         holes=None,
+        reinforcements=None,
+        rod_sleeves=None,
         material_code=None,
         single_skin_par=None,
     ):
@@ -311,6 +313,8 @@ class SingleSkinRib(Rib):
             startpos=startpos,
             rigidfoils=rigidfoils,
             holes=holes,
+            reinforcements=reinforcements,
+            rod_sleeves=rod_sleeves,
             material_code=material_code,
         )
         self.single_skin_par = single_skin_par or {}
@@ -344,23 +348,13 @@ class SingleSkinRib(Rib):
 
     @classmethod
     def from_rib(cls, rib, single_skin_par):
+        import inspect
         json_dict = rib.__json__()
         json_dict["single_skin_par"] = single_skin_par
-        # Remove keys that SingleSkinRib.__init__ doesn't accept
-        extra_keys = {}
-        for key in list(json_dict.keys()):
-            if key not in (
-                "profile_2d", "startpoint", "chord", "arcang",
-                "aoa_absolute", "zrot", "xrot", "glide", "name",
-                "startpos", "rigidfoils", "holes", "material_code",
-                "single_skin_par",
-            ):
-                extra_keys[key] = json_dict.pop(key)
-        single_skin_rib = cls(**json_dict)
-        # Transfer extra attributes (reinforcements, rod_sleeves, etc.)
-        for key, value in extra_keys.items():
-            setattr(single_skin_rib, key, value)
-        return single_skin_rib
+        # Filter to only keys accepted by SingleSkinRib.__init__
+        valid_params = inspect.signature(cls.__init__).parameters
+        json_dict = {k: v for k, v in json_dict.items() if k in valid_params}
+        return cls(**json_dict)
 
     def __json__(self):
         json_dict = super(SingleSkinRib, self).__json__()

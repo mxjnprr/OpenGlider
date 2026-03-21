@@ -595,46 +595,56 @@ class RodSleeve(object):
         
         return inner_curve, outer_curve
     
-    def get_sleeve_points(self, rib, num_points=50):
+    def get_sleeve_points(self, rib, num_points=50, glider=None):
         """
         Get the sleeve outline points for visualization.
         Returns inner and outer polylines representing the sleeve pocket.
+        Uses get_hull() for SingleSkinRib to follow the actual transformed profile.
         """
-        profile = rib.profile_2d
+        from openglider.glider.rib.rib import SingleSkinRib
         chord = rib.chord
-        
+
+        # For SingleSkinRib, use the transformed profile (bows included)
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+
         start_x, end_x = self.get_profile_range(profile)
         start_idx = profile(start_x)
         end_idx = profile(end_x)
-        
+
         profile_segment = list(profile[start_idx:end_idx])
-        
+
         if len(profile_segment) < 2:
             return [], []
-        
+
         offset_norm = self.offset / chord
         width_norm = self.width / chord
-        
+
         inner_points = []
         outer_points = []
-        
+
         for i, point in enumerate(profile_segment):
             normal = self._calculate_normal(profile_segment, i, self.surface)
-            
+
             inner_pt = point + normal * offset_norm
             outer_pt = point + normal * (offset_norm + width_norm)
-            
+
             inner_points.append(inner_pt * chord)
             outer_points.append(outer_pt * chord)
-        
+
         return inner_points, outer_points
     
-    def get_leading_edge_termination(self, rib):
+    def get_leading_edge_termination(self, rib, glider=None):
         """
         Get the leading edge termination curve.
         Uses the actual sleeve direction for smooth connection.
         """
-        inner_main, outer_main = self.get_sleeve_points(rib)
+        inner_main, outer_main = self.get_sleeve_points(rib, glider=glider)
         
         if not inner_main or len(inner_main) < 2:
             return [], []
@@ -655,12 +665,12 @@ class RodSleeve(object):
             start_tangent_vec=start_tangent
         )
     
-    def get_trailing_edge_termination(self, rib):
+    def get_trailing_edge_termination(self, rib, glider=None):
         """
         Get the trailing edge termination curve.
         Uses the actual sleeve direction for smooth connection.
         """
-        inner_main, outer_main = self.get_sleeve_points(rib)
+        inner_main, outer_main = self.get_sleeve_points(rib, glider=glider)
         
         if not inner_main or len(inner_main) < 2:
             return [], []
@@ -681,13 +691,13 @@ class RodSleeve(object):
             start_tangent_vec=start_tangent
         )
     
-    def get_full_sleeve_points(self, rib):
+    def get_full_sleeve_points(self, rib, glider=None):
         """
         Get the complete sleeve with leading and trailing edge terminations.
         """
-        inner_main, outer_main = self.get_sleeve_points(rib)
-        inner_le, outer_le = self.get_leading_edge_termination(rib)
-        inner_te, outer_te = self.get_trailing_edge_termination(rib)
+        inner_main, outer_main = self.get_sleeve_points(rib, glider=glider)
+        inner_le, outer_le = self.get_leading_edge_termination(rib, glider=glider)
+        inner_te, outer_te = self.get_trailing_edge_termination(rib, glider=glider)
         
         # Combine: LE termination (reversed) + main sleeve + TE termination
         # Reverse LE so it connects properly (curves outward from main sleeve)
@@ -710,12 +720,12 @@ class RodSleeve(object):
         
         return inner_full, outer_full
     
-    def get_flattened(self, rib, num_points=50):
+    def get_flattened(self, rib, num_points=50, glider=None):
         """
         Get the flattened 2D representation of the sleeve.
         Returns a closed polygon representing the sleeve pocket.
         """
-        inner_points, outer_points = self.get_full_sleeve_points(rib)
+        inner_points, outer_points = self.get_full_sleeve_points(rib, glider=glider)
         
         if not inner_points or not outer_points:
             return PolyLine2D([])
@@ -733,9 +743,9 @@ class RodSleeve(object):
         
         return PolyLine2D(polygon_points)
     
-    def get_3d(self, rib, num_points=50):
+    def get_3d(self, rib, num_points=50, glider=None):
         """Get 3D representation of the sleeve."""
-        flat = self.get_flattened(rib, num_points)
+        flat = self.get_flattened(rib, num_points, glider=glider)
         return [rib.align([p[0], p[1], 0], scale=False) for p in flat.data]
 
 
