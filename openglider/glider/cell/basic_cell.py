@@ -162,6 +162,12 @@ class BasicCell(CachedObject):
     def ballooning_radius(self):
         p1, p2 = self._align_profile_data(self.prof1.data, self.prof2.data)
         phi = np.array(self.ballooning_phi)
+        # Resample phi if it doesn't match the (aligned) profile size
+        n_target = len(p1)
+        if len(phi) != n_target:
+            t_src = np.linspace(0, 1, len(phi))
+            t_dst = np.linspace(0, 1, n_target)
+            phi = np.interp(t_dst, t_src, phi)
         return (
             np.linalg.norm(p1 - p2, axis=1)
             / (2 * np.sin(phi) + (phi == 0))
