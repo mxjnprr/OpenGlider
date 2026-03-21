@@ -497,11 +497,18 @@ class SingleSkinTool(BaseTool):
                 continue
             resultant /= res_norm
             rot = rib.rotation_matrix
-            local_y = np.array(rot([0, 1, 0]))
-            local_z = np.array(rot([0, 0, 1]))
-            comp_y = np.dot(resultant, local_y)
-            comp_z = np.dot(resultant, local_z)
-            rib.xrot = np.arctan2(comp_y, -comp_z)
+            chord_3d = np.array(rot([1, 0, 0]))
+            current_normal = np.array(rot([0, 0, 1]))
+            desired_normal = np.cross(chord_3d, resultant)
+            dn_norm = np.linalg.norm(desired_normal)
+            if dn_norm < 1e-9:
+                continue
+            desired_normal /= dn_norm
+            if np.dot(desired_normal, current_normal) < 0:
+                desired_normal = -desired_normal
+            cos_angle = np.clip(np.dot(current_normal, desired_normal), -1, 1)
+            sin_angle = np.dot(np.cross(desired_normal, current_normal), chord_3d)
+            rib.xrot = np.arctan2(sin_angle, cos_angle)
 
         return glider
 

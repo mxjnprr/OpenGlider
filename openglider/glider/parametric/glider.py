@@ -1225,28 +1225,30 @@ class ParametricGlider(object):
 
             resultant /= res_norm
 
-            # Project resultant force into the rib's transverse plane
-            # The chord direction in 3D is along the rib's X axis
-            # We need to find the angle in the YZ plane (transverse)
-            # rib.rotation_matrix transforms local coords to global:
-            #   local X = chord direction
-            #   local Y = spanwise (in-plane)
-            #   local Z = normal (up)
-            # We want the angle of the pull vector in the local Y-Z plane
+            # Compute xrot to align the rib plane with the pull direction.
+            # The rib plane should contain both the chord direction and
+            # the pull direction. We find the desired plane normal, then
+            # compute the rotation needed from current normal to desired.
             rot = rib.rotation_matrix
-            # Get local axes in global coords
-            local_y = np.array(rot([0, 1, 0]))  # spanwise
-            local_z = np.array(rot([0, 0, 1]))  # normal (up)
+            chord_3d = np.array(rot([1, 0, 0]))       # chord direction
+            current_normal = np.array(rot([0, 0, 1]))  # current rib plane normal
 
-            # Project resultant onto local Y and Z
-            comp_y = np.dot(resultant, local_y)
-            comp_z = np.dot(resultant, local_z)
+            # Desired plane normal: perpendicular to both chord and pull
+            desired_normal = np.cross(chord_3d, resultant)
+            dn_norm = np.linalg.norm(desired_normal)
+            if dn_norm < 1e-9:
+                # Pull is parallel to chord — can't determine orientation
+                continue
+            desired_normal /= dn_norm
 
-            # xrot = angle from vertical (Z) toward spanwise (Y)
-            # atan2(comp_y, comp_z) gives the tilt angle
-            # Negative because the pull is downward and we want the rib
-            # to tilt to follow that axis
-            xrot = np.arctan2(comp_y, -comp_z)
+            # Ensure desired_normal is on the same side as current_normal
+            if np.dot(desired_normal, current_normal) < 0:
+                desired_normal = -desired_normal
+
+            # Signed angle from current_normal to desired_normal around chord
+            cos_angle = np.clip(np.dot(current_normal, desired_normal), -1, 1)
+            sin_angle = np.dot(np.cross(desired_normal, current_normal), chord_3d)
+            xrot = np.arctan2(sin_angle, cos_angle)
 
             rib.xrot = xrot
 
