@@ -200,17 +200,41 @@ class Cell(CachedObject):
         # This ensures the exact profile shape is used (matching MiniRib.get_3d)
         prof1_3d = self.rib1.profile_3d.data
         prof2_3d = self.rib2.profile_3d.data
+
+        # Handle potential size mismatch between ribs (e.g. normal Rib vs SingleSkinRib)
+        n1, n2 = len(prof1_3d), len(prof2_3d)
+        if n1 != n2:
+            n_target = max(n1, n2)
+            t_src1 = np.linspace(0, 1, n1)
+            t_src2 = np.linspace(0, 1, n2)
+            t_dst = np.linspace(0, 1, n_target)
+            if n1 < n_target:
+                prof1_3d = np.array([np.interp(t_dst, t_src1, prof1_3d[:, k]) for k in range(3)]).T
+            if n2 < n_target:
+                prof2_3d = np.array([np.interp(t_dst, t_src2, prof2_3d[:, k]) for k in range(3)]).T
+
         shape_without_ballooning = prof1_3d * (1 - y) + prof2_3d * y
+        
+        # shape_with_ballooning may differ in length from shape_without_ballooning
+        # Resample it to match
+        swb_data = shape_with_ballooning
+        if len(swb_data) != len(shape_without_ballooning):
+            n_src = len(swb_data)
+            n_tgt = len(shape_without_ballooning)
+            t_src = np.linspace(0, 1, n_src)
+            t_dst = np.linspace(0, 1, n_tgt)
+            swb_data = np.array([np.interp(t_dst, t_src, swb_data[:, k]) for k in range(3)]).T
         
         points = []
         for xval, with_bal, without_bal in zip(
-            self.x_values, shape_with_ballooning, shape_without_ballooning
+            self.x_values, swb_data, shape_without_ballooning
         ):
             # Pass chord for fixed distance calculation
             fakt = minirib.function(xval, chord=chord)
             point = without_bal + fakt * (with_bal - without_bal)
             points.append(point)
         return Profile3D(points)
+
 
     @cached_property("rib_profiles_3d")
     def _child_cells(self):
