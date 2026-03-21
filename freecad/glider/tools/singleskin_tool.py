@@ -333,11 +333,11 @@ class SingleSkinTool(BaseTool):
     def _get_rib_indices_from_cells(self, cells):
         """Convert cell indices to rib indices.
         
-        A rib is converted to SingleSkinRib if ANY of its adjacent cells
-        is in the selected set. Returns (rib_indices, transition_rib_indices).
-        Transition ribs touch both SS and full cells.
+        Only ribs where ALL adjacent cells are SS become SingleSkinRib.
+        Transition ribs (touching both SS and full cells) stay as regular Rib
+        with full original profile — solid walls, no holes, no bows.
         
-        Rib i is adjacent to cell i-1 (if i > 0) and cell i (if i < num_cells).
+        Returns (rib_indices, transition_rib_indices).
         """
         cells_set = set(cells)
         total_ribs = self.num_ribs
@@ -352,10 +352,10 @@ class SingleSkinTool(BaseTool):
                 adjacent_cells.append(rib_idx)
             ss_adjacent = [c for c in adjacent_cells if c in cells_set]
             non_ss_adjacent = [c for c in adjacent_cells if c not in cells_set]
-            if ss_adjacent:
+            if ss_adjacent and not non_ss_adjacent:
                 ribs.append(rib_idx)
-                if non_ss_adjacent:
-                    transition_ribs.add(rib_idx)
+            elif ss_adjacent and non_ss_adjacent:
+                transition_ribs.add(rib_idx)
         return ribs, transition_ribs
 
     def _get_single_skin_par(self):

@@ -1198,10 +1198,12 @@ class ParametricGlider(object):
         num_cells = self.shape.half_cell_num
         num_ribs = len(glider.ribs)
 
-        # Convert cell indices to rib indices — include ribs adjacent to
-        # ANY selected SS cell (not just ribs where ALL adjacent cells are SS)
-        rib_indices = set()
-        transition_rib_indices = set()  # ribs at SS/full boundary
+        # Determine which ribs to convert to SingleSkinRib:
+        # Only ribs where ALL adjacent cells are SS get the bow-modified profile.
+        # Transition ribs (touching both SS and full cells) stay as regular Rib
+        # with full original profile — they are solid walls, no holes, no bows.
+        rib_indices = set()           # ribs to convert to SingleSkinRib
+        transition_rib_indices = set()  # ribs at SS/full boundary (stay as Rib, no holes)
         for rib_idx in range(num_ribs):
             adjacent_cells = []
             if rib_idx > 0:
@@ -1211,11 +1213,12 @@ class ParametricGlider(object):
             ss_adjacent = [c for c in adjacent_cells if c in cells_set]
             non_ss_adjacent = [c for c in adjacent_cells if c not in cells_set]
 
-            if ss_adjacent:
+            if ss_adjacent and not non_ss_adjacent:
+                # All adjacent cells are SS → convert to SingleSkinRib
                 rib_indices.add(rib_idx)
-                # Transition rib: touches both SS and full cells
-                if non_ss_adjacent:
-                    transition_rib_indices.add(rib_idx)
+            elif ss_adjacent and non_ss_adjacent:
+                # Transition rib: keep as regular Rib, but make solid (no holes)
+                transition_rib_indices.add(rib_idx)
 
         single_skin_par = {
             "att_dist": ss_config.get("att_dist", 0.02),
@@ -1232,7 +1235,7 @@ class ParametricGlider(object):
             "continued_min_x": ss_config.get("continued_min_x", 0.0),
         }
 
-        # Replace ribs with SingleSkinRib
+        # Replace ribs with SingleSkinRib (only fully-SS ribs, not transition)
         new_ribs = []
         for i, rib in enumerate(glider.ribs):
             if i in rib_indices:
