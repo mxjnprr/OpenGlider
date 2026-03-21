@@ -473,6 +473,36 @@ class SingleSkinTool(BaseTool):
                 else:
                     cell.panels = [p for p in cell.panels if not p.is_lower()]
 
+        # Align SS rib profiles with line pull direction
+        for rib in glider.ribs:
+            if not isinstance(rib, SingleSkinRib):
+                continue
+            connected_lines = []
+            for line in glider.lineset.uppermost_lines:
+                if hasattr(line.upper_node, 'rib') and (
+                        line.upper_node.rib is rib or
+                        (hasattr(line.upper_node.rib, 'name') and
+                         line.upper_node.rib.name == rib.name)):
+                    connected_lines.append(line)
+            if not connected_lines:
+                continue
+            resultant = np.zeros(3)
+            for line in connected_lines:
+                if line.force is not None and line.force > 0:
+                    pull_dir = line.lower_node.vec - line.upper_node.vec
+                    pull_dir_norm = pull_dir / np.linalg.norm(pull_dir)
+                    resultant += line.force * pull_dir_norm
+            res_norm = np.linalg.norm(resultant)
+            if res_norm < 1e-9:
+                continue
+            resultant /= res_norm
+            rot = rib.rotation_matrix
+            local_y = np.array(rot([0, 1, 0]))
+            local_z = np.array(rot([0, 0, 1]))
+            comp_y = np.dot(resultant, local_y)
+            comp_z = np.dot(resultant, local_z)
+            rib.xrot = np.arctan2(comp_y, -comp_z)
+
         return glider
 
     def draw_glider(self):

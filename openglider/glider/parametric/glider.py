@@ -1176,6 +1176,80 @@ class ParametricGlider(object):
             
             rib.rod_sleeves = rod_sleeves
 
+    def apply_ss_rib_xrot(self, glider):
+        """Align SingleSkinRib profiles with the suspension line pull direction.
+
+        In a single-skin zone, ribs are free to rotate laterally (no intrados
+        constraint). The fabric aligns with the line pull axis. This method
+        computes xrot for each SingleSkinRib from the resultant force vector
+        of all suspension lines connected to that rib.
+
+        Must be called AFTER lineset.recalc() so line forces are available.
+        """
+        from openglider.glider.rib.rib import SingleSkinRib
+
+        for rib in glider.ribs:
+            if not isinstance(rib, SingleSkinRib):
+                continue
+
+            # Collect all uppermost lines connected to this rib
+            connected_lines = []
+            for line in glider.lineset.uppermost_lines:
+                if hasattr(line.upper_node, 'rib') and line.upper_node.rib is rib:
+                    connected_lines.append(line)
+
+            if not connected_lines:
+                # Fallback: try name-based matching
+                for line in glider.lineset.uppermost_lines:
+                    if (hasattr(line.upper_node, 'rib') and
+                            hasattr(line.upper_node.rib, 'name') and
+                            line.upper_node.rib.name == rib.name):
+                        connected_lines.append(line)
+
+            if not connected_lines:
+                continue
+
+            # Compute resultant force vector at this rib
+            resultant = np.zeros(3)
+            for line in connected_lines:
+                if line.force is not None and line.force > 0:
+                    # diff_vector points from lower to upper node (toward rib)
+                    # Negate to get pull direction (from rib toward lower node)
+                    pull_dir = line.lower_node.vec - line.upper_node.vec
+                    pull_dir_norm = pull_dir / np.linalg.norm(pull_dir)
+                    resultant += line.force * pull_dir_norm
+
+            res_norm = np.linalg.norm(resultant)
+            if res_norm < 1e-9:
+                continue
+
+            resultant /= res_norm
+
+            # Project resultant force into the rib's transverse plane
+            # The chord direction in 3D is along the rib's X axis
+            # We need to find the angle in the YZ plane (transverse)
+            # rib.rotation_matrix transforms local coords to global:
+            #   local X = chord direction
+            #   local Y = spanwise (in-plane)
+            #   local Z = normal (up)
+            # We want the angle of the pull vector in the local Y-Z plane
+            rot = rib.rotation_matrix
+            # Get local axes in global coords
+            local_y = np.array(rot([0, 1, 0]))  # spanwise
+            local_z = np.array(rot([0, 0, 1]))  # normal (up)
+
+            # Project resultant onto local Y and Z
+            comp_y = np.dot(resultant, local_y)
+            comp_z = np.dot(resultant, local_z)
+
+            # xrot = angle from vertical (Z) toward spanwise (Y)
+            # atan2(comp_y, comp_z) gives the tilt angle
+            # Negative because the pull is downward and we want the rib
+            # to tilt to follow that axis
+            xrot = np.arctan2(comp_y, -comp_z)
+
+            rib.xrot = xrot
+
     def apply_single_skin(self, glider):
         """Apply single skin configuration to glider ribs.
 
@@ -2361,6 +2435,9 @@ class ParametricGlider(object):
             glider.lineset.recalc()
         glider.lineset.calculate_sag = True
         glider.lineset.recalc()
+
+        # Align SS rib profiles with line pull direction (must be after recalc)
+        self.apply_ss_rib_xrot(glider)
 
         return glider
 
