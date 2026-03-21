@@ -415,19 +415,34 @@ class SingleSkinRibPlot(RibPlot):
             # outer is going from the back back until the singleskin cut
 
             singleskin_cut_left = self._get_singleskin_cut(glider)
-            single_skin_cut = self.rib.profile_2d(singleskin_cut_left)
 
-            buerzl = PolyLine2D(
-                [
-                    inner_rib[0],
-                    inner_rib[0] + [t_e_allowance, 0],
-                    outer_rib[start] + [t_e_allowance, 0],
-                    outer_rib[start],
-                ]
-            )
-            contour += PolyLine2D(outer_rib[start:single_skin_cut])
-            contour += PolyLine2D(inner_rib[single_skin_cut:stop])
-            contour += buerzl
+            if singleskin_cut_left is not None:
+                single_skin_cut = self.rib.profile_2d(singleskin_cut_left)
+
+                buerzl = PolyLine2D(
+                    [
+                        inner_rib[0],
+                        inner_rib[0] + [t_e_allowance, 0],
+                        outer_rib[start] + [t_e_allowance, 0],
+                        outer_rib[start],
+                    ]
+                )
+                contour += PolyLine2D(outer_rib[start:single_skin_cut])
+                contour += PolyLine2D(inner_rib[single_skin_cut:stop])
+                contour += buerzl
+            else:
+                # No singleskin cut found — treat like a regular rib
+                buerzl = PolyLine2D(
+                    [
+                        outer_rib[stop],
+                        outer_rib[stop] + [t_e_allowance, 0],
+                        outer_rib[start] + [t_e_allowance, 0],
+                        outer_rib[start],
+                    ]
+                )
+                contour += PolyLine2D(outer_rib[start:stop])
+                contour += buerzl
+
 
         else:
             buerzl = PolyLine2D(
