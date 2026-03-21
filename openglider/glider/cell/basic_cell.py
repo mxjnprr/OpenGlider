@@ -59,6 +59,13 @@ class BasicCell(CachedObject):
         elif y_value == 1:  # right side
             return self.prof2
         else:  # somewhere else
+            # If the two boundary profiles have different sizes, the Python loop
+            # cannot handle them correctly (ballooning_phi / ballooning_radius are
+            # already aligned to the larger size but phi is still at the original size).
+            # Force the numpy path which has full alignment logic.
+            if len(self.prof1.data) != len(self.prof2.data):
+                with_numpy = True
+
             # self._checkxvals()
             midrib = []
 
