@@ -334,16 +334,17 @@ class SingleSkinTool(BaseTool):
         """Convert cell indices to rib indices.
         
         Only ribs where ALL adjacent cells are SS become SingleSkinRib.
-        Transition ribs (touching both SS and full cells) stay as regular Rib
-        with full original profile — solid walls, no holes, no bows.
+        Sealed ribs include transition ribs AND both ribs of boundary
+        full cells (the full cell adjacent to SS zone).
         
-        Returns (rib_indices, transition_rib_indices).
+        Returns (rib_indices, sealed_rib_indices).
         """
         cells_set = set(cells)
         total_ribs = self.num_ribs
         total_cells = self.num_cells
         ribs = []
-        transition_ribs = set()
+        sealed_ribs = set()
+        boundary_full_cells = set()
         for rib_idx in range(total_ribs):
             adjacent_cells = []
             if rib_idx > 0:
@@ -355,8 +356,14 @@ class SingleSkinTool(BaseTool):
             if ss_adjacent and not non_ss_adjacent:
                 ribs.append(rib_idx)
             elif ss_adjacent and non_ss_adjacent:
-                transition_ribs.add(rib_idx)
-        return ribs, transition_ribs
+                sealed_ribs.add(rib_idx)
+                for c in non_ss_adjacent:
+                    boundary_full_cells.add(c)
+        # Seal BOTH ribs of each boundary full cell
+        for cell_idx in boundary_full_cells:
+            sealed_ribs.add(cell_idx)
+            sealed_ribs.add(cell_idx + 1)
+        return ribs, sealed_ribs
 
     def _get_single_skin_par(self):
         """Gather all single_skin_par from the UI widgets."""
@@ -397,7 +404,7 @@ class SingleSkinTool(BaseTool):
             return glider
 
         cells_set = set(selected_cells)
-        rib_indices, transition_rib_indices = self._get_rib_indices_from_cells(selected_cells)
+        rib_indices, sealed_rib_indices = self._get_rib_indices_from_cells(selected_cells)
         rib_indices_set = set(rib_indices)
         single_skin_par = self._get_single_skin_par()
 
@@ -421,11 +428,11 @@ class SingleSkinTool(BaseTool):
 
         glider.replace_ribs(new_ribs)
 
-        # Clear holes from SS ribs AND transition ribs (solid walls)
+        # Clear holes from SS ribs AND sealed ribs (boundary full cell walls)
         for i, rib in enumerate(glider.ribs):
             if isinstance(rib, SingleSkinRib):
                 rib.holes = []
-            elif i in transition_rib_indices:
+            elif i in sealed_rib_indices:
                 rib.holes = []
 
         # Add SS-specific holes if enabled

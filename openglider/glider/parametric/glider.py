@@ -404,9 +404,9 @@ class ParametricGlider(object):
             if isinstance(rib, SingleSkinRib):
                 continue
 
-            # Skip transition ribs (solid walls between SS and full cells)
-            ss_transition = getattr(glider, '_ss_transition_rib_indices', set())
-            if rib_idx in ss_transition:
+            # Skip sealed ribs (solid walls around SS zone — no holes)
+            ss_sealed = getattr(glider, '_ss_sealed_rib_indices', set())
+            if rib_idx in ss_sealed:
                 continue
 
             # Skip the last rib if last_profile_enabled (should be solid, no holes)
@@ -1200,10 +1200,12 @@ class ParametricGlider(object):
 
         # Determine which ribs to convert to SingleSkinRib:
         # Only ribs where ALL adjacent cells are SS get the bow-modified profile.
-        # Transition ribs (touching both SS and full cells) stay as regular Rib
-        # with full original profile — they are solid walls, no holes, no bows.
+        # Transition ribs (touching both SS and full cells) stay as regular Rib.
+        # Additionally, ALL ribs of boundary full cells (the full cell adjacent
+        # to the SS zone) are sealed — no holes, no bows.
         rib_indices = set()           # ribs to convert to SingleSkinRib
-        transition_rib_indices = set()  # ribs at SS/full boundary (stay as Rib, no holes)
+        sealed_rib_indices = set()    # ribs that must be solid (no holes)
+        boundary_full_cells = set()   # full cells adjacent to SS zone
         for rib_idx in range(num_ribs):
             adjacent_cells = []
             if rib_idx > 0:
@@ -1217,8 +1219,16 @@ class ParametricGlider(object):
                 # All adjacent cells are SS → convert to SingleSkinRib
                 rib_indices.add(rib_idx)
             elif ss_adjacent and non_ss_adjacent:
-                # Transition rib: keep as regular Rib, but make solid (no holes)
-                transition_rib_indices.add(rib_idx)
+                # Transition rib: keep as regular Rib, sealed (no holes)
+                sealed_rib_indices.add(rib_idx)
+                # The full cells adjacent to this transition rib are boundary cells
+                for c in non_ss_adjacent:
+                    boundary_full_cells.add(c)
+
+        # Seal BOTH ribs of each boundary full cell
+        for cell_idx in boundary_full_cells:
+            sealed_rib_indices.add(cell_idx)      # rib on left side of cell
+            sealed_rib_indices.add(cell_idx + 1)  # rib on right side of cell
 
         single_skin_par = {
             "att_dist": ss_config.get("att_dist", 0.02),
@@ -1256,15 +1266,15 @@ class ParametricGlider(object):
         glider.replace_ribs(new_ribs)
 
         # Clear holes from ALL SingleSkinRib (hole design overflow truncated profiles)
-        # Also clear holes from transition ribs (they must be solid walls)
+        # Also clear holes from sealed ribs (boundary full cell walls)
         for i, rib in enumerate(glider.ribs):
             if isinstance(rib, SingleSkinRib):
                 rib.holes = []
-            elif i in transition_rib_indices:
+            elif i in sealed_rib_indices:
                 rib.holes = []
 
-        # Store transition rib indices on glider so apply_holes() can skip them
-        glider._ss_transition_rib_indices = transition_rib_indices
+        # Store sealed rib indices on glider so apply_holes() can skip them
+        glider._ss_sealed_rib_indices = sealed_rib_indices
 
         # Add SS-specific holes if configured
         if ss_config.get("holes", False):
