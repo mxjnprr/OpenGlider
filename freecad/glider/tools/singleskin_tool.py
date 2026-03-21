@@ -333,9 +333,9 @@ class SingleSkinTool(BaseTool):
     def _get_rib_indices_from_cells(self, cells):
         """Convert cell indices to rib indices.
         
-        A rib is only converted to SingleSkinRib if ALL its adjacent cells
-        are in the selected set. This prevents contaminating normal cells
-        that share a transition rib.
+        A rib is converted to SingleSkinRib if ANY of its adjacent cells
+        is in the selected set. Returns (rib_indices, transition_rib_indices).
+        Transition ribs touch both SS and full cells.
         
         Rib i is adjacent to cell i-1 (if i > 0) and cell i (if i < num_cells).
         """
@@ -343,16 +343,20 @@ class SingleSkinTool(BaseTool):
         total_ribs = self.num_ribs
         total_cells = self.num_cells
         ribs = []
+        transition_ribs = set()
         for rib_idx in range(total_ribs):
             adjacent_cells = []
             if rib_idx > 0:
                 adjacent_cells.append(rib_idx - 1)
             if rib_idx < total_cells:
                 adjacent_cells.append(rib_idx)
-            # Only include if ALL adjacent cells are selected
-            if all(c in cells_set for c in adjacent_cells):
+            ss_adjacent = [c for c in adjacent_cells if c in cells_set]
+            non_ss_adjacent = [c for c in adjacent_cells if c not in cells_set]
+            if ss_adjacent:
                 ribs.append(rib_idx)
-        return ribs
+                if non_ss_adjacent:
+                    transition_ribs.add(rib_idx)
+        return ribs, transition_ribs
 
     def _get_single_skin_par(self):
         """Gather all single_skin_par from the UI widgets."""
@@ -392,7 +396,8 @@ class SingleSkinTool(BaseTool):
         if not selected_cells:
             return glider
 
-        rib_indices = self._get_rib_indices_from_cells(selected_cells)
+        cells_set = set(selected_cells)
+        rib_indices, transition_rib_indices = self._get_rib_indices_from_cells(selected_cells)
         rib_indices_set = set(rib_indices)
         single_skin_par = self._get_single_skin_par()
 
@@ -416,11 +421,11 @@ class SingleSkinTool(BaseTool):
 
         glider.replace_ribs(new_ribs)
 
-        # Clear existing holes from SS ribs — hole design holes are
-        # placed on the full airfoil profile, but SS profiles are truncated
-        # (bows replace intrados), so these holes would overflow the geometry
-        for rib in glider.ribs:
+        # Clear holes from SS ribs AND transition ribs (solid walls)
+        for i, rib in enumerate(glider.ribs):
             if isinstance(rib, SingleSkinRib):
+                rib.holes = []
+            elif i in transition_rib_indices:
                 rib.holes = []
 
         # Add SS-specific holes if enabled
@@ -449,11 +454,10 @@ class SingleSkinTool(BaseTool):
                 hull_profile = rib.get_hull(glider)
                 rib.profile_2d = hull_profile
 
-        # Remove intrados panels from single-skin cells
-        # A cell is single-skin only if BOTH its ribs are SingleSkinRib
+        # Remove intrados panels from single-skin cells (by cell index)
         double_first = self.double_first_cb.isChecked()
-        for cell in glider.cells:
-            if isinstance(cell.rib1, SingleSkinRib) and isinstance(cell.rib2, SingleSkinRib):
+        for cell_idx, cell in enumerate(glider.cells):
+            if cell_idx in cells_set:
                 if double_first:
                     extrados = [p for p in cell.panels if not p.is_lower()]
                     intrados = [p for p in cell.panels if p.is_lower()]

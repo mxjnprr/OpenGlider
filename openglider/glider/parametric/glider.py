@@ -404,6 +404,11 @@ class ParametricGlider(object):
             if isinstance(rib, SingleSkinRib):
                 continue
 
+            # Skip transition ribs (solid walls between SS and full cells)
+            ss_transition = getattr(glider, '_ss_transition_rib_indices', set())
+            if rib_idx in ss_transition:
+                continue
+
             # Skip the last rib if last_profile_enabled (should be solid, no holes)
             if getattr(self, 'last_profile_enabled', False) and rib_idx == len(glider.ribs) - 1:
                 continue
@@ -1172,7 +1177,13 @@ class ParametricGlider(object):
             rib.rod_sleeves = rod_sleeves
 
     def apply_single_skin(self, glider):
-        """Apply single skin configuration to glider ribs."""
+        """Apply single skin configuration to glider ribs.
+
+        Logic:
+        - All ribs adjacent to ANY selected SS cell are converted to SingleSkinRib
+        - Intrados panels are removed from cells whose INDEX is in selected_cells
+        - Transition ribs (adjacent to both SS and full cells) are kept full (no holes)
+        """
         ss_config = getattr(self, 'single_skin_config', None)
         if not ss_config:
             return
@@ -1183,20 +1194,28 @@ class ParametricGlider(object):
         if not selected_cells:
             return
 
-        # Convert cell indices to rib indices — only include ribs where
-        # ALL adjacent cells are in the selected set
         cells_set = set(selected_cells)
         num_cells = self.shape.half_cell_num
         num_ribs = len(glider.ribs)
+
+        # Convert cell indices to rib indices — include ribs adjacent to
+        # ANY selected SS cell (not just ribs where ALL adjacent cells are SS)
         rib_indices = set()
+        transition_rib_indices = set()  # ribs at SS/full boundary
         for rib_idx in range(num_ribs):
             adjacent_cells = []
             if rib_idx > 0:
                 adjacent_cells.append(rib_idx - 1)
             if rib_idx < num_cells:
                 adjacent_cells.append(rib_idx)
-            if all(c in cells_set for c in adjacent_cells):
+            ss_adjacent = [c for c in adjacent_cells if c in cells_set]
+            non_ss_adjacent = [c for c in adjacent_cells if c not in cells_set]
+
+            if ss_adjacent:
                 rib_indices.add(rib_idx)
+                # Transition rib: touches both SS and full cells
+                if non_ss_adjacent:
+                    transition_rib_indices.add(rib_idx)
 
         single_skin_par = {
             "att_dist": ss_config.get("att_dist", 0.02),
@@ -1233,11 +1252,16 @@ class ParametricGlider(object):
 
         glider.replace_ribs(new_ribs)
 
-        # Clear existing holes from SS ribs (hole design holes overflow
-        # truncated profiles)
-        for rib in glider.ribs:
+        # Clear holes from ALL SingleSkinRib (hole design overflow truncated profiles)
+        # Also clear holes from transition ribs (they must be solid walls)
+        for i, rib in enumerate(glider.ribs):
             if isinstance(rib, SingleSkinRib):
                 rib.holes = []
+            elif i in transition_rib_indices:
+                rib.holes = []
+
+        # Store transition rib indices on glider so apply_holes() can skip them
+        glider._ss_transition_rib_indices = transition_rib_indices
 
         # Add SS-specific holes if configured
         if ss_config.get("holes", False):
@@ -1267,10 +1291,10 @@ class ParametricGlider(object):
                 hull_profile = rib.get_hull(glider)
                 rib.profile_2d = hull_profile
 
-        # Remove intrados panels from single-skin cells
+        # Remove intrados panels from single-skin cells (based on cell INDEX)
         double_first = ss_config.get("double_first", False)
-        for cell in glider.cells:
-            if isinstance(cell.rib1, SingleSkinRib) and isinstance(cell.rib2, SingleSkinRib):
+        for cell_idx, cell in enumerate(glider.cells):
+            if cell_idx in cells_set:
                 if double_first:
                     extrados = [p for p in cell.panels if not p.is_lower()]
                     intrados = [p for p in cell.panels if p.is_lower()]
