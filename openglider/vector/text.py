@@ -185,7 +185,8 @@ class Text(object):
     letters = text_vectors
 
     def __init__(
-        self, text, p1, p2, size=None, align="left", height=0.8, space=0.2, valign=0.5
+        self, text, p1, p2, size=None, align="left", height=0.8, space=0.2, valign=0.5,
+        dashed=False, dot_spacing=0.15
     ):
         """
         Vector Text
@@ -197,6 +198,8 @@ class Text(object):
         :param height: letter height, relative to width
         :param space: space in between letters
         :param valign: vertical align ( -0.5: bottom, 0: centered, 0.5: top)
+        :param dashed: if True, render strokes as perforation dots for laser cutting
+        :param dot_spacing: spacing between dots relative to letter unit size (only when dashed=True)
         """
         self.text = text
         self.p1 = np.array(p1[:])
@@ -206,6 +209,8 @@ class Text(object):
         self.space = space
         self.align = align
         self.valign = valign
+        self.dashed = dashed
+        self.dot_spacing = dot_spacing
 
     def __json__(self):
         return {
@@ -259,11 +264,74 @@ class Text(object):
             points = self.get_letter(letter, replace_unknown=replace_unknown)
             for lst in points:
                 if lst:
-                    vectors.append(
-                        PolyLine2D([p1 + rot.dot(p) for p in lst], name="text")
-                    )
+                    stroke = PolyLine2D([p1 + rot.dot(p) for p in lst], name="text")
+                    if self.dashed:
+                        vectors += self._dotify(stroke)
+                    else:
+                        vectors.append(stroke)
             p1 += diff
         return vectors
+
+    @staticmethod
+    def _dotify_polyline(polyline, spacing):
+        """Place single-point dots along a polyline at regular intervals.
+
+        Each dot is a PolyLine2D with a single point, identical to how
+        notch / control-point marks are stored.  The laser hits each
+        point once, creating a perforation pattern that forms readable text.
+
+        Returns a list of single-point PolyLine2D objects.
+        """
+        if len(polyline.data) < 2:
+            return [polyline]
+
+        pts = [np.array(p) for p in polyline.data]
+        result = []
+
+        # Always place the first point
+        result.append(PolyLine2D([pts[0].tolist()], name="text"))
+
+        accumulated = 0.0
+        for i in range(len(pts) - 1):
+            seg_start = pts[i]
+            seg_end = pts[i + 1]
+            seg_vec = seg_end - seg_start
+            seg_length = np.linalg.norm(seg_vec)
+            if seg_length < 1e-12:
+                continue
+            seg_dir = seg_vec / seg_length
+            consumed = 0.0
+
+            while consumed < seg_length - 1e-12:
+                available = seg_length - consumed
+                if accumulated + available >= spacing:
+                    # place a dot
+                    step = spacing - accumulated
+                    consumed += step
+                    point = seg_start + seg_dir * consumed
+                    result.append(PolyLine2D([point.tolist()], name="text"))
+                    accumulated = 0.0
+                else:
+                    accumulated += available
+                    break
+
+        return result if result else [polyline]
+
+    def _dotify(self, polyline):
+        """Dotify a polyline using this Text instance's spacing setting,
+        scaled to absolute units based on the letter size."""
+        diff = (self.p2 - self.p1) / max(len(self.text), 1)
+        if self.size is not None:
+            scale = self.size
+        else:
+            scale = np.linalg.norm(diff)
+
+        abs_spacing = self.dot_spacing * scale
+
+        if abs_spacing < 1e-10:
+            return [polyline]
+
+        return self._dotify_polyline(polyline, abs_spacing)
 
     def get_plotpart(self, replace_unknown=True):
         vectors = self.get_vectors(replace_unknown)

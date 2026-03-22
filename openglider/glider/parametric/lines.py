@@ -443,7 +443,8 @@ class LineSet2D(object):
 
         # sort by layer
         for node in nodes:
-            match = self.regex_node.match(node.name)
+            node_name = node.name or ""
+            match = self.regex_node.match(node_name)
             if match:
                 layer_name = match.group(1)
             else:

@@ -281,6 +281,7 @@ class PanelPlot(object):
         text = self.panel.name
         # Text size: 80% of allowance, but max 8mm to avoid huge text
         text_size = min(self.config.allowance_design * 0.8, 0.008)
+        use_dashed = getattr(self.config, 'laser_text_mode', False)
         part_text = Text(
             text,
             p1,
@@ -289,8 +290,11 @@ class PanelPlot(object):
             align=align,
             valign=0.6,
             height=0.8,
+            dashed=use_dashed,
+            dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
         ).get_vectors()
-        plotpart.layers["text"] += part_text
+        text_layer = "cuts" if use_dashed else "text"
+        plotpart.layers[text_layer] += part_text
 
     def _insert_controlpoints(self, plotpart):
         for x in self.config.distribution_controlpoints:
@@ -418,7 +422,9 @@ class PanelPlot(object):
                         p1 = left
                         p2 = right
                         # text_align = text_align
-                    plotpart.layers["text"] += Text(
+                    use_dashed = getattr(self.config, 'laser_text_mode', False)
+                    text_layer = "cuts" if use_dashed else "text"
+                    plotpart.layers[text_layer] += Text(
                         " {} ".format(attachment_point.name),
                         p1,
                         p2,
@@ -426,6 +432,8 @@ class PanelPlot(object):
                         align=text_align,
                         valign=0,
                         height=0.8,
+                        dashed=use_dashed,
+                        dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
                     ).get_vectors()
 
     def _insert_rigidfoils(self, plotpart):
@@ -611,13 +619,17 @@ class DribPlot(object):
         text_p1 = self.left[0]
         # Text size: 80% of allowance, but max 8mm to avoid huge text
         text_size = min(self.config.drib_allowance_folds * 0.8, 0.008)
-        plotpart.layers["text"] += Text(
+        use_dashed = getattr(self.config, 'laser_text_mode', False)
+        text_layer = "cuts" if use_dashed else "text"
+        plotpart.layers[text_layer] += Text(
             " {} ".format(self.drib.name),
             text_p1,
             self.right[0],
             size=text_size,
             height=0.8,
             valign=0.6,
+            dashed=use_dashed,
+            dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
         ).get_vectors()
 
     def flatten(self, attachment_points=None):

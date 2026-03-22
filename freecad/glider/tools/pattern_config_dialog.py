@@ -38,6 +38,8 @@ PATTERN_PARAMETERS = [
     
     # Section: Labels and Marks
     ("insert_attachment_point_text", True, "Afficher le nom des points d'attache", bool, None),
+    ("laser_text_mode", False, "Mode laser: texte en pointillés sur calque de découpe (rouge)", bool, None),
+    ("dot_spacing", 0.15, "Espacement entre points laser (relatif à la taille de lettre)", float, None),
     ("midribs", 50, "Nombre de nervures intermédiaires pour le ballooning", int, None),
 ]
 

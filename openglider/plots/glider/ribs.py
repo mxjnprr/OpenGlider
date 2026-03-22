@@ -100,8 +100,12 @@ class RibPlot(object):
                     if center_idx < len(halfmoon_data):
                         p1 = np.array(halfmoon_data[center_idx])
                         p2 = p1 + np.array([0.01, 0])  # Horizontal text
-                        _text = Text(reinforcement.name, p1, p2, size=0.008, valign=0)
-                        self.plotpart.layers["text"] += _text.get_vectors()
+                        use_dashed = getattr(self.config, 'laser_text_mode', False)
+                        _text = Text(reinforcement.name, p1, p2, size=0.008, valign=0,
+                                     dashed=use_dashed,
+                                     dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                        text_layer = "cuts" if use_dashed else "text"
+                        self.plotpart.layers[text_layer] += _text.get_vectors()
             
             # Draw rod sleeve
             if flat.get('rod_sleeve') and len(flat['rod_sleeve'].data) > 0:
@@ -347,13 +351,16 @@ class RibPlot(object):
         inner, outer = self._get_inner_outer(self.config.rib_text_pos)
         diff = outer - inner
 
+        use_dashed = getattr(self.config, 'laser_text_mode', False)
         p1 = inner + diff / 2
         p2 = p1 + rotation_2d(np.pi / 2).dot(diff)
 
         # Text size: 50% of allowance width, but max 8mm
         text_size = min(norm(outer - inner) * 0.5, 0.008)
-        _text = Text(text, p1, p2, size=text_size, valign=0)
-        self.plotpart.layers["text"] += _text.get_vectors()
+        _text = Text(text, p1, p2, size=text_size, valign=0, dashed=use_dashed,
+                    dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+        text_layer = "cuts" if use_dashed else "text"
+        self.plotpart.layers[text_layer] += _text.get_vectors()
 
 
 class SingleSkinRibPlot(RibPlot):

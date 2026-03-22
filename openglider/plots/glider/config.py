@@ -58,6 +58,10 @@ class PatternConfig(Config):
 
     insert_attachment_point_text = True
 
+    laser_text_mode = False
+
+    dot_spacing = 0.15
+
     layout_seperate_panels = True
 
 
