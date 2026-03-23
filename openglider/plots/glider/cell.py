@@ -694,6 +694,7 @@ class DribPlot(object):
         return self._flatten(attachment_points, self.config.drib_num_folds)
 
     def _flatten(self, attachment_points, num_folds):
+        import numpy as np
         plotpart = PlotPart(material_code=self.drib.material_code, name=self.drib.name)
 
         if num_folds > 0:
@@ -721,7 +722,6 @@ class DribPlot(object):
         else:
             # Seam on sides (left_out/right_out), NO seam at front/back ends
             # Pin offset curve endpoints to original positions
-            import numpy as np
             left_trimmed = self.left_out.copy()
             right_trimmed = self.right_out.copy()
             left_trimmed.data[0] = np.array(self.left[0])
