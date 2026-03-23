@@ -556,8 +556,8 @@ class DribPlot(object):
         self.left_out = self.left.copy()
         self.right_out = self.right.copy()
 
-        self.left_out.add_stuff(-self.config.allowance_general)
-        self.right_out.add_stuff(self.config.allowance_general)
+        # No lateral seam allowance on left/right sides (free edges)
+        # Seam allowance only at front/back via fold cuts (intrados/extrados)
 
     def get_left(self, x):
         return self.get_p1_p2(x, side=0)
