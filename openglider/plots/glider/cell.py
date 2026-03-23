@@ -709,55 +709,30 @@ class DribPlot(object):
                 self.right_out,
             )
 
-            # Polygon: fold at front/back (intrados/extrados seam)
-            # + original curves on sides (no seam on free edges)
             plotpart.layers["cuts"] += [
-                self.left  # left side: original curve (no seam)
+                self.left_out[cut_front_result.index_left : cut_back_result.index_left]
                 + cut_back_result.curve
-                + self.right[::-1]  # right side: reversed original curve (no seam)
+                + self.right_out[
+                    cut_front_result.index_right : cut_back_result.index_right : -1
+                ]
                 + cut_front_result.curve[::-1]
             ]
 
         else:
-            # No fold cuts: front/back edges use original (un-offset) endpoints
-            # = no seam allowance at front/back (free edges)
-            # Left/right sides use offset curves = seam at intrados/extrados
-            front_left = self.left[0]
-            front_right = self.right[0]
-            back_left = self.left[len(self.left) - 1]
-            back_right = self.right[len(self.right) - 1]
+            # Seam on sides (left_out/right_out), NO seam at front/back ends
+            # Pin offset curve endpoints to original positions
+            import numpy as np
+            left_trimmed = self.left_out.copy()
+            right_trimmed = self.right_out.copy()
+            left_trimmed.data[0] = np.array(self.left[0])
+            left_trimmed.data[-1] = np.array(self.left[len(self.left) - 1])
+            right_trimmed.data[0] = np.array(self.right[0])
+            right_trimmed.data[-1] = np.array(self.right[len(self.right) - 1])
 
-            # Cut left_out at front/back lines to get the portion between them
-            p1 = next(
-                self.left_out.cut(
-                    front_left, front_right, startpoint=0, extrapolate=True
-                )
-            )[0]
-            p2 = next(
-                self.left_out.cut(
-                    back_left, back_right,
-                    startpoint=len(self.left_out),
-                    extrapolate=True,
-                )
-            )[0]
-            p3 = next(
-                self.right_out.cut(
-                    front_left, front_right, startpoint=0, extrapolate=True
-                )
-            )[0]
-            p4 = next(
-                self.right_out.cut(
-                    back_left, back_right,
-                    startpoint=len(self.right_out),
-                    extrapolate=True,
-                )
-            )[0]
-
-            # Build polygon: left_out side + straight back + right_out side (reversed) + straight front
-            outer = self.left_out[p1:p2]
-            outer += PolyLine2D([back_right])  # straight back edge (no seam)
-            outer += self.right_out[p3:p4][::-1]
-            outer += PolyLine2D([self.left_out[p1]])  # straight front edge (no seam)
+            # Polygon: left side (seam) + back (no seam) + right side (seam) + front (no seam)
+            outer = left_trimmed
+            outer += right_trimmed[::-1]
+            outer += PolyLine2D([left_trimmed[0]])  # close
             plotpart.layers["cuts"].append(outer)
 
         plotpart.layers["marks"].append(PolyLine2D([self.left[0], self.right[0]]))
