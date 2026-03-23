@@ -196,10 +196,21 @@ class PlotMaker(object):
                             )
                             halfmoon_part.layers["cuts"].append(flat['halfmoon'])
                             
-                            # Text label inside shape
-                            p1, p2 = self._get_text_position_inside(flat['halfmoon'].data, 0.25)
-                            text_obj = Text(unique_name, p1, p2, size=0.005, valign=0)
-                            halfmoon_part.layers["text"] += text_obj.get_vectors()
+                            # Text at bottom-rear corner (right side, near flat edge)
+                            pts = np.array(flat['halfmoon'].data)
+                            min_pt = np.min(pts, axis=0)
+                            max_pt = np.max(pts, axis=0)
+                            width = max_pt[0] - min_pt[0]
+                            # Place text at bottom-right, along the flat edge
+                            p1 = np.array([min_pt[0] + width * 0.05, min_pt[1] + 0.001])
+                            p2 = np.array([max_pt[0] - width * 0.05, min_pt[1] + 0.001])
+                            
+                            use_dashed = getattr(self.config, 'laser_text_mode', False)
+                            text_layer = "cuts" if use_dashed else "text"
+                            text_obj = Text(unique_name, p1, p2, size=0.005, valign=0.5,
+                                           dashed=use_dashed,
+                                           dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                            halfmoon_part.layers[text_layer] += text_obj.get_vectors()
                             
                             self.reinforcements.append(halfmoon_part)
                         
@@ -211,10 +222,25 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat['rod_sleeve'])
                             
-                            # Text label inside shape
-                            p1, p2 = self._get_text_position_inside(flat['rod_sleeve'].data, 0.3)
-                            text_obj = Text(unique_name, p1, p2, size=0.003, valign=0)
-                            sleeve_part.layers["text"] += text_obj.get_vectors()
+                            # Text tangent to lower curve, inside the crescent
+                            pts = np.array(flat['rod_sleeve'].data)
+                            min_pt = np.min(pts, axis=0)
+                            max_pt = np.max(pts, axis=0)
+                            # Find the lowest points to place text along
+                            # Sort by Y, take points near the bottom
+                            sorted_by_y = pts[pts[:, 1].argsort()]
+                            bottom_pts = sorted_by_y[:max(3, len(pts) // 4)]
+                            # Use leftmost and rightmost of bottom points for text direction
+                            bottom_sorted_x = bottom_pts[bottom_pts[:, 0].argsort()]
+                            p1 = bottom_sorted_x[0] + np.array([0.001, 0.001])
+                            p2 = bottom_sorted_x[-1] + np.array([-0.001, 0.001])
+                            
+                            use_dashed = getattr(self.config, 'laser_text_mode', False)
+                            text_layer = "cuts" if use_dashed else "text"
+                            text_obj = Text(unique_name, p1, p2, size=0.003, valign=0.5,
+                                           dashed=use_dashed,
+                                           dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                            sleeve_part.layers[text_layer] += text_obj.get_vectors()
                             
                             self.reinforcements.append(sleeve_part)
                             
@@ -320,10 +346,23 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat)
                             
-                            # Text label inside shape
-                            p1, p2 = self._get_text_position_inside(flat.data, 0.3)
-                            text_obj = Text(unique_name, p1, p2, size=0.003, valign=0)
-                            sleeve_part.layers["text"] += text_obj.get_vectors()
+                            # Text tangent to lower curve, inside the sleeve
+                            pts = np.array(flat.data)
+                            min_pt = np.min(pts, axis=0)
+                            max_pt = np.max(pts, axis=0)
+                            # Find bottom points for text direction
+                            sorted_by_y = pts[pts[:, 1].argsort()]
+                            bottom_pts = sorted_by_y[:max(3, len(pts) // 4)]
+                            bottom_sorted_x = bottom_pts[bottom_pts[:, 0].argsort()]
+                            p1 = bottom_sorted_x[0] + np.array([0.001, 0.001])
+                            p2 = bottom_sorted_x[-1] + np.array([-0.001, 0.001])
+                            
+                            use_dashed = getattr(self.config, 'laser_text_mode', False)
+                            text_layer = "cuts" if use_dashed else "text"
+                            text_obj = Text(unique_name, p1, p2, size=0.003, valign=0.5,
+                                           dashed=use_dashed,
+                                           dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                            sleeve_part.layers[text_layer] += text_obj.get_vectors()
                             
                             self.rod_sleeves.append(sleeve_part)
                             
