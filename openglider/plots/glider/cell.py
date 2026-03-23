@@ -266,21 +266,43 @@ class PanelPlot(object):
         return plotpart
 
     def _insert_text(self, plotpart):
+        import numpy as np
+        from openglider.vector.functions import normalize, norm
+
         if self.config.layout_seperate_panels and not self.panel.is_lower():
             left = get_x_value(self.x_values, self.panel.cut_back["left"])
             right = get_x_value(self.x_values, self.panel.cut_back["right"])
             p2 = self.ballooned[-1][right]  # Use last element instead of [1]
             p1 = self.ballooned[0][left]
             align = "left"
+            allowance = self.config.allowance_design
         else:
             left = get_x_value(self.x_values, self.panel.cut_front["left"])
             right = get_x_value(self.x_values, self.panel.cut_front["right"])
             p1 = self.ballooned[-1][right]  # Use last element instead of [1]
             p2 = self.ballooned[0][left]
             align = "right"
+            allowance = self.config.allowance_design
+
+        # Offset p1/p2 into the seam margin using the perpendicular direction
+        # For upper panels: text at back cut, perpendicular points UP (into margin)
+        # For lower panels: p1/p2 reversed, perpendicular points DOWN (into margin)
+        diff = np.array(p2) - np.array(p1)
+        diff_len = norm(diff)
+        if diff_len > 1e-10:
+            perp = np.array([-diff[1], diff[0]]) / diff_len
+        else:
+            perp = np.array([0, 1])
+
+        ratio = getattr(self.config, 'text_inset_ratio', 0.85)
         text = self.panel.name
         # Text size: 80% of allowance, but max 8mm to avoid huge text
-        text_size = min(self.config.allowance_design * 0.8, 0.008)
+        text_size = min(allowance * 0.8, 0.008)
+        text_height = text_size * 0.8  # letter height in meters
+        # Offset = position the TOP of letters at ratio*allowance from stitch line
+        offset = perp * (allowance * ratio - text_height)
+        p1 = np.array(p1) + offset
+        p2 = np.array(p2) + offset
         use_dashed = getattr(self.config, 'laser_text_mode', False)
         part_text = Text(
             text,
@@ -288,7 +310,7 @@ class PanelPlot(object):
             p2,
             size=text_size,
             align=align,
-            valign=0.6,
+            valign=0.5,
             height=0.8,
             dashed=use_dashed,
             dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
@@ -386,7 +408,7 @@ class PanelPlot(object):
 
                 # p1, p2 = self.get_p1_p2(attachment_point.rib_pos, which)
 
-                if self.config.insert_attachment_point_text:
+                if self.config.insert_attachment_point_text and not self.panel.is_lower():
                     text_align = "left" if cell_pos > 0.7 else "right"
 
                     if text_align == "right":
@@ -413,7 +435,7 @@ class PanelPlot(object):
                         left = bl[bl.walk(ik, -offset)]
                         right = br[br.walk(ik, -offset)]
 
-                    if self.config.layout_seperate_panels and self.panel.is_lower:
+                    if self.config.layout_seperate_panels and self.panel.is_lower():
                         # rotated later
                         p2 = left
                         p1 = right
@@ -422,13 +444,19 @@ class PanelPlot(object):
                         p1 = left
                         p2 = right
                         # text_align = text_align
+                    # Skip placeholder names (line_name_not_set, etc.)
+                    ap_name = attachment_point.name
+                    if 'not_set' in ap_name.lower():
+                        continue
                     use_dashed = getattr(self.config, 'laser_text_mode', False)
                     text_layer = "cuts" if use_dashed else "text"
+                    # Text size: fit in seam margin
+                    ap_text_size = min(self.config.allowance_design * 0.8, 0.008)
                     plotpart.layers[text_layer] += Text(
-                        " {} ".format(attachment_point.name),
+                        " {} ".format(ap_name),
                         p1,
                         p2,
-                        size=0.01,  # 1cm
+                        size=ap_text_size,
                         align=text_align,
                         valign=0,
                         height=0.8,
@@ -615,19 +643,39 @@ class DribPlot(object):
             plotpart.layers["L0"] += self.config.marks_laser_attachment_point(p1, p2)
 
     def _insert_text(self, plotpart):
-        # text_p1 = left_out[0] + self.config.drib_text_position * (right_out[0] - left_out[0])
-        text_p1 = self.left[0]
+        # Place text in the front fold area (seam margin below the front stitch line)
+        # Strategy: compute body direction (front→back), offset p1/p2 in the
+        # opposite direction (outward) by the fold depth, so letters extend
+        # upward from the bottom of the fold area toward the stitch line.
+        import numpy as np
+        from openglider.vector import normalize, norm
+
+        mid = len(self.left) // 2
+        body_dir = np.array(self.left[mid]) - np.array(self.left[0])
+        body_len = norm(body_dir)
+        if body_len > 1e-10:
+            body_dir = body_dir / body_len
+        else:
+            body_dir = np.array([0, 1])
+
+        # Outward at the front = opposite of body direction
+        outward = -body_dir
+        fold_depth = self.config.drib_allowance_folds * getattr(self.config, 'text_inset_ratio', 0.85)
+
+        p1 = np.array(self.left[0]) + outward * fold_depth
+        p2 = np.array(self.right[0]) + outward * fold_depth
+
         # Text size: 80% of allowance, but max 8mm to avoid huge text
         text_size = min(self.config.drib_allowance_folds * 0.8, 0.008)
         use_dashed = getattr(self.config, 'laser_text_mode', False)
         text_layer = "cuts" if use_dashed else "text"
         plotpart.layers[text_layer] += Text(
             " {} ".format(self.drib.name),
-            text_p1,
-            self.right[0],
+            p1,
+            p2,
             size=text_size,
             height=0.8,
-            valign=0.6,
+            valign=0.5,
             dashed=use_dashed,
             dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
         ).get_vectors()

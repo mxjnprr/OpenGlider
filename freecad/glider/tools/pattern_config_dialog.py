@@ -15,6 +15,7 @@ PATTERN_PARAMETERS = [
     ("complete_glider", False, "Exporter le planeur complet. ATTENTION: True peut causer des erreurs", bool, None),
     ("debug", False, "Mode debug - affiche des lignes de construction supplémentaires", bool, None),
     ("profile_numpoints", 250, "Nombre de points pour discrétiser le profil", int, None),
+    ("midribs", 50, "Nombre de nervures intermédiaires pour le ballooning", int, None),
     
     # Section: Layout
     ("patterns_scale", 1000, "Échelle de sortie (1000 = mètres vers millimètres)", float, None),
@@ -38,9 +39,9 @@ PATTERN_PARAMETERS = [
     
     # Section: Labels and Marks
     ("insert_attachment_point_text", True, "Afficher le nom des points d'attache", bool, None),
-    ("laser_text_mode", False, "Mode laser: texte en pointillés sur calque de découpe (rouge)", bool, None),
+    ("laser_text_mode", True, "Mode laser: texte en pointillés sur calque de découpe (rouge)", bool, None),
     ("dot_spacing", 0.15, "Espacement entre points laser (relatif à la taille de lettre)", float, None),
-    ("midribs", 50, "Nombre de nervures intermédiaires pour le ballooning", int, None),
+    ("text_inset_ratio", 0.85, "Position du texte dans la marge (0=couture, 1=bord découpe)", float, None),
 ]
 
 
@@ -105,7 +106,7 @@ class PatternConfigDialog(QtGui.QDialog):
             elif vtype == float:
                 widget = QtGui.QDoubleSpinBox()
                 widget.setRange(0, 10000)
-                widget.setDecimals(1)
+                widget.setDecimals(2)
                 widget.setSingleStep(1)
                 widget.setValue(default)
                 self.table.setCellWidget(row, 1, widget)

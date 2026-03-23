@@ -58,11 +58,13 @@ class PatternConfig(Config):
 
     insert_attachment_point_text = True
 
-    laser_text_mode = False
+    laser_text_mode = True
 
     dot_spacing = 0.15
 
     layout_seperate_panels = True
+
+    text_inset_ratio = 0.85  # 0..1: how deep into seam margin (1 = at cut edge, 0 = at stitch line)
 
 
 class OtherPatternConfig(PatternConfig):

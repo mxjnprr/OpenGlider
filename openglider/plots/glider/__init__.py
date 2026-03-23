@@ -255,7 +255,10 @@ class PlotMaker(object):
                         
                         # Outer = cut line, Inner = stitch line
                         part.layers["cuts"].append(outer)
-                        part.layers["stitches"].append(inner)
+                        # Strip name from inner line to avoid parasitic "line name" in exports
+                        inner_copy = inner.copy()
+                        inner_copy.name = None
+                        part.layers["stitches"].append(inner_copy)
                         
                         # Add hole contours to cuts layer
                         hole_contours = mr.get_hole_contours_2d(cell)
@@ -281,8 +284,12 @@ class PlotMaker(object):
                             
                             # Text size: 80% of allowance, max 8mm
                             text_size = min(norm(diff) * 0.8, 0.008)
-                            text_obj = Text(unique_name, p1, p2, size=text_size, valign=0)
-                            part.layers["text"] += text_obj.get_vectors()
+                            use_dashed = getattr(self.config, 'laser_text_mode', False)
+                            text_obj = Text(unique_name, p1, p2, size=text_size, valign=0,
+                                           dashed=use_dashed,
+                                           dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                            text_layer = "cuts" if use_dashed else "text"
+                            part.layers[text_layer] += text_obj.get_vectors()
                         
                         self.miniribs.append(part)
                     except Exception as e:
