@@ -556,8 +556,9 @@ class DribPlot(object):
         self.left_out = self.left.copy()
         self.right_out = self.right.copy()
 
-        # No lateral seam allowance on left/right sides (free edges)
-        # Seam allowance only at front/back via fold cuts (intrados/extrados)
+        # Lateral seam allowance (along intrados/extrados connection)
+        self.left_out.add_stuff(-self.config.allowance_general)
+        self.right_out.add_stuff(self.config.allowance_general)
 
     def get_left(self, x):
         return self.get_p1_p2(x, side=0)
@@ -643,30 +644,39 @@ class DribPlot(object):
             plotpart.layers["L0"] += self.config.marks_laser_attachment_point(p1, p2)
 
     def _insert_text(self, plotpart):
-        # Place text in the front fold area (seam margin below the front stitch line)
-        # Strategy: compute body direction (front→back), offset p1/p2 in the
-        # opposite direction (outward) by the fold depth, so letters extend
-        # upward from the bottom of the fold area toward the stitch line.
+        # Place text in the seam margin of the upper (longest) side, toward the back
         import numpy as np
         from openglider.vector import normalize, norm
 
-        mid = len(self.left) // 2
-        body_dir = np.array(self.left[mid]) - np.array(self.left[0])
-        body_len = norm(body_dir)
-        if body_len > 1e-10:
-            body_dir = body_dir / body_len
+        # Determine which side is longer (upper = longest)
+        left_len = self.left.get_length()
+        right_len = self.right.get_length()
+        
+        if left_len >= right_len:
+            inner = self.left
+            outer = self.left_out
         else:
-            body_dir = np.array([0, 1])
-
-        # Outward at the front = opposite of body direction
-        outward = -body_dir
-        fold_depth = self.config.drib_allowance_folds * getattr(self.config, 'text_inset_ratio', 0.85)
-
-        p1 = np.array(self.left[0]) + outward * fold_depth
-        p2 = np.array(self.right[0]) + outward * fold_depth
-
-        # Text size: 80% of allowance, but max 8mm to avoid huge text
-        text_size = min(self.config.drib_allowance_folds * 0.8, 0.008)
+            inner = self.right
+            outer = self.right_out
+        
+        # Position at ~80% along the curve (toward the back)
+        n_pts = len(inner)
+        idx_back = int(n_pts * 0.8)
+        idx_back = min(idx_back, n_pts - 2)
+        idx_front = max(0, idx_back - max(1, n_pts // 10))
+        
+        # p1 (front) and p2 (back) in the seam margin
+        inset = getattr(self.config, 'text_inset_ratio', 0.85)
+        p1_inner = np.array(inner[idx_front])
+        p1_outer = np.array(outer[idx_front])
+        p1 = p1_inner + (p1_outer - p1_inner) * inset
+        
+        p2_inner = np.array(inner[idx_back])
+        p2_outer = np.array(outer[idx_back])
+        p2 = p2_inner + (p2_outer - p2_inner) * inset
+        
+        # Text size: 80% of allowance, max 8mm
+        text_size = min(self.config.allowance_general * 0.8, 0.008)
         use_dashed = getattr(self.config, 'laser_text_mode', False)
         text_layer = "cuts" if use_dashed else "text"
         plotpart.layers[text_layer] += Text(
