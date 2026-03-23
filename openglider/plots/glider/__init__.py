@@ -203,8 +203,8 @@ class PlotMaker(object):
                             n = len(pts)
                             outer_end = n // 2 - 1  # last index of outer points
                             if outer_end > 3:
-                                # Pick a point at ~75% along the outer edge (bottom-right area)
-                                idx = int(outer_end * 0.75)
+                                # Pick a point at ~90% along the outer edge (right corner)
+                                idx = int(outer_end * 0.90)
                                 idx2 = min(idx + 2, outer_end)
                                 
                                 p_base = pts[idx]
@@ -271,8 +271,12 @@ class PlotMaker(object):
                             if np.dot(tangent, centroid - p_start) < 0:
                                 tangent = -tangent
                             
-                            # Place text from extremity, perpendicular to crescent
-                            p1 = p_start + tangent * 0.003  # 3mm inside from edge
+                            # Center between inner and outer curves at the extremity
+                            # pts[0] = outer[0], pts[-2] = inner[0] (before close point)
+                            p_mid = (pts[0] + pts[-2]) / 2
+                            
+                            # Place text from midpoint, perpendicular to crescent
+                            p1 = p_mid + tangent * 0.001
                             p2 = p1 + tangent * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
@@ -405,7 +409,10 @@ class PlotMaker(object):
                             if np.dot(tangent, centroid - p_start) < 0:
                                 tangent = -tangent
                             
-                            p1 = p_start + tangent * 0.003
+                            # Center between the two curves at the extremity
+                            p_mid = (pts[0] + pts[-2]) / 2
+                            
+                            p1 = p_mid + tangent * 0.001
                             p2 = p1 + tangent * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
