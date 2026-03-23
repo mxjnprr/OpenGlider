@@ -224,13 +224,16 @@ class PlotMaker(object):
                                 else:
                                     tangent = np.array([1, 0])
                                 
-                                # Offset inward (toward centroid)
+                                # Offset inward: move directly toward centroid (always inside)
                                 centroid = np.mean(pts[:-1], axis=0)
-                                perp = np.array([-tangent[1], tangent[0]])
-                                if np.dot(perp, centroid - p_base) < 0:
-                                    perp = -perp
+                                inward = centroid - p_base
+                                inward_len = np.linalg.norm(inward)
+                                if inward_len > 1e-10:
+                                    inward = inward / inward_len
+                                else:
+                                    inward = np.array([0, 1])
                                 
-                                p1 = p_base + perp * 0.002  # 2mm inside from edge
+                                p1 = p_base + inward * 0.003  # 3mm toward center
                                 p2 = p1 + tangent * 0.03
                             else:
                                 # Fallback: centroid
