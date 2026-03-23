@@ -709,12 +709,12 @@ class DribPlot(object):
                 self.right_out,
             )
 
+            # Polygon: fold at front/back (intrados/extrados seam)
+            # + original curves on sides (no seam on free edges)
             plotpart.layers["cuts"] += [
-                self.left_out[cut_front_result.index_left : cut_back_result.index_left]
+                self.left  # left side: original curve (no seam)
                 + cut_back_result.curve
-                + self.right_out[
-                    cut_front_result.index_right : cut_back_result.index_right : -1
-                ]
+                + self.right[::-1]  # right side: reversed original curve (no seam)
                 + cut_front_result.curve[::-1]
             ]
 
