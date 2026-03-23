@@ -196,22 +196,45 @@ class PlotMaker(object):
                             )
                             halfmoon_part.layers["cuts"].append(flat['halfmoon'])
                             
-                            # Text inside the halfmoon, bottom-right area
+                            # Text along the inner arc (bottom line)
+                            # Halfmoon polygon = outer_points + reversed(inner_points) + [close]
+                            # So second half of points (excluding close) = inner arc (reversed)
                             pts = np.array(flat['halfmoon'].data)
-                            centroid = np.mean(pts, axis=0)
-                            min_pt = np.min(pts, axis=0)
-                            max_pt = np.max(pts, axis=0)
-                            height = max_pt[1] - min_pt[1]
-                            width = max_pt[0] - min_pt[0]
-                            # Shift centroid toward bottom-right
-                            text_y = centroid[1] - height * 0.2
-                            p1 = np.array([centroid[0], text_y])
-                            p2 = np.array([max_pt[0] - width * 0.05, text_y])
+                            n = len(pts)
+                            # Inner arc starts at ~n/2 and goes to n-1 (last is close point)
+                            arc_start = n // 2
+                            arc_end = n - 2  # exclude closing point
+                            if arc_end > arc_start + 2:
+                                # Pick a point at ~75% along the inner arc (bottom-right area)
+                                arc_len = arc_end - arc_start
+                                idx = arc_start + int(arc_len * 0.25)  # reversed inner: 25% from start = 75% from right
+                                idx2 = min(idx + 2, arc_end)
+                                
+                                p_base = pts[idx]
+                                tangent = pts[idx2] - pts[idx]
+                                tlen = np.linalg.norm(tangent)
+                                if tlen > 1e-10:
+                                    tangent = tangent / tlen
+                                else:
+                                    tangent = np.array([1, 0])
+                                
+                                # Offset inward (toward centroid)
+                                centroid = np.mean(pts[:-1], axis=0)
+                                perp = np.array([-tangent[1], tangent[0]])
+                                if np.dot(perp, centroid - p_base) < 0:
+                                    perp = -perp
+                                
+                                p1 = p_base + perp * 0.002  # 2mm inside from arc
+                                p2 = p1 + tangent * 0.03
+                            else:
+                                # Fallback: centroid
+                                centroid = np.mean(pts, axis=0)
+                                p1 = centroid
+                                p2 = centroid + np.array([0.02, 0])
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
                             text_obj = Text(unique_name, p1, p2, size=0.005, valign=0.5,
-                                           align="right",
                                            dashed=use_dashed,
                                            dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
                             halfmoon_part.layers[text_layer] += text_obj.get_vectors()
@@ -226,15 +249,33 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat['rod_sleeve'])
                             
-                            # Text inside the crescent, at centroid level
+                            # Text perpendicular to the left extremity
+                            # Rod sleeve polygon = outer + reversed(inner) + [close]
+                            # First point = outer[0] = left end of outer curve
                             pts = np.array(flat['rod_sleeve'].data)
-                            centroid = np.mean(pts, axis=0)
-                            min_pt = np.min(pts, axis=0)
-                            max_pt = np.max(pts, axis=0)
-                            width = max_pt[0] - min_pt[0]
-                            # Text along crescent at centroid height, left portion
-                            p1 = np.array([min_pt[0] + width * 0.05, centroid[1]])
-                            p2 = np.array([min_pt[0] + width * 0.35, centroid[1]])
+                            n = len(pts)
+                            
+                            # Find narrowest point = extremity (leftmost or rightmost)
+                            # Use first few points to get the tangent at the start
+                            p_start = pts[0]
+                            # Next point along the boundary
+                            p_next = pts[min(2, n-1)]
+                            tangent = p_next - p_start
+                            tlen = np.linalg.norm(tangent)
+                            if tlen > 1e-10:
+                                tangent = tangent / tlen
+                            else:
+                                tangent = np.array([0, 1])
+                            
+                            # Perpendicular = text direction (into the body)
+                            perp = np.array([-tangent[1], tangent[0]])
+                            centroid = np.mean(pts[:-1], axis=0)
+                            if np.dot(perp, centroid - p_start) < 0:
+                                perp = -perp
+                            
+                            # Place text starting from extremity, going inward
+                            p1 = p_start + perp * 0.003  # 3mm inside from edge
+                            p2 = p1 + perp * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
@@ -347,15 +388,28 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat)
                             
-                            # Text inside the sleeve at centroid level
+                            # Text perpendicular to the left extremity
+                            # RodSleeve polygon = inner + outer[-1] + reversed(outer) + inner[0]
                             pts = np.array(flat.data)
-                            centroid = np.mean(pts, axis=0)
-                            min_pt = np.min(pts, axis=0)
-                            max_pt = np.max(pts, axis=0)
-                            width = max_pt[0] - min_pt[0]
-                            # Left portion of crescent at centroid height
-                            p1 = np.array([min_pt[0] + width * 0.05, centroid[1]])
-                            p2 = np.array([min_pt[0] + width * 0.35, centroid[1]])
+                            n = len(pts)
+                            
+                            p_start = pts[0]
+                            p_next = pts[min(2, n-1)]
+                            tangent = p_next - p_start
+                            tlen = np.linalg.norm(tangent)
+                            if tlen > 1e-10:
+                                tangent = tangent / tlen
+                            else:
+                                tangent = np.array([0, 1])
+                            
+                            # Perpendicular pointing into the body
+                            perp = np.array([-tangent[1], tangent[0]])
+                            centroid = np.mean(pts[:-1], axis=0)
+                            if np.dot(perp, centroid - p_start) < 0:
+                                perp = -perp
+                            
+                            p1 = p_start + perp * 0.003
+                            p2 = p1 + perp * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
