@@ -209,14 +209,8 @@ class PlotMaker(object):
                                 corner = pts[outer_end]
                                 centroid = np.mean(pts[:-1], axis=0)
                                 
-                                # Fixed 8mm inward from corner along corner→centroid
-                                inward = centroid - corner
-                                inward_len = np.linalg.norm(inward)
-                                if inward_len > 1e-10:
-                                    inward_norm = inward / inward_len
-                                else:
-                                    inward_norm = np.array([-1, 0])
-                                p_base = corner + inward_norm * 0.008
+                                # 20% from corner toward centroid (scales with shape size)
+                                p_base = corner + (centroid - corner) * 0.20
                                 
                                 # Tangent of outer edge (bottom curve) near the corner
                                 prev_idx = max(0, outer_end - 3)
@@ -230,9 +224,10 @@ class PlotMaker(object):
                                 if tangent[0] < 0:
                                     tangent = -tangent
                                 
-                                # p1 inside, p2 toward corner along tangent
-                                p1 = p_base - tangent * 0.004
-                                p2 = p_base + tangent * 0.004
+                                # Text span proportional to shape (~10% of corner→centroid)
+                                span = np.linalg.norm(centroid - corner) * 0.10
+                                p1 = p_base - tangent * span
+                                p2 = p_base + tangent * span
                             else:
                                 # Fallback: centroid
                                 centroid = np.mean(pts, axis=0)
