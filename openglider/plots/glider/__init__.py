@@ -209,22 +209,18 @@ class PlotMaker(object):
                                 corner = pts[outer_end]
                                 centroid = np.mean(pts[:-1], axis=0)
                                 
-                                # Move 15% from corner toward centroid (always inside)
-                                p_base = corner + (centroid - corner) * 0.15
-                                
-                                # Text direction: along the outer edge near the corner
-                                prev_idx = max(0, outer_end - 3)
-                                tangent = pts[outer_end] - pts[prev_idx]
-                                tlen = np.linalg.norm(tangent)
-                                if tlen > 1e-10:
-                                    tangent = tangent / tlen
+                                # Fixed 8mm inward from corner along corner→centroid
+                                inward = centroid - corner
+                                inward_len = np.linalg.norm(inward)
+                                if inward_len > 1e-10:
+                                    inward_norm = inward / inward_len
                                 else:
-                                    tangent = np.array([1, 0])
-                                # Reverse: text goes FROM corner toward inside
-                                tangent = -tangent
+                                    inward_norm = np.array([-1, 0])
+                                p_base = corner + inward_norm * 0.008
                                 
-                                p1 = p_base
-                                p2 = p1 + tangent * 0.02
+                                # Text reads left-to-right: p1 (left/inside) → p2 (right/corner)
+                                p1 = p_base + np.array([-0.015, 0])
+                                p2 = p_base
                             else:
                                 # Fallback: centroid
                                 centroid = np.mean(pts, axis=0)
