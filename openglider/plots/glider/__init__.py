@@ -205,36 +205,26 @@ class PlotMaker(object):
                             n = len(pts)
                             outer_end = n // 2 - 1  # last index of outer points
                             if outer_end > 3:
-                                # Walk backward from the corner (last outer point)
-                                # by a fixed distance (~5mm) along the curve
-                                target_dist = 0.005  # 5mm from corner
-                                accum = 0.0
-                                idx = outer_end
-                                while idx > 1 and accum < target_dist:
-                                    seg = np.linalg.norm(pts[idx] - pts[idx - 1])
-                                    accum += seg
-                                    idx -= 1
-                                idx2 = min(idx + 2, outer_end)
+                                # Corner = last outer point (where profile meets arc)
+                                corner = pts[outer_end]
+                                centroid = np.mean(pts[:-1], axis=0)
                                 
-                                p_base = pts[idx]
-                                tangent = pts[idx2] - pts[idx]
+                                # Move 15% from corner toward centroid (always inside)
+                                p_base = corner + (centroid - corner) * 0.15
+                                
+                                # Text direction: along the outer edge near the corner
+                                prev_idx = max(0, outer_end - 3)
+                                tangent = pts[outer_end] - pts[prev_idx]
                                 tlen = np.linalg.norm(tangent)
                                 if tlen > 1e-10:
                                     tangent = tangent / tlen
                                 else:
                                     tangent = np.array([1, 0])
+                                # Reverse: text goes FROM corner toward inside
+                                tangent = -tangent
                                 
-                                # Offset inward: move directly toward centroid (always inside)
-                                centroid = np.mean(pts[:-1], axis=0)
-                                inward = centroid - p_base
-                                inward_len = np.linalg.norm(inward)
-                                if inward_len > 1e-10:
-                                    inward = inward / inward_len
-                                else:
-                                    inward = np.array([0, 1])
-                                
-                                p1 = p_base + inward * 0.003  # 3mm toward center
-                                p2 = p1 + tangent * 0.03
+                                p1 = p_base
+                                p2 = p1 + tangent * 0.02
                             else:
                                 # Fallback: centroid
                                 centroid = np.mean(pts, axis=0)
