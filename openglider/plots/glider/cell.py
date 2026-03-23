@@ -710,29 +710,31 @@ class DribPlot(object):
                 self.right_out,
             )
 
+            # Fold curves with endpoints snapped to original (un-offset) curves
+            back_data = [np.array(p) for p in cut_back_result.curve.data]
+            back_data[0] = np.array(self.left[len(self.left) - 1])
+            back_data[-1] = np.array(self.right[len(self.right) - 1])
+            back_curve = PolyLine2D(back_data)
+
+            front_data = [np.array(p) for p in cut_front_result.curve.data]
+            front_data[0] = np.array(self.left[0])
+            front_data[-1] = np.array(self.right[0])
+            front_curve = PolyLine2D(front_data)
+
+            # Sides = original curves (no seam), front/back = fold curves (seam)
             plotpart.layers["cuts"] += [
-                self.left_out[cut_front_result.index_left : cut_back_result.index_left]
-                + cut_back_result.curve
-                + self.right_out[
-                    cut_front_result.index_right : cut_back_result.index_right : -1
-                ]
-                + cut_front_result.curve[::-1]
+                self.left
+                + back_curve
+                + self.right[::-1]
+                + front_curve[::-1]
             ]
 
         else:
-            # Seam on sides (left_out/right_out), NO seam at front/back ends
-            # Pin offset curve endpoints to original positions
-            left_trimmed = self.left_out.copy()
-            right_trimmed = self.right_out.copy()
-            left_trimmed.data[0] = np.array(self.left[0])
-            left_trimmed.data[-1] = np.array(self.left[len(self.left) - 1])
-            right_trimmed.data[0] = np.array(self.right[0])
-            right_trimmed.data[-1] = np.array(self.right[len(self.right) - 1])
-
-            # Polygon: left side (seam) + back (no seam) + right side (seam) + front (no seam)
-            outer = left_trimmed
-            outer += right_trimmed[::-1]
-            outer += PolyLine2D([left_trimmed[0]])  # close
+            # No folds: sides = original curves (no seam)
+            # front/back = straight connecting edges (no seam either)
+            outer = self.left
+            outer += self.right[::-1]
+            outer += PolyLine2D([self.left[0]])  # close
             plotpart.layers["cuts"].append(outer)
 
         plotpart.layers["marks"].append(PolyLine2D([self.left[0], self.right[0]]))
