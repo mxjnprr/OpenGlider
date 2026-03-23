@@ -719,36 +719,45 @@ class DribPlot(object):
             ]
 
         else:
+            # No fold cuts: front/back edges use original (un-offset) endpoints
+            # = no seam allowance at front/back (free edges)
+            # Left/right sides use offset curves = seam at intrados/extrados
+            front_left = self.left[0]
+            front_right = self.right[0]
+            back_left = self.left[len(self.left) - 1]
+            back_right = self.right[len(self.right) - 1]
+
+            # Cut left_out at front/back lines to get the portion between them
             p1 = next(
                 self.left_out.cut(
-                    self.left[0], self.right[0], startpoint=0, extrapolate=True
+                    front_left, front_right, startpoint=0, extrapolate=True
                 )
             )[0]
             p2 = next(
                 self.left_out.cut(
-                    self.left[len(self.left) - 1],
-                    self.right[len(self.right) - 1],
+                    back_left, back_right,
                     startpoint=len(self.left_out),
                     extrapolate=True,
                 )
             )[0]
             p3 = next(
                 self.right_out.cut(
-                    self.left[0], self.right[0], startpoint=0, extrapolate=True
+                    front_left, front_right, startpoint=0, extrapolate=True
                 )
             )[0]
             p4 = next(
                 self.right_out.cut(
-                    self.left[len(self.left) - 1],
-                    self.right[len(self.right) - 1],
+                    back_left, back_right,
                     startpoint=len(self.right_out),
                     extrapolate=True,
                 )
             )[0]
 
+            # Build polygon: left_out side + straight back + right_out side (reversed) + straight front
             outer = self.left_out[p1:p2]
+            outer += PolyLine2D([back_right])  # straight back edge (no seam)
             outer += self.right_out[p3:p4][::-1]
-            outer += PolyLine2D([self.left_out[p1]])
+            outer += PolyLine2D([self.left_out[p1]])  # straight front edge (no seam)
             plotpart.layers["cuts"].append(outer)
 
         plotpart.layers["marks"].append(PolyLine2D([self.left[0], self.right[0]]))
