@@ -196,19 +196,16 @@ class PlotMaker(object):
                             )
                             halfmoon_part.layers["cuts"].append(flat['halfmoon'])
                             
-                            # Text along the inner arc (bottom line)
+                            # Text along the outer edge (bottom/intrados line)
                             # Halfmoon polygon = outer_points + reversed(inner_points) + [close]
-                            # So second half of points (excluding close) = inner arc (reversed)
+                            # First half = outer_points = profile/intrados edge = BOTTOM
                             pts = np.array(flat['halfmoon'].data)
                             n = len(pts)
-                            # Inner arc starts at ~n/2 and goes to n-1 (last is close point)
-                            arc_start = n // 2
-                            arc_end = n - 2  # exclude closing point
-                            if arc_end > arc_start + 2:
-                                # Pick a point at ~75% along the inner arc (bottom-right area)
-                                arc_len = arc_end - arc_start
-                                idx = arc_start + int(arc_len * 0.25)  # reversed inner: 25% from start = 75% from right
-                                idx2 = min(idx + 2, arc_end)
+                            outer_end = n // 2 - 1  # last index of outer points
+                            if outer_end > 3:
+                                # Pick a point at ~75% along the outer edge (bottom-right area)
+                                idx = int(outer_end * 0.75)
+                                idx2 = min(idx + 2, outer_end)
                                 
                                 p_base = pts[idx]
                                 tangent = pts[idx2] - pts[idx]
@@ -224,7 +221,7 @@ class PlotMaker(object):
                                 if np.dot(perp, centroid - p_base) < 0:
                                     perp = -perp
                                 
-                                p1 = p_base + perp * 0.002  # 2mm inside from arc
+                                p1 = p_base + perp * 0.002  # 2mm inside from edge
                                 p2 = p1 + tangent * 0.03
                             else:
                                 # Fallback: centroid
@@ -267,15 +264,16 @@ class PlotMaker(object):
                             else:
                                 tangent = np.array([0, 1])
                             
-                            # Perpendicular = text direction (into the body)
-                            perp = np.array([-tangent[1], tangent[0]])
+                            # At the extremity, tangent crosses the crescent width
+                            # = perpendicular to the crescent length = what user wants
+                            # Ensure tangent points inward (toward centroid)
                             centroid = np.mean(pts[:-1], axis=0)
-                            if np.dot(perp, centroid - p_start) < 0:
-                                perp = -perp
+                            if np.dot(tangent, centroid - p_start) < 0:
+                                tangent = -tangent
                             
-                            # Place text starting from extremity, going inward
-                            p1 = p_start + perp * 0.003  # 3mm inside from edge
-                            p2 = p1 + perp * 0.02
+                            # Place text from extremity, perpendicular to crescent
+                            p1 = p_start + tangent * 0.003  # 3mm inside from edge
+                            p2 = p1 + tangent * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
@@ -402,14 +400,13 @@ class PlotMaker(object):
                             else:
                                 tangent = np.array([0, 1])
                             
-                            # Perpendicular pointing into the body
-                            perp = np.array([-tangent[1], tangent[0]])
+                            # At extremity, tangent crosses the crescent width
                             centroid = np.mean(pts[:-1], axis=0)
-                            if np.dot(perp, centroid - p_start) < 0:
-                                perp = -perp
+                            if np.dot(tangent, centroid - p_start) < 0:
+                                tangent = -tangent
                             
-                            p1 = p_start + perp * 0.003
-                            p2 = p1 + perp * 0.02
+                            p1 = p_start + tangent * 0.003
+                            p2 = p1 + tangent * 0.02
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
