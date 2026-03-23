@@ -710,31 +710,48 @@ class DribPlot(object):
                 self.right_out,
             )
 
-            # Fold curves with endpoints snapped to original (un-offset) curves
-            back_data = [np.array(p) for p in cut_back_result.curve.data]
-            back_data[0] = np.array(self.left[len(self.left) - 1])
-            back_data[-1] = np.array(self.right[len(self.right) - 1])
-            back_curve = PolyLine2D(back_data)
-
-            front_data = [np.array(p) for p in cut_front_result.curve.data]
-            front_data[0] = np.array(self.left[0])
-            front_data[-1] = np.array(self.right[0])
-            front_curve = PolyLine2D(front_data)
-
-            # Sides = original curves (no seam), front/back = fold curves (seam)
             plotpart.layers["cuts"] += [
-                self.left
-                + back_curve
-                + self.right[::-1]
-                + front_curve[::-1]
+                self.left_out[cut_front_result.index_left : cut_back_result.index_left]
+                + cut_back_result.curve
+                + self.right_out[
+                    cut_front_result.index_right : cut_back_result.index_right : -1
+                ]
+                + cut_front_result.curve[::-1]
             ]
 
         else:
-            # No folds: sides = original curves (no seam)
-            # front/back = straight connecting edges (no seam either)
-            outer = self.left
-            outer += self.right[::-1]
-            outer += PolyLine2D([self.left[0]])  # close
+            # Sides (left_out/right_out) WITH seam (add_stuff = sewn to intrados/extrados)
+            # Front/back = straight connecting edges, NO seam (free edges)
+            p1 = next(
+                self.left_out.cut(
+                    self.left[0], self.right[0], startpoint=0, extrapolate=True
+                )
+            )[0]
+            p2 = next(
+                self.left_out.cut(
+                    self.left[len(self.left) - 1],
+                    self.right[len(self.right) - 1],
+                    startpoint=len(self.left_out),
+                    extrapolate=True,
+                )
+            )[0]
+            p3 = next(
+                self.right_out.cut(
+                    self.left[0], self.right[0], startpoint=0, extrapolate=True
+                )
+            )[0]
+            p4 = next(
+                self.right_out.cut(
+                    self.left[len(self.left) - 1],
+                    self.right[len(self.right) - 1],
+                    startpoint=len(self.right_out),
+                    extrapolate=True,
+                )
+            )[0]
+
+            outer = self.left_out[p1:p2]
+            outer += self.right_out[p3:p4][::-1]
+            outer += PolyLine2D([self.left_out[p1]])
             plotpart.layers["cuts"].append(outer)
 
         plotpart.layers["marks"].append(PolyLine2D([self.left[0], self.right[0]]))
