@@ -205,8 +205,15 @@ class PlotMaker(object):
                             n = len(pts)
                             outer_end = n // 2 - 1  # last index of outer points
                             if outer_end > 3:
-                                # Pick a point at ~90% along the outer edge (right corner)
-                                idx = int(outer_end * 0.90)
+                                # Walk backward from the corner (last outer point)
+                                # by a fixed distance (~5mm) along the curve
+                                target_dist = 0.005  # 5mm from corner
+                                accum = 0.0
+                                idx = outer_end
+                                while idx > 1 and accum < target_dist:
+                                    seg = np.linalg.norm(pts[idx] - pts[idx - 1])
+                                    accum += seg
+                                    idx -= 1
                                 idx2 = min(idx + 2, outer_end)
                                 
                                 p_base = pts[idx]
