@@ -218,9 +218,21 @@ class PlotMaker(object):
                                     inward_norm = np.array([-1, 0])
                                 p_base = corner + inward_norm * 0.008
                                 
-                                # Text reads left-to-right: p1 (left/inside) → p2 (right/corner)
-                                p1 = p_base + np.array([-0.015, 0])
-                                p2 = p_base
+                                # Tangent of outer edge (bottom curve) near the corner
+                                prev_idx = max(0, outer_end - 3)
+                                tangent = pts[outer_end] - pts[prev_idx]
+                                tlen = np.linalg.norm(tangent)
+                                if tlen > 1e-10:
+                                    tangent = tangent / tlen
+                                else:
+                                    tangent = np.array([1, 0])
+                                # Ensure text reads left-to-right (readable)
+                                if tangent[0] < 0:
+                                    tangent = -tangent
+                                
+                                # p1 inside, p2 toward corner along tangent
+                                p1 = p_base - tangent * 0.004
+                                p2 = p_base + tangent * 0.004
                             else:
                                 # Fallback: centroid
                                 centroid = np.mean(pts, axis=0)
