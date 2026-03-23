@@ -196,18 +196,22 @@ class PlotMaker(object):
                             )
                             halfmoon_part.layers["cuts"].append(flat['halfmoon'])
                             
-                            # Text at bottom-rear corner (right side, near flat edge)
+                            # Text inside the halfmoon, bottom-right area
                             pts = np.array(flat['halfmoon'].data)
+                            centroid = np.mean(pts, axis=0)
                             min_pt = np.min(pts, axis=0)
                             max_pt = np.max(pts, axis=0)
+                            height = max_pt[1] - min_pt[1]
                             width = max_pt[0] - min_pt[0]
-                            # Place text at bottom-right, along the flat edge
-                            p1 = np.array([min_pt[0] + width * 0.05, min_pt[1] + 0.001])
-                            p2 = np.array([max_pt[0] - width * 0.05, min_pt[1] + 0.001])
+                            # Shift centroid toward bottom-right
+                            text_y = centroid[1] - height * 0.2
+                            p1 = np.array([centroid[0], text_y])
+                            p2 = np.array([max_pt[0] - width * 0.05, text_y])
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
                             text_obj = Text(unique_name, p1, p2, size=0.005, valign=0.5,
+                                           align="right",
                                            dashed=use_dashed,
                                            dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
                             halfmoon_part.layers[text_layer] += text_obj.get_vectors()
@@ -222,18 +226,15 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat['rod_sleeve'])
                             
-                            # Text tangent to lower curve, inside the crescent
+                            # Text inside the crescent, at centroid level
                             pts = np.array(flat['rod_sleeve'].data)
+                            centroid = np.mean(pts, axis=0)
                             min_pt = np.min(pts, axis=0)
                             max_pt = np.max(pts, axis=0)
-                            # Find the lowest points to place text along
-                            # Sort by Y, take points near the bottom
-                            sorted_by_y = pts[pts[:, 1].argsort()]
-                            bottom_pts = sorted_by_y[:max(3, len(pts) // 4)]
-                            # Use leftmost and rightmost of bottom points for text direction
-                            bottom_sorted_x = bottom_pts[bottom_pts[:, 0].argsort()]
-                            p1 = bottom_sorted_x[0] + np.array([0.001, 0.001])
-                            p2 = bottom_sorted_x[-1] + np.array([-0.001, 0.001])
+                            width = max_pt[0] - min_pt[0]
+                            # Text along crescent at centroid height, left portion
+                            p1 = np.array([min_pt[0] + width * 0.05, centroid[1]])
+                            p2 = np.array([min_pt[0] + width * 0.35, centroid[1]])
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
@@ -346,16 +347,15 @@ class PlotMaker(object):
                             )
                             sleeve_part.layers["cuts"].append(flat)
                             
-                            # Text tangent to lower curve, inside the sleeve
+                            # Text inside the sleeve at centroid level
                             pts = np.array(flat.data)
+                            centroid = np.mean(pts, axis=0)
                             min_pt = np.min(pts, axis=0)
                             max_pt = np.max(pts, axis=0)
-                            # Find bottom points for text direction
-                            sorted_by_y = pts[pts[:, 1].argsort()]
-                            bottom_pts = sorted_by_y[:max(3, len(pts) // 4)]
-                            bottom_sorted_x = bottom_pts[bottom_pts[:, 0].argsort()]
-                            p1 = bottom_sorted_x[0] + np.array([0.001, 0.001])
-                            p2 = bottom_sorted_x[-1] + np.array([-0.001, 0.001])
+                            width = max_pt[0] - min_pt[0]
+                            # Left portion of crescent at centroid height
+                            p1 = np.array([min_pt[0] + width * 0.05, centroid[1]])
+                            p2 = np.array([min_pt[0] + width * 0.35, centroid[1]])
                             
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
