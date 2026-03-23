@@ -186,7 +186,9 @@ class PlotMaker(object):
                 for reinf_idx, reinforcement in enumerate(rib.reinforcements):
                     try:
                         flat = reinforcement.get_flattened(rib, glider=self.glider_3d)
-                        unique_name = reinforcement.name or f"R{rib_idx+1}_{reinf_idx+1}"
+                        # Short name: rib number + row letter (A, B, C...)
+                        row_letter = chr(ord('A') + reinf_idx)
+                        unique_name = f"{rib_idx+1}{row_letter}"
                         
                         # Halfmoon part
                         if flat.get('halfmoon') and len(flat['halfmoon'].data) > 0:
