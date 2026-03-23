@@ -51,7 +51,7 @@ class PatternConfig(Config):
     allowance_design = 0.012  # trailing_edge
 
     drib_allowance_folds = 0.012
-    drib_num_folds = 0
+    drib_num_folds = 1
     drib_text_position = 0.1
 
     strap_num_folds = 1
