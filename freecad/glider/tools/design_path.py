@@ -37,6 +37,11 @@ class DesignPath:
         self.curve_line = None  # Line showing the path curve
         self.markers = []  # Draggable control point markers
         self._selected = False
+        
+        # Tracks whether this path has already been projected onto CutLines.
+        # Set to True by apply_paths_to_cuts, reset to False when the path is
+        # edited (control point drag) so it can be cleanly re-applied.
+        self._applied = False
     
     def setup_visuals(self, separator):
         """Create visual elements and add to separator.
@@ -87,6 +92,9 @@ class DesignPath:
         idx = marker._point_index
         pos = marker.points[0]
         self.control_points[idx] = [float(pos[0]), float(pos[1])]
+        # Path has been modified: mark as not applied so the next
+        # "Apply Paths" call will re-project it correctly.
+        self._applied = False
         self._update_curve()
     
     def _on_marker_release(self, marker):

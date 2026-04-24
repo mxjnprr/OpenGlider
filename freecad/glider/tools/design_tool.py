@@ -61,6 +61,9 @@ class DesignTool(BaseTool):
         
         # Load existing design paths
         self._load_design_paths()
+        
+        # Build path visuals and register interactions
+        self._refresh_path_visuals()
 
     def setup_widget(self):
         """set up the qt stuff"""
@@ -280,9 +283,6 @@ class DesignTool(BaseTool):
         paths_data = self.parametric_glider.elements.get("design_paths", [])
         for data in paths_data:
             path = DesignPath.from_dict(data)
-            # Only show visuals for paths matching current side
-            if path.side == self.side:
-                path.setup_visuals(self.path_separator)
             self.design_paths.append(path)
             self._path_counter = max(self._path_counter, 
                                      int(data.get("id", "path_0").split("_")[-1]) + 1)
@@ -316,8 +316,8 @@ class DesignTool(BaseTool):
             self.side,
             [[x_start, y_start], [x_end, y_end]]
         )
-        path.setup_visuals(self.path_separator)
         self.design_paths.append(path)
+        self._refresh_path_visuals()
         self._select_path(path)
         
     def add_polyline_path(self):
@@ -347,8 +347,8 @@ class DesignTool(BaseTool):
             self.side,
             pts
         )
-        path.setup_visuals(self.path_separator)
         self.design_paths.append(path)
+        self._refresh_path_visuals()
         self._select_path(path)
     
     def add_point_to_path(self):
@@ -438,8 +438,8 @@ class DesignTool(BaseTool):
                 [x_end, y_end]       # P3 - end
             ]
         )
-        path.setup_visuals(self.path_separator)
         self.design_paths.append(path)
+        self._refresh_path_visuals()
         self._select_path(path)
     
     def _select_path(self, path):
@@ -481,9 +481,17 @@ class DesignTool(BaseTool):
     
     def _refresh_path_visuals(self):
         """Clear and recreate all path visuals."""
-        # Clear all visuals from path_separator
-        self.path_separator.removeAllChildren()
-        self.path_separator.dynamic_objects = []
+        # Unregister and remove old separator to ensure a completely clean state
+        if hasattr(self, 'path_separator') and self.path_separator is not None:
+            self.path_separator.select_object(None)
+            self.path_separator.unregister()
+            if self.path_separator in self.shape:
+                self.shape.removeChild(self.path_separator)
+            del self.path_separator
+            
+        self.path_separator = InteractionSeparator(self.rm)
+        self.path_separator.selection_changed = self.path_selection_changed
+        self.shape += [self.path_separator]
         
         # Recreate visuals only for paths matching current side
         for path in self.design_paths:
@@ -491,9 +499,19 @@ class DesignTool(BaseTool):
             path.markers = []
             if path.side == self.side:
                 path.setup_visuals(self.path_separator)
+                
+        # Register separator *after* all event nodes have been added
+        self.path_separator.register()
     
     def apply_paths_to_cuts(self):
-        """Project all design paths onto panel cuts."""
+        """Project all design paths onto panel cuts.
+        
+        Each path is projected at most once per editing session.  A path
+        whose ``_applied`` flag is True is skipped to avoid creating
+        duplicate CutPoints.  The flag is reset automatically whenever the
+        user drags one of the path's control points, so modified paths can
+        be re-applied cleanly.
+        """
         has_center = self.parametric_glider.shape.has_center_cell
         
         # Build rib bounds from stored front/back points
@@ -502,9 +520,13 @@ class DesignTool(BaseTool):
             [pt[1] for pt in self._rib_back_pts]
         ))
         
+        applied_any = False
         for path in self.design_paths:
             if path.side != self.side:
                 continue  # Only apply paths for current side
+
+            if path._applied:
+                continue  # Already projected - skip to avoid duplicates
             
             # Get intersections with rib bounds included for proper center rib handling
             intersections = path.get_rib_intersections(
@@ -563,6 +585,7 @@ class DesignTool(BaseTool):
                     continue
             
             # Create lines between consecutive points
+            path_cut_lines_created = 0
             for (i1, cp1), (i2, cp2) in zip(cut_points[:-1], cut_points[1:]):
                 if abs(i1 - i2) == 1:  # Adjacent ribs
                     if self.side == "upper":
@@ -577,14 +600,29 @@ class DesignTool(BaseTool):
                     cut_line.update_Line()
                     cut_line.setup_visuals()
                     self.event_separator += [cp1, cp2, cut_line]
+                    path_cut_lines_created += 1
+            
+            if path_cut_lines_created > 0:
+                # Mark as applied only when at least one CutLine was created
+                path._applied = True
+                applied_any = True
         
-        self.event_separator.color_selected()
+        if applied_any:
+            self.event_separator.color_selected()
     
     def _create_cut_point_at_list_idx(self, list_idx, y_pos):
         """Create a CutPoint for a rib at the given list index.
         
         Handles the conversion from list_idx (which includes center for odd cells)
         to the proper shape index used by CutPoint.
+        
+        Note on zero-chord wingtip ribs
+        ---------------------------------
+        The wingtip rib often has chord ≈ 0 (pointed tip). In that case we
+        cannot compute a meaningful normalised chord position, but we MUST
+        preserve the side sign so that ``CutLine.is_upper`` (which tests
+        ``rib_pos < 0``) can correctly route the line to the upper or lower
+        set.  We therefore assign a tiny symbolic value (±1e-4) instead of 0.
         """
         has_center = self.parametric_glider.shape.has_center_cell
         
@@ -593,12 +631,14 @@ class DesignTool(BaseTool):
         front_y, back_y = self._get_rib_bounds(list_idx)
         chord = abs(front_y - back_y)
         
+        upper = self.side == "upper"
         if chord < 0.001:
-            rib_pos = 0
+            # Zero-chord (pointed) wingtip: preserve side sign so that
+            # CutLine.is_upper correctly categorises the resulting line.
+            rib_pos = -1e-4 if upper else 1e-4
         else:
-            # rib_pos is negative for upper, positive for lower
-            # It's the normalized position from front (0) to back (1)
-            upper = self.side == "upper"
+            # rib_pos is negative for upper (extrados), positive for lower (intrados).
+            # Normalised distance from leading edge, signed by surface side.
             rib_pos = -(upper * 2.0 - 1.0) * abs(y_pos - front_y) / chord
         
         # CutPoint expects rib_nr to be: list_idx + has_center_cell (then subtracts has_center_cell)
@@ -805,68 +845,119 @@ class DesignTool(BaseTool):
 
     def add_geo(self, event_callback):
         """this function provides some interaction functionality to create points and lines
-        press v to start the mode. if a point is selected, the left and right rib will offer the possebility to add
-        a point + line, if no point is selected, it's possible to add a point to any rib"""
+        press I to start the mode. if a point is selected, the left and right rib will offer the possibility to add
+        a point + line, if no point is selected, it's possible to add a point to any rib.
+        Press I again while in add-mode to cancel."""
         event = event_callback.getEvent()
-        if event.getKey() == ord("i") and event.getState() == 0:
-            if self._add_mode:
-                return
-            self._add_mode = True
-            # first we check if nothing is selected:
-            select_obj = self.event_separator.selected_objects
-            num_of_obj = len(select_obj)
-            action = None
-            add_event = None
-            close_event = None
+        if event.getKey() != ord("i"):
+            return
+        # Key released - ignore
+        if event.getState() != 0:
+            return
 
-            # insert a point
-            if num_of_obj == 0:
-                add_event = self.view.addEventCallbackPivy(
-                    coin.SoLocation2Event.getClassTypeId(), self.add_point
+        # Allow pressing I again to cancel an active add_mode
+        if self._add_mode:
+            self._cancel_add_mode()
+            return
+
+        self._add_mode = True
+        # first we check if nothing is selected:
+        select_obj = self.event_separator.selected_objects
+        num_of_obj = len(select_obj)
+        action = None
+        self._add_event = None
+        self._close_event = None
+
+        # insert a point
+        if num_of_obj == 0:
+            self._add_event = self.view.addEventCallbackPivy(
+                coin.SoLocation2Event.getClassTypeId(), self.add_point
+            )
+            action = self.add_point
+
+        # insert a line + point
+        elif num_of_obj == 1 and isinstance(select_obj[0], CutPoint):
+            self._add_event = self.view.addEventCallbackPivy(
+                coin.SoLocation2Event.getClassTypeId(), self.add_neighbour
+            )
+            self.add_neighbour(event_callback)
+            action = self.add_neighbour
+
+        # join two points with a line
+        elif num_of_obj == 2 and all(isinstance(el, CutPoint) for el in select_obj):
+            cut_point_1 = select_obj[0]
+            cut_point_2 = select_obj[1]
+            if abs(cut_point_1.rib_nr - cut_point_2.rib_nr) == 1:
+                cut_line = CutLine(cut_point_1, cut_point_2, "folded")
+                cut_line.replace_points_by_set()
+                cut_line.update_Line()
+                cut_line.setup_visuals()
+                self.event_separator += [cut_line]
+            # No async action needed - fall through to direct reset below
+
+        def remove_cb(event_callback=None):
+            if event_callback:
+                event = event_callback.getEvent()
+                if not event.getButton() == coin.SoMouseButtonEvent.BUTTON1:
+                    return
+            self._finalize_add_mode(action)
+
+        if action in [self.add_neighbour, self.add_point]:
+            # these functions need an extra callback for closing on mouse button press
+            self._close_event = self.view.addEventCallbackPivy(
+                coin.SoMouseButtonEvent.getClassTypeId(), remove_cb
+            )
+        else:
+            # add line (or no-op): call remove_callback directly
+            self._finalize_add_mode(action)
+
+    def _cancel_add_mode(self):
+        """Cancel an in-progress add_mode, cleaning up callbacks."""
+        if hasattr(self, '_add_event') and self._add_event:
+            try:
+                self.view.removeEventCallbackPivy(
+                    coin.SoLocation2Event.getClassTypeId(), self._add_event
                 )
-                action = self.add_point
-
-            # insert a line + point
-            elif num_of_obj == 1 and isinstance(select_obj[0], CutPoint):
-                add_event = self.view.addEventCallbackPivy(
-                    coin.SoLocation2Event.getClassTypeId(), self.add_neighbour
+            except Exception:
+                pass
+            self._add_event = None
+        if hasattr(self, '_close_event') and self._close_event:
+            try:
+                self.view.removeEventCallbackPivy(
+                    coin.SoMouseButtonEvent.getClassTypeId(), self._close_event
                 )
-                self.add_neighbour(event_callback)
-                action = self.add_neighbour
+            except Exception:
+                pass
+            self._close_event = None
+        self._add_mode = False
+        self.add_separator.removeAllChildren()
 
-            # join two points with a line
-            # add-line
-            elif num_of_obj == 2 and all(isinstance(el, CutPoint) for el in select_obj):
-                cut_point_1 = select_obj[0]
-                cut_point_2 = select_obj[1]
-                if abs(cut_point_1.rib_nr - cut_point_2.rib_nr) == 1:
-                    cut_line = CutLine(cut_point_1, cut_point_2, "folded")
-                    cut_line.replace_points_by_set()
-                    cut_line.update_Line()
-                    cut_line.setup_visuals()
-                    self.event_separator += [cut_line]
+    def _finalize_add_mode(self, action):
+        """Finalize the add_mode: clean up callbacks, commit geometry."""
+        # Remove callbacks
+        if hasattr(self, '_add_event') and self._add_event:
+            try:
+                self.view.removeEventCallbackPivy(
+                    coin.SoLocation2Event.getClassTypeId(), self._add_event
+                )
+            except Exception:
+                pass
+            self._add_event = None
+        if hasattr(self, '_close_event') and self._close_event:
+            try:
+                self.view.removeEventCallbackPivy(
+                    coin.SoMouseButtonEvent.getClassTypeId(), self._close_event
+                )
+            except Exception:
+                pass
+            self._close_event = None
 
-            def remove_cb(event_callback=None):
-                if event_callback:
-                    event = event_callback.getEvent()
-                    if not event.getButton() == coin.SoMouseButtonEvent.BUTTON1:
-                        return
-                if add_event:
-                    self.view.removeEventCallbackPivy(
-                        coin.SoLocation2Event.getClassTypeId(), add_event
-                    )
-                if close_event:
-                    self.view.removeEventCallbackPivy(
-                        coin.SoMouseButtonEvent.getClassTypeId(), close_event
-                    )
-
-                if action == self.add_neighbour:
-                    assert len(self.add_separator.static_objects) == 2
-                    assert isinstance(self.add_separator.static_objects[0], Marker)
-                    assert isinstance(self.add_separator.static_objects[1], Line)
-                    marker = self.add_separator.static_objects[0]
-                    line = self.add_separator.static_objects[1]
-                    # Use helper for correct index conversion
+        try:
+            if action == self.add_neighbour:
+                static = self.add_separator.static_objects
+                if len(static) >= 2 and isinstance(static[0], Marker) and isinstance(static[1], Line):
+                    marker = static[0]
+                    line = static[1]
                     cut_point_1 = self._create_cut_point_at_list_idx(
                         marker.rib_nr,
                         marker.points[0][1]
@@ -879,29 +970,21 @@ class DesignTool(BaseTool):
                     self.event_separator += [cut_point_1, cut_line]
                     self.event_separator.select_object(cut_point_1)
 
-                elif action == self.add_point:
-                    assert len(self.add_separator.static_objects) == 1
-                    assert isinstance(self.add_separator.static_objects[0], Marker)
-                    marker = self.add_separator.static_objects[0]
-                    # Use helper for correct index conversion
+            elif action == self.add_point:
+                static = self.add_separator.static_objects
+                if len(static) >= 1 and isinstance(static[0], Marker):
+                    marker = static[0]
                     cut_point = self._create_cut_point_at_list_idx(
                         marker.rib_nr,
                         marker.points[0][1]
                     )
                     self.event_separator += [cut_point]
                     self.event_separator.select_object(cut_point)
-
-                self._add_mode = False
-                self.add_separator.removeAllChildren()
-
-            if action in [self.add_neighbour, self.add_point]:
-                # these functions need an extra callback for closing on
-                # mouse button press
-                close_event = self.view.addEventCallbackPivy(
-                    coin.SoMouseButtonEvent.getClassTypeId(), remove_cb
-                )
-            else:  # add line: call remove_callback directly
-                remove_cb()
+        except Exception as e:
+            print(f"Design Tool: error finalizing add_mode: {e}")
+        finally:
+            self._add_mode = False
+            self.add_separator.removeAllChildren()
 
     def add_point(self, event_callback=None):
         event = event_callback.getEvent()
@@ -909,13 +992,15 @@ class DesignTool(BaseTool):
         pos = event.getPosition()
         pos = list(self.view.getPoint(*pos))
         pos[2] = 0.0
-        smallest_diff = None, None
 
-        for index, value in enumerate(self.x_values):
+        # Find the closest rib by x distance
+        best_diff = None
+        index = 0
+        for i, value in enumerate(self.x_values):
             diff = abs(pos[0] - value)
-            if (not smallest_diff[0]) or smallest_diff[0] > diff:
-                smallest_diff = diff, index
-        index = smallest_diff[1]
+            if best_diff is None or diff < best_diff:
+                best_diff = diff
+                index = i
         
         # Use stored rib bounds (works correctly for center rib)
         x = self.x_values[index]
@@ -924,7 +1009,7 @@ class DesignTool(BaseTool):
         max_y = max(front_y, back_y)
         
         pos[0] = x
-        if pos[1] > min_y and pos[1] < max_y:
+        if min_y < pos[1] < max_y:
             if len(self.add_separator.static_objects) == 0:
                 self.add_separator.removeAllChildren()
                 marker = Marker([pos])
@@ -968,21 +1053,31 @@ class DesignTool(BaseTool):
         pos = event.getPosition()
         pos = list(self.view.getPoint(*pos))
         pos[2] = 0
+
+        # FIX: Use explicit None checks instead of truthiness tests.
+        # `if not x2` was True when x2==0.0 (center rib at x=0), causing
+        # the left neighbour to always be preferred near the center.
+        left_available = x1 is not None
+        right_available = x2 is not None
         
-        if not x2 or (x1 and abs(pos[0] - x1) < abs(pos[0] - x2)):
-            if x1:
-                pos[0] = x1
-                if pos[1] > min1 and pos[1] < max1:
-                    new_rib_nr = rib_nr - 1
-                    show_point = True
-        elif not x1 or abs(pos[0] - x1) > abs(pos[0] - x2):
-            if x2:
-                pos[0] = x2
-                if pos[1] > min2 and pos[1] < max2:
-                    new_rib_nr = rib_nr + 1
-                    show_point = True
-        else:
-            return
+        # Decide which side the cursor is closer to
+        choose_left = False
+        if left_available and right_available:
+            choose_left = abs(pos[0] - x1) <= abs(pos[0] - x2)
+        elif left_available:
+            choose_left = True
+        # else: only right available, choose_left stays False
+
+        if choose_left and left_available:
+            pos[0] = x1
+            if min1 < pos[1] < max1:
+                new_rib_nr = rib_nr - 1
+                show_point = True
+        elif right_available:
+            pos[0] = x2
+            if min2 < pos[1] < max2:
+                new_rib_nr = rib_nr + 1
+                show_point = True
             
         if show_point:
             if not self.add_separator.static_objects:
@@ -1046,8 +1141,8 @@ class CutPoint(Marker):
         else:
             point = self._get_2D_from_shape()
             self.x_value = point[0]
-            self.max = self.parametric_glider.shape[self.rib_nr, 1.0][1]
-            self.min = self.parametric_glider.shape[self.rib_nr, 0.0][1]
+            self.max = self._get_shape_point(1.0)[1]
+            self.min = self._get_shape_point(0.0)[1]
         
         self.points = [point]
         self.on_drag_release.append(self.get_rib_pos)
@@ -1055,14 +1150,34 @@ class CutPoint(Marker):
     def update_position(self):
         self.points = [self.get_2D()]
 
-    def _get_2D_from_shape(self):
-        """Get 2D position from shape indexing."""
+    def _get_shape_point(self, pos_fraction):
+        """Helper to correctly map self.rib_nr to the parametric shape's internal indexing.
+        
+        When has_center_cell is True, self.rib_nr=0 represents the center rib (x=0).
+        However, the parametric shape's __getitem__ does not have a native index for x=0.
+        shape[0] returns the first physical half-rib (x=x1).
+        This method correctly translates self.rib_nr to the shape's point.
+        """
+        has_center = self.parametric_glider.shape.has_center_cell
         try:
-            return list(
-                self.parametric_glider.shape[self.rib_nr, abs(self.rib_pos)] + [0]
-            )
+            if has_center:
+                if self.rib_nr == 0:
+                    # Center rib (x=0). Y coordinates are the same as the first half-rib.
+                    pt = list(self.parametric_glider.shape[0, pos_fraction])
+                    pt[0] = 0.0  # Force x=0
+                    return pt
+                else:
+                    # 1st half-rib (self.rib_nr=1) is at shape[0], etc.
+                    return list(self.parametric_glider.shape[self.rib_nr - 1, pos_fraction])
+            else:
+                return list(self.parametric_glider.shape[self.rib_nr, pos_fraction])
         except IndexError:
             raise IndexError(f"index {self.rib_nr} out of range")
+
+    def _get_2D_from_shape(self):
+        """Get 2D position from shape indexing."""
+        pt = self._get_shape_point(abs(self.rib_pos))
+        return pt + [0]
 
     def get_2D(self):
         """Get 2D position, using stored bounds if available."""
@@ -1075,16 +1190,26 @@ class CutPoint(Marker):
             return self._get_2D_from_shape()
 
     def get_rib_pos(self):
-        """Update rib_pos from current y position."""
+        """Update rib_pos from current y position after drag.
+        
+        Convention: rib_pos < 0 for upper surface, > 0 for lower surface.
+        Computed as signed distance from LE (min) normalised by chord.
+        """
         if self._has_explicit_bounds:
-            le = self.min
-            te = self.max
+            le = self.min   # LE has the larger y value (front)
+            te = self.max   # TE has the smaller y value (back)
         else:
             le = self.parametric_glider.shape[self.rib_nr, 0][1]
             te = self.parametric_glider.shape[self.rib_nr, 1][1]
         chord = le - te
-        sign = (self.rib_pos >= 0) * 2 - 1
-        self.rib_pos = round(sign * (abs(le - self.pos[1])) / chord, 3)
+        if abs(chord) < 1e-6:
+            return self.rib_pos
+        # Preserve the sign of the original rib_pos (upper=negative, lower=positive)
+        sign = -1 if self.rib_pos < 0 else 1
+        # Distance from LE, normalised by chord - always positive
+        norm_dist = (le - self.pos[1]) / chord
+        norm_dist = max(0.0, min(1.0, norm_dist))  # Clamp to valid range
+        self.rib_pos = round(sign * norm_dist, 3)
         return self.rib_pos
 
     def __eq__(self, other):
@@ -1109,7 +1234,8 @@ class CutPoint(Marker):
 
     @pos.setter
     def pos(self, pos):
-        self.points = [self.x_value, pos[1], 0]
+        # FIX: self.points expects a list-of-points, not a single point
+        self.points = [[self.x_value, pos[1], 0]]
 
     def drag(self, mouse_coords, fact=1.0):
         if self.enabled:
@@ -1181,7 +1307,17 @@ class CutLine(Line):
 
     @property
     def is_upper(self):
-        return self.point1.rib_pos < 0 and self.point2.rib_pos < 0
+        """True when this cut is on the upper (extrados) surface.
+        
+        Convention: rib_pos < 0  → upper surface.
+                    rib_pos > 0  → lower surface.
+                    rib_pos == 0 → zero-chord wingtip (treated as upper since
+                                   both surfaces converge to the same point).
+        We use ``<= 0`` so that wingtip CutPoints (rib_pos = ±1e-4 by
+        convention, or exactly 0 when loaded from an old file) are included
+        in the upper set and remain visible when viewing the upper side.
+        """
+        return self.point1.rib_pos <= 0 and self.point2.rib_pos <= 0
 
     def drag(self, mouse_coords, fact=1.0):
         self.point1.drag(mouse_coords, fact)
@@ -1204,7 +1340,18 @@ class CutLine(Line):
     @classmethod
     def cuts_to_lines(cls, parametric_glider, symmetric_only=True):
         """Convert cut dictionary to visual CutLine objects.
-        
+
+        Index convention
+        ----------------
+        * The dict keys ``cells`` store *cell_no* values as used by
+          ``get_panels``, i.e. 0-based with 0 = center cell for odd
+          cell-count wings (``has_center_cell = True``).
+        * Internally, ``CutPoint.rib_nr`` stores *list_idx* values where
+          ``list_idx = 0`` is the center rib.  ``CutPoint.__init__`` already
+          subtracts ``has_center_cell`` from the raw ``rib_nr`` argument, so
+          we must add it back here:
+              CutPoint(cell_nr + has_center, ...) → .rib_nr = cell_nr
+
         Args:
             parametric_glider: The parametric glider with cuts data
             symmetric_only: If True, only load positive cell indices (half wing).
@@ -1214,20 +1361,23 @@ class CutLine(Line):
         CutLine.lower_point_set = set()
         CutLine.upper_line_list = []
         CutLine.lower_line_list = []
+        has_center = parametric_glider.shape.has_center_cell
         for cut in parametric_glider.elements.get("cuts", []):
             for cell_nr in cut["cells"]:
                 # Filter based on symmetric mode
                 if symmetric_only and cell_nr < 0:
                     continue  # Skip negative (left wing) cells in symmetric mode
+                # Add has_center so that CutPoint.__init__ (which subtracts
+                # has_center) yields the correct rib_nr == cell_nr.
                 try:
                     CutLine(
-                        CutPoint(cell_nr, cut["left"], parametric_glider),
-                        CutPoint(cell_nr + 1, cut["right"], parametric_glider),
+                        CutPoint(cell_nr + has_center, cut["left"], parametric_glider),
+                        CutPoint(cell_nr + 1 + has_center, cut["right"], parametric_glider),
                         cut["type"],
                     )
-                except (TypeError, IndexError):
+                except (TypeError, IndexError) as e:
                     # Skip if cell_nr is out of range
-                    pass
+                    print(f"Design Tool: skipping cut cell {cell_nr}: {e}")
         for l in cls.upper_line_list:
             l.replace_points_by_set()
             l.setup_visuals()
@@ -1237,11 +1387,14 @@ class CutLine(Line):
 
     @property
     def cell_nr(self):
-        # With the new indexing where center rib is at index 0:
-        # - Cell 0 (center) is between ribs 0 and 1
-        # - Cell 1 is between ribs 1 and 2
-        # - etc.
-        # So cell_nr is just the inner rib number
+        """Cell index as stored in the cuts dict (matches get_panels cell_no).
+        
+        Convention: cell_nr == inner_point.rib_nr.
+        - For even cell count: rib 0 is the innermost half-wing rib.
+        - For odd cell count:  rib 0 is the center rib, cell 0 is the center
+          cell (between ribs 0 and 1).
+        This is consistent with what get_panels uses.
+        """
         return self.get_point(inner=True).rib_nr
 
     def get_point(self, inner=True):
@@ -1251,10 +1404,12 @@ class CutLine(Line):
             return self.point2
 
     def get_dict(self):
+        inner = self.get_point(inner=True)
+        outer = self.get_point(inner=False)
         return {
             "cells": [self.cell_nr],
-            "left": self.get_point(inner=True).get_rib_pos(),
-            "right": self.get_point(inner=False).get_rib_pos(),
+            "left": inner.rib_pos,
+            "right": outer.rib_pos,
             "type": self.cut_type,
         }
 
