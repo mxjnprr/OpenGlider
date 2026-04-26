@@ -1176,21 +1176,36 @@ class ParametricGlider(object):
             
             rib.rod_sleeves = rod_sleeves
 
-    def apply_ss_rib_xrot(self, glider):
+    def apply_ss_rib_warp(self, glider):
         """Align SingleSkinRib profiles with the suspension line pull direction.
 
-        In a single-skin zone, ribs are free to rotate laterally (no intrados
-        constraint). The fabric aligns with the line pull axis. This method
-        computes xrot for each SingleSkinRib from the resultant force vector
-        of all suspension lines connected to that rib.
+        In a single-skin zone, ribs are free to warp laterally. The fabric
+        aligns with the line pull axis (trame des suspentes). This method
+        projects the 3D suspension lines onto the rib's local 2D plane and
+        finds their intersection with the virtual intrados.
+        
+        This intersection defines the true anchor point on the rib (updated rib_pos).
+        The tilt of the 3D line (spanwise shift / thickness depth) is recorded
+        as the local shear angle at that chord position.
+        
+        If an attachment point is spanwise-constrained (by a diagonal or
+        an adjacent intrados panel), its shear is fixed to 0.
 
-        Must be called AFTER lineset.recalc() so line forces are available.
+        Must be called AFTER initial lineset.recalc().
         """
         from openglider.glider.rib.rib import SingleSkinRib
+        from openglider.glider.cell.elements import DiagonalRib
+        from openglider.vector.polyline import PolyLine2D
 
         for rib in glider.ribs:
             if not isinstance(rib, SingleSkinRib):
                 continue
+
+            # Find adjacent cells (cells that have this rib as rib1 or rib2)
+            adjacent_cells = [
+                cell for cell in glider.cells
+                if cell.rib1 is rib or cell.rib2 is rib
+            ]
 
             # Collect all uppermost lines connected to this rib
             connected_lines = []
@@ -1199,7 +1214,6 @@ class ParametricGlider(object):
                     connected_lines.append(line)
 
             if not connected_lines:
-                # Fallback: try name-based matching
                 for line in glider.lineset.uppermost_lines:
                     if (hasattr(line.upper_node, 'rib') and
                             hasattr(line.upper_node.rib, 'name') and
@@ -1209,48 +1223,90 @@ class ParametricGlider(object):
             if not connected_lines:
                 continue
 
-            # Compute resultant force vector at this rib
-            resultant = np.zeros(3)
-            for line in connected_lines:
-                if line.force is not None and line.force > 0:
-                    # diff_vector points from lower to upper node (toward rib)
-                    # Negate to get pull direction (from rib toward lower node)
-                    pull_dir = line.lower_node.vec - line.upper_node.vec
-                    pull_dir_norm = pull_dir / np.linalg.norm(pull_dir)
-                    resultant += line.force * pull_dir_norm
+            # Check constraint function
+            def _is_constrained_at(rib_pos_val):
+                abs_pos = abs(rib_pos_val)
+                for cell in adjacent_cells:
+                    is_rib1_side = cell.rib1 is rib
+                    for diag in cell.diagonals:
+                        if isinstance(diag, DiagonalRib):
+                            if is_rib1_side:
+                                d_min = min(abs(diag.left_front[0]), abs(diag.left_back[0]))
+                                d_max = max(abs(diag.left_front[0]), abs(diag.left_back[0]))
+                            else:
+                                d_min = min(abs(diag.right_front[0]), abs(diag.right_back[0]))
+                                d_max = max(abs(diag.right_front[0]), abs(diag.right_back[0]))
+                            if d_min <= abs_pos <= d_max:
+                                return True
+                    for panel in cell.panels:
+                        if panel.is_lower():
+                            if is_rib1_side:
+                                p_min = min(panel.cut_front["left"], panel.cut_back["left"])
+                                p_max = max(panel.cut_front["left"], panel.cut_back["left"])
+                            else:
+                                p_min = min(panel.cut_front["right"], panel.cut_back["right"])
+                                p_max = max(panel.cut_front["right"], panel.cut_back["right"])
+                            if p_min <= abs_pos <= p_max:
+                                return True
+                return False
 
-            res_norm = np.linalg.norm(resultant)
-            if res_norm < 1e-9:
-                continue
-
-            resultant /= res_norm
-
-            # Compute xrot to align the rib plane with the pull direction.
-            # The rib plane should contain both the chord direction and
-            # the pull direction. We find the desired plane normal, then
-            # compute the rotation needed from current normal to desired.
+            # Setup local inverse matrix for projection
             rot = rib.rotation_matrix
-            chord_3d = np.array(rot([1, 0, 0]))       # chord direction
-            current_normal = np.array(rot([0, 0, 1]))  # current rib plane normal
-
-            # Desired plane normal: perpendicular to both chord and pull
-            desired_normal = np.cross(chord_3d, resultant)
-            dn_norm = np.linalg.norm(desired_normal)
-            if dn_norm < 1e-9:
-                # Pull is parallel to chord — can't determine orientation
+            chord_3d = np.array(rot([1, 0, 0]))
+            thick_3d = np.array(rot([0, 1, 0]))
+            span_3d  = np.array(rot([0, 0, 1]))
+            matrix = np.column_stack((chord_3d, thick_3d, span_3d))
+            try:
+                inv_matrix = np.linalg.inv(matrix)
+            except np.linalg.LinAlgError:
                 continue
-            desired_normal /= dn_norm
 
-            # Ensure desired_normal is on the same side as current_normal
-            if np.dot(desired_normal, current_normal) < 0:
-                desired_normal = -desired_normal
+            intrados_poly = PolyLine2D(rib.profile_2d.data[rib.profile_2d.noseindex:])
+            
+            # Map of true anchor positions to local tan_theta (shear)
+            shear_map = {}
 
-            # Signed angle from current_normal to desired_normal around chord
-            cos_angle = np.clip(np.dot(current_normal, desired_normal), -1, 1)
-            sin_angle = np.dot(np.cross(desired_normal, current_normal), chord_3d)
-            xrot = np.arctan2(sin_angle, cos_angle)
-
-            rib.xrot = xrot
+            for line in connected_lines:
+                if not hasattr(line.upper_node, 'rib_pos'):
+                    continue
+                
+                # Check constraints at the extrados projection
+                constrained = _is_constrained_at(line.upper_node.rib_pos)
+                
+                v_3d = line.lower_node.vec - line.upper_node.vec
+                v_local = inv_matrix.dot(v_3d)
+                
+                # 2D local projection (chord, thickness)
+                v_2d = np.array([v_local[0], v_local[1]])
+                
+                p_ext_2d = np.array(rib.profile_2d.profilepoint(line.upper_node.rib_pos))
+                
+                # Ray cast to intrados
+                end_pt = p_ext_2d + 10 * v_2d
+                intersect = intrados_poly.line_intersection(p_ext_2d + 0.001 * v_2d, end_pt)
+                
+                if intersect is not None:
+                    # Update line's physical anchor point to intrados intersection!
+                    true_rib_pos = intersect[0]  # Intrados is positive
+                    line.upper_node.rib_pos = true_rib_pos
+                    
+                    if constrained:
+                        shear_map[true_rib_pos] = 0.0
+                    else:
+                        # tan_theta = dz / dy
+                        if abs(v_local[1]) > 1e-9:
+                            tan_theta = v_local[2] / v_local[1]
+                        else:
+                            tan_theta = 0.0
+                        shear_map[true_rib_pos] = tan_theta
+                else:
+                    # Fallback if no intersection
+                    true_rib_pos = abs(line.upper_node.rib_pos)
+                    line.upper_node.rib_pos = true_rib_pos
+                    shear_map[true_rib_pos] = 0.0
+                    
+            rib.shear_map = shear_map
+            rib.xrot = 0.0
 
     def apply_single_skin(self, glider):
         """Apply single skin configuration to glider ribs.
@@ -1374,11 +1430,7 @@ class ParametricGlider(object):
                         )
                     )
 
-        # Apply hull modification: replace profile_2d with bow-modified version
-        for rib in glider.ribs:
-            if isinstance(rib, SingleSkinRib):
-                hull_profile = rib.get_hull(glider)
-                rib.profile_2d = hull_profile
+        # (Hull profile generation is now deferred until AFTER apply_ss_rib_warp)
 
         # Remove intrados panels from single-skin cells (based on cell INDEX)
         double_first = ss_config.get("double_first", False)
@@ -2426,20 +2478,42 @@ class ParametricGlider(object):
         glider.rename_parts()
 
         glider.lineset = self.lineset.return_lineset(glider, self.v_inf)
+        glider.lineset.glider = glider
+
+        # ---- SINGLESKIN: PHASE 1 ----
+        # Remove intrados panels and convert to SingleSkinRib.
         self.apply_single_skin(glider)
+
+        # Force all SingleSkin APs to extrados temporarily for ray casting
+        from openglider.glider.rib.rib import SingleSkinRib
+        for att in glider.lineset.attachment_points:
+            if hasattr(att, 'rib') and isinstance(att.rib, SingleSkinRib):
+                att.rib_pos = -abs(att.rib_pos)
+
+        glider.lineset.calculate_sag = False
+        
+        # Build lines mesh and let it settle (trame des suspentes)
+        for i in range(3):
+            glider.lineset.recalc()
+
+        # ---- SINGLESKIN: PHASE 2 ----
+        # Cast rays from extrados along lines to intersect virtual intrados.
+        # This updates att.rib_pos to the true intrados points and computes shear map.
+        self.apply_ss_rib_warp(glider)
+
+        # Modify SingleSkin profiles (parabola cutouts) using true intrados APs.
+        for rib in glider.ribs:
+            if isinstance(rib, SingleSkinRib):
+                hull_profile = rib.get_hull(glider)
+                rib.profile_2d = hull_profile
+
+        # apply holes, reinforcements, etc.
         self.apply_holes(glider)
         self.apply_reinforcements(glider)
         self.apply_rod_sleeves(glider)
-        glider.lineset.glider = glider
 
-        glider.lineset.calculate_sag = False
-        for _ in range(3):
-            glider.lineset.recalc()
-        glider.lineset.calculate_sag = True
+        # Final line recalc (now attaching to physical intrados points on sheared ribs)
         glider.lineset.recalc()
-
-        # Align SS rib profiles with line pull direction (must be after recalc)
-        self.apply_ss_rib_xrot(glider)
 
         return glider
 

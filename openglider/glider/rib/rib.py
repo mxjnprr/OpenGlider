@@ -318,6 +318,9 @@ class SingleSkinRib(Rib):
             material_code=material_code,
         )
         self.single_skin_par = single_skin_par or {}
+        self.shear_map = {}
+        self.ss_x_start = None
+        self._original_extrados = None
 
         # we have to apply this function once for the profile2d
         # this will change the position of the attachmentpoints!
@@ -366,6 +369,9 @@ class SingleSkinRib(Rib):
         returns a modified profile2d
         """
         profile = copy.deepcopy(self.profile_2d)
+        if self._original_extrados is None:
+            self._original_extrados = profile.get_extrados_poly().data
+
         attach_pts = glider.get_rib_attachment_points(self)
         pos = list(set([att.rib_pos for att in attach_pts] + [1]))
 
@@ -391,6 +397,8 @@ class SingleSkinRib(Rib):
                     te_gap = 0
 
                 span_list.append([p + le_gap, pos[i + 1] - te_gap])
+
+            self.ss_x_start = span_list[0][0]
 
             for k, sp in enumerate(span_list):
                 if self.single_skin_par["double_first"] and k == 0:
@@ -442,7 +450,92 @@ class SingleSkinRib(Rib):
                         return x
 
                 profile.apply_function(foo)
+        
+        # Unroll 2D profile to preserve 3D sheared distances
+        if self.shear_map and self._original_extrados is not None and self.ss_x_start is not None:
+            ext_x = self._original_extrados[:, 0][::-1]
+            ext_z = self._original_extrados[:, 1][::-1]
+            twist_ramp_dist = max(0.1, self.ss_x_start * 0.5)
+            side_sign = np.sign(self.pos[1]) if abs(self.pos[1]) > 1e-4 else 1.0
+            
+            # Extract shear_map points for interpolation
+            sm_x = sorted(list(self.shear_map.keys()))
+            sm_tan = [self.shear_map[x] for x in sm_x]
+            
+            unrolled_data = np.zeros_like(profile.data, dtype=float)
+            unrolled_data[0] = profile.data[0]
+            
+            for i in range(1, len(profile.data)):
+                x_prev, z_prev = profile.data[i-1]
+                x_curr, z_curr = profile.data[i]
+                
+                # tan_theta for prev
+                tan_theta_prev = np.interp(x_prev, sm_x, sm_tan) if sm_x else 0.0
+                z_ext_prev = np.interp(x_prev, ext_x, ext_z)
+                twist_prev = min(1.0, max(0.0, (x_prev - self.ss_x_start) / twist_ramp_dist)) if x_prev > self.ss_x_start else 0.0
+                y_prev = side_sign * twist_prev * (z_prev - z_ext_prev) * tan_theta_prev
+                
+                # tan_theta for curr
+                tan_theta_curr = np.interp(x_curr, sm_x, sm_tan) if sm_x else 0.0
+                z_ext_curr = np.interp(x_curr, ext_x, ext_z)
+                twist_curr = min(1.0, max(0.0, (x_curr - self.ss_x_start) / twist_ramp_dist)) if x_curr > self.ss_x_start else 0.0
+                y_curr = side_sign * twist_curr * (z_curr - z_ext_curr) * tan_theta_curr
+                
+                dx = x_curr - x_prev
+                dz = z_curr - z_prev
+                dy = y_curr - y_prev
+                
+                ds_3d = np.sqrt(dx**2 + dy**2 + dz**2)
+                ds_2d = np.sqrt(dx**2 + dz**2)
+                
+                if ds_2d > 1e-9:
+                    unrolled_data[i, 0] = unrolled_data[i-1, 0] + dx * (ds_3d / ds_2d)
+                    unrolled_data[i, 1] = unrolled_data[i-1, 1] + dz * (ds_3d / ds_2d)
+                else:
+                    unrolled_data[i] = unrolled_data[i-1]
+                    
+            profile.data = unrolled_data.tolist()
+
         return profile
+
+    def align_all(self, data):
+        """Override to apply progressive Y-shear for SingleSkin ribs."""
+        if not self.shear_map or self._original_extrados is None or self.ss_x_start is None:
+            return super(SingleSkinRib, self).align_all(data)
+
+        # Ensure x is increasing for np.interp (extrados points go from TE to LE, i.e. 1 to 0)
+        ext_x = self._original_extrados[:, 0][::-1]
+        ext_z = self._original_extrados[:, 1][::-1]
+
+        data_3d = set_dimension(data, 3)
+        
+        # Extract shear_map points for interpolation
+        sm_x = sorted(list(self.shear_map.keys()))
+        sm_tan = [self.shear_map[x] for x in sm_x]
+        
+        # We need the first bow's length to transition the twist
+        # If there are bows, ss_x_start is the start of the first bow.
+        # We ramp from 0 to 1 over the first bow, or just over a fixed length.
+        # Given "Option A" - transition over the first bow or at least 10% of chord
+        twist_ramp_dist = max(0.1, self.ss_x_start * 0.5)
+
+        for i, point in enumerate(data):
+            x, z = point[0], point[1]
+            z_extrados = np.interp(x, ext_x, ext_z)
+            tan_theta_local = np.interp(x, sm_x, sm_tan) if sm_x else 0.0
+            
+            # Twist factor: 0 at LE tube, ramps up after ss_x_start
+            if x <= self.ss_x_start:
+                twist_factor = 0.0
+            else:
+                twist_factor = min(1.0, (x - self.ss_x_start) / twist_ramp_dist)
+
+            # Use the side of the glider (sign of Y position) to correct the shear direction
+            side_sign = np.sign(self.pos[1]) if abs(self.pos[1]) > 1e-4 else 1.0
+            y_shift = side_sign * twist_factor * (z - z_extrados) * tan_theta_local
+            data_3d[i][2] = y_shift
+
+        return self.transformation.apply(data_3d)
 
 
 def pseudo_2d_cross(v1, v2):
