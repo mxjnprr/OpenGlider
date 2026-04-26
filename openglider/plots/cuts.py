@@ -19,8 +19,16 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import math
 
-from openglider.vector.functions import normalize, rotation_2d
+from openglider.vector.functions import normalize, rotation_2d, norm
 from openglider.vector.polyline import PolyLine2D
+
+def robust_cut(poly, p1, p2, startpoint, reference_p):
+    try:
+        return next(poly.cut(p1, p2, startpoint, extrapolate=True))
+    except StopIteration:
+        distances = [norm(p - reference_p) for p in poly]
+        idx = min(range(len(distances)), key=distances.__getitem__)
+        return [idx, 0]
 
 
 class CutResult:
@@ -79,8 +87,13 @@ class DesignCut(object):
         newlist = []
         # todo: sort by distance
         cuts_left = list(outer_left.cut(p1, p2, inner_lists[0][1], extrapolate=True))
-        cuts_left.sort(key=lambda cut: abs(cut[1]))
-        leftcut_index = cuts_left[0][0]
+        if cuts_left:
+            cuts_left.sort(key=lambda cut: abs(cut[1]))
+            leftcut_index = cuts_left[0][0]
+        else:
+            distances = [norm(p - p1) for p in outer_left]
+            leftcut_index = min(range(len(distances)), key=distances.__getitem__)
+            
         leftcut = outer_left[leftcut_index]
 
         newlist.append(leftcut)
@@ -90,8 +103,13 @@ class DesignCut(object):
             newlist.append(thislist[0][thislist[1]] + normvector * self.amount)
 
         cuts_right = list(outer_right.cut(p1, p2, inner_lists[-1][1], extrapolate=True))
-        cuts_right.sort(key=lambda cut: abs(cut[1]))
-        rightcut_index = cuts_right[0][0]
+        if cuts_right:
+            cuts_right.sort(key=lambda cut: abs(cut[1]))
+            rightcut_index = cuts_right[0][0]
+        else:
+            distances = [norm(p - p2) for p in outer_right]
+            rightcut_index = min(range(len(distances)), key=distances.__getitem__)
+            
         rightcut = outer_right[rightcut_index]
 
         newlist.append(rightcut + normvector * self.amount)
@@ -109,12 +127,8 @@ class SimpleCut(DesignCut):
 
         normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
 
-        leftcut_index = next(
-            outer_left.cut(p1, p2, inner_lists[0][1], extrapolate=True)
-        )
-        rightcut_index = next(
-            outer_right.cut(p1, p2, inner_lists[-1][1], extrapolate=True)
-        )
+        leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
+        rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)
 
         index_left = leftcut_index[0]
         index_right = rightcut_index[0]
@@ -122,21 +136,23 @@ class SimpleCut(DesignCut):
         leftcut = outer_left[index_left]
         rightcut = outer_right[index_right]
 
-        leftcut_index_2 = outer_left.cut(
+        leftcut_index_2 = robust_cut(
+            outer_left,
             p1 - normvector * self.amount,
             p2 - normvector * self.amount,
             inner_lists[0][1],
-            extrapolate=True,
+            p1 - normvector * self.amount
         )
-        rightcut_index_2 = outer_right.cut(
+        rightcut_index_2 = robust_cut(
+            outer_right,
             p1 - normvector * self.amount,
             p2 - normvector * self.amount,
             inner_lists[-1][1],
-            extrapolate=True,
+            p2 - normvector * self.amount
         )
 
-        leftcut_2 = outer_left[next(leftcut_index_2)[0]]
-        rightcut_2 = outer_right[next(rightcut_index_2)[0]]
+        leftcut_2 = outer_left[leftcut_index_2[0]]
+        rightcut_2 = outer_right[rightcut_index_2[0]]
         diff_l, diff_r = leftcut - leftcut_2, rightcut - rightcut_2
 
         curve = PolyLine2D([leftcut, leftcut + diff_l, rightcut + diff_r, rightcut])
@@ -182,12 +198,8 @@ class Cut3D(DesignCut):
         right_2 = point_list[-1]
         right_ik = inner_ik[-1]
 
-        leftcut_index, _ = next(
-            outer_left.cut(left_1, left_2, left_ik, extrapolate=True)
-        )
-        rightcut_index, _ = next(
-            outer_right.cut(right_1, right_2, right_ik, extrapolate=True)
-        )
+        leftcut_index = robust_cut(outer_left, left_1, left_2, left_ik, left_1)[0]
+        rightcut_index = robust_cut(outer_right, right_1, right_2, right_ik, right_2)[0]
 
         curve = PolyLine2D(point_list)
 
@@ -216,12 +228,8 @@ class Cut3D_2(DesignCut):
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
         normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
 
-        leftcut_index = next(
-            outer_left.cut(p1, p2, inner_lists[0][1], extrapolate=True)
-        )
-        rightcut_index = next(
-            outer_right.cut(p1, p2, inner_lists[-1][1], extrapolate=True)
-        )
+        leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
+        rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)
 
         index_left = leftcut_index[0]
         index_right = rightcut_index[0]
@@ -255,21 +263,13 @@ class FoldedCut(DesignCut):
 
         normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
 
-        left_start_index = next(
-            outer_left.cut(p1, p2, inner_lists[0][1], extrapolate=True)
-        )[0]
-        right_start_index = next(
-            outer_right.cut(p1, p2, inner_lists[-1][1], extrapolate=True)
-        )[0]
+        left_start_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)[0]
+        right_start_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)[0]
 
         pp1 = p1 - normvector * self.amount
         pp2 = p2 - normvector * self.amount
-        left_end_index = next(
-            outer_left.cut(pp1, pp2, inner_lists[0][1], extrapolate=True)
-        )[0]
-        right_end_index = next(
-            outer_right.cut(pp1, pp2, inner_lists[-1][1], extrapolate=True)
-        )[0]
+        left_end_index = robust_cut(outer_left, pp1, pp2, inner_lists[0][1], pp1)[0]
+        right_end_index = robust_cut(outer_right, pp1, pp2, inner_lists[-1][1], pp2)[0]
 
         left_start = outer_left[left_start_index]
         left_end = outer_left[left_end_index]
@@ -313,12 +313,8 @@ class ParallelCut(DesignCut):
 
         normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
 
-        leftcut_index = next(
-            outer_left.cut(p1, p2, inner_lists[0][1], extrapolate=True)
-        )
-        rightcut_index = next(
-            outer_right.cut(p1, p2, inner_lists[-1][1], extrapolate=True)
-        )
+        leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
+        rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)
 
         index_left = leftcut_index[0]
         index_right = rightcut_index[0]
@@ -326,21 +322,23 @@ class ParallelCut(DesignCut):
         leftcut = outer_left[index_left]
         rightcut = outer_right[index_right]
 
-        leftcut_index_2 = outer_left.cut(
+        leftcut_index_2 = robust_cut(
+            outer_left,
             p1 - normvector * self.amount,
             p2 - normvector * self.amount,
             inner_lists[0][1],
-            extrapolate=True,
+            p1 - normvector * self.amount
         )
-        rightcut_index_2 = outer_right.cut(
+        rightcut_index_2 = robust_cut(
+            outer_right,
             p1 - normvector * self.amount,
             p2 - normvector * self.amount,
             inner_lists[-1][1],
-            extrapolate=True,
+            p2 - normvector * self.amount
         )
 
-        leftcut_2 = outer_left[next(leftcut_index_2)[0]]
-        rightcut_2 = outer_right[next(rightcut_index_2)[0]]
+        leftcut_2 = outer_left[leftcut_index_2[0]]
+        rightcut_2 = outer_right[rightcut_index_2[0]]
         diff = (leftcut - leftcut_2 + rightcut - rightcut_2) / 2
 
         curve = PolyLine2D([leftcut, leftcut + diff, rightcut + diff, rightcut])

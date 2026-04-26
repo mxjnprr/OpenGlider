@@ -2501,11 +2501,13 @@ class ParametricGlider(object):
         # This updates att.rib_pos to the true intrados points and computes shear map.
         self.apply_ss_rib_warp(glider)
 
-        # Modify SingleSkin profiles (parabola cutouts) using true intrados APs.
+        # Build SingleSkin hull profiles (parabola cutouts) using true intrados APs.
+        # We call get_hull() to cache the result in rib._hull_profile.
+        # We do NOT overwrite profile_2d — that keeps profile_3d based on the clean
+        # aero profile, which is essential for correct get_flattened_cell() results.
         for rib in glider.ribs:
             if isinstance(rib, SingleSkinRib):
-                hull_profile = rib.get_hull(glider)
-                rib.profile_2d = hull_profile
+                rib.get_hull(glider)
 
         # apply holes, reinforcements, etc.
         self.apply_holes(glider)

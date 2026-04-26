@@ -855,7 +855,7 @@ class Panel(object):
         :param numribs: number of miniribs to calculate
         :return: List of rib-pieces (Vectorlist)
         """
-        xvalues = cell.rib1.profile_2d.x_values
+        xvalues = cell.rib1.base_profile_2d.x_values
         ribs = []
         for i in range(numribs + 1):
             # Map y from 0-1 to y_start-y_end range
@@ -890,7 +890,7 @@ class Panel(object):
         """
         numribs += 1
         # TODO: doesn't work for numribs=0?
-        xvalues = cell.rib1.profile_2d.x_values
+        xvalues = cell.rib1.base_profile_2d.x_values
         ribs = []
         points = []
         nums = []
@@ -989,12 +989,12 @@ class Panel(object):
         :return: [[front_ik_0, back_ik_0], ...[front_ik_n, back_ik_n]] with n is numribs + 1
         """
         # TODO: move to cut!!
-        x_values_left = cell.rib1.profile_2d.x_values
+        x_values_left = cell.rib1.base_profile_2d.x_values
 
         ik_left_front = get_x_value(x_values_left, self.cut_front["left"])
         ik_left_back = get_x_value(x_values_left, self.cut_back["left"])
 
-        x_values_right = cell.rib2.profile_2d.x_values
+        x_values_right = cell.rib2.base_profile_2d.x_values
         ik_right_front = get_x_value(x_values_right, self.cut_front["right"])
         ik_right_back = get_x_value(x_values_right, self.cut_back["right"])
 
@@ -1299,12 +1299,12 @@ class LeadingEdgeClosure:
     
     def get_leading_edge_ik(self, cell: "Cell") -> float:
         """Get the profile index for the leading edge (x=0)."""
-        x_values = cell.rib1.profile_2d.x_values
+        x_values = cell.rib1.base_profile_2d.x_values
         return get_x_value(x_values, 0.0)
     
     def get_cut_back_ik(self, cell: "Cell") -> float:
         """Get the profile index for the cut_back_x position."""
-        x_values = cell.rib1.profile_2d.x_values
+        x_values = cell.rib1.base_profile_2d.x_values
         return get_x_value(x_values, self.cut_back_x)
     
     def get_3d_left(self, cell: "Cell", numribs: int = 8):

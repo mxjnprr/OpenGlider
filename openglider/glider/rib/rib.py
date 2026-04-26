@@ -196,6 +196,11 @@ class Rib(CachedObject):
         return profile
 
     @property
+    def base_profile_2d(self):
+        """Return the base (non-modified) 2D profile used for x_value indexing."""
+        return self.profile_2d
+
+    @property
     def normalized_normale(self):
         return self.rotation_matrix(np.array([0.0, 0.0, 1.0]))
 
@@ -321,6 +326,10 @@ class SingleSkinRib(Rib):
         self.shear_map = {}
         self.ss_x_start = None
         self._original_extrados = None
+        # Save original aero profile so profile_3d is never polluted by hull bows.
+        # (get_glider_3d calls get_hull() and used to overwrite profile_2d — don't.)
+        self._aero_profile_2d = self.profile_2d
+        self._hull_profile = None  # populated by get_hull() after warp is applied
 
         # we have to apply this function once for the profile2d
         # this will change the position of the attachmentpoints!
@@ -364,10 +373,22 @@ class SingleSkinRib(Rib):
         json_dict["single_skin_par"] = self.single_skin_par
         return json_dict
 
+    @cached_property("self")
+    def profile_3d(self):
+        """Always built from the ORIGINAL aero profile, not the hull with bows."""
+        aero = getattr(self, '_aero_profile_2d', None) or self.profile_2d
+        if aero.data is not None:
+            return Profile3D(self.align_all(aero.data))
+        raise ValueError("no 2d-profile present for rib {}".format(self.name))
+
     def get_hull(self, glider=None):
         """
-        returns a modified profile2d
+        returns a modified profile2d (with parabolic bows for singleskin).
+        Result is cached in self._hull_profile after first computation.
         """
+        if self._hull_profile is not None:
+            return self._hull_profile
+
         profile = copy.deepcopy(self.profile_2d)
         if self._original_extrados is None:
             self._original_extrados = profile.get_extrados_poly().data
@@ -451,52 +472,16 @@ class SingleSkinRib(Rib):
 
                 profile.apply_function(foo)
         
-        # Unroll 2D profile to preserve 3D sheared distances
-        if self.shear_map and self._original_extrados is not None and self.ss_x_start is not None:
-            ext_x = self._original_extrados[:, 0][::-1]
-            ext_z = self._original_extrados[:, 1][::-1]
-            twist_ramp_dist = max(0.1, self.ss_x_start * 0.5)
-            side_sign = np.sign(self.pos[1]) if abs(self.pos[1]) > 1e-4 else 1.0
-            
-            # Extract shear_map points for interpolation
-            sm_x = sorted(list(self.shear_map.keys()))
-            sm_tan = [self.shear_map[x] for x in sm_x]
-            
-            unrolled_data = np.zeros_like(profile.data, dtype=float)
-            unrolled_data[0] = profile.data[0]
-            
-            for i in range(1, len(profile.data)):
-                x_prev, z_prev = profile.data[i-1]
-                x_curr, z_curr = profile.data[i]
-                
-                # tan_theta for prev
-                tan_theta_prev = np.interp(x_prev, sm_x, sm_tan) if sm_x else 0.0
-                z_ext_prev = np.interp(x_prev, ext_x, ext_z)
-                twist_prev = min(1.0, max(0.0, (x_prev - self.ss_x_start) / twist_ramp_dist)) if x_prev > self.ss_x_start else 0.0
-                y_prev = side_sign * twist_prev * (z_prev - z_ext_prev) * tan_theta_prev
-                
-                # tan_theta for curr
-                tan_theta_curr = np.interp(x_curr, sm_x, sm_tan) if sm_x else 0.0
-                z_ext_curr = np.interp(x_curr, ext_x, ext_z)
-                twist_curr = min(1.0, max(0.0, (x_curr - self.ss_x_start) / twist_ramp_dist)) if x_curr > self.ss_x_start else 0.0
-                y_curr = side_sign * twist_curr * (z_curr - z_ext_curr) * tan_theta_curr
-                
-                dx = x_curr - x_prev
-                dz = z_curr - z_prev
-                dy = y_curr - y_prev
-                
-                ds_3d = np.sqrt(dx**2 + dy**2 + dz**2)
-                ds_2d = np.sqrt(dx**2 + dz**2)
-                
-                if ds_2d > 1e-9:
-                    unrolled_data[i, 0] = unrolled_data[i-1, 0] + dx * (ds_3d / ds_2d)
-                    unrolled_data[i, 1] = unrolled_data[i-1, 1] + dz * (ds_3d / ds_2d)
-                else:
-                    unrolled_data[i] = unrolled_data[i-1]
-                    
-            profile.data = unrolled_data.tolist()
-
+        # NOTE: The flat pattern of a SingleSkin rib is its 2D profile + parabolic bows.
+        # The spanwise warp (shear_map) only affects the 3D positioning via align_all().
+        # No coordinate stretching is applied here — that would distort the cut pattern.
+        self._hull_profile = profile
         return profile
+
+    @property
+    def base_profile_2d(self):
+        """Return the unmodified 2D profile (no bow shaping) for x_value indexing."""
+        return self.profile_2d
 
     def align_all(self, data):
         """Override to apply progressive Y-shear for SingleSkin ribs."""
