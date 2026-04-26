@@ -1223,21 +1223,17 @@ class ParametricGlider(object):
             if not connected_lines:
                 continue
 
-            # Check constraint function
+            # Check constraint function.
+            # A rib is constrained at a given chord position only if there is
+            # an INTRADOS PANEL at that position: intrados fabric physically
+            # prevents the rib from leaning freely.
+            # Diagonal ribs do NOT constrain the warp — they follow the new
+            # shifted anchor point, since their 3D geometry is computed via
+            # align_all() which already applies the shear map.
             def _is_constrained_at(rib_pos_val):
                 abs_pos = abs(rib_pos_val)
                 for cell in adjacent_cells:
                     is_rib1_side = cell.rib1 is rib
-                    for diag in cell.diagonals:
-                        if isinstance(diag, DiagonalRib):
-                            if is_rib1_side:
-                                d_min = min(abs(diag.left_front[0]), abs(diag.left_back[0]))
-                                d_max = max(abs(diag.left_front[0]), abs(diag.left_back[0]))
-                            else:
-                                d_min = min(abs(diag.right_front[0]), abs(diag.right_back[0]))
-                                d_max = max(abs(diag.right_front[0]), abs(diag.right_back[0]))
-                            if d_min <= abs_pos <= d_max:
-                                return True
                     for panel in cell.panels:
                         if panel.is_lower():
                             if is_rib1_side:
