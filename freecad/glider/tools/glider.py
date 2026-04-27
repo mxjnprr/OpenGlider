@@ -648,7 +648,15 @@ def draw_glider(
         rib_sep.setName("ribs")
         msh = mesh.Mesh()
         line_msh = mesh.Mesh()
+        from openglider.glider.rib.rib import SingleSkinRib
+        _suspended_ribs = {
+            att.rib for att in glider.lineset.attachment_points
+            if hasattr(att, 'rib')
+        }
         for rib in glider.ribs:
+            # Non-suspended SS ribs don't physically exist — skip in 3D view.
+            if isinstance(rib, SingleSkinRib) and rib not in _suspended_ribs:
+                continue
             if not rib.profile_2d.has_zero_thickness:
                 msh += rib.get_mesh(hole_num, glider=glider, filled=fill_ribs)
 
