@@ -122,9 +122,19 @@ class PlotMaker(object):
     def get_ribs(self, rotate=False):
         from openglider.glider.rib.rib import SingleSkinRib
 
+        # Build the set of suspended ribs (have line attachments)
+        suspended_ribs = {
+            att.rib for att in self.glider_3d.lineset.attachment_points
+            if hasattr(att, 'rib')
+        }
+
         self.ribs = []
         for rib in self.glider_3d.ribs:
             if isinstance(rib, SingleSkinRib):
+                # In singleskin gliders only suspended ribs exist as physical parts.
+                # Non-suspended SS ribs are virtual reference elements — skip them.
+                if rib not in suspended_ribs:
+                    continue
                 rib_plot = SingleSkinRibPlot(rib)
             else:
                 rib_plot = self.RibPlot(rib, self.config)

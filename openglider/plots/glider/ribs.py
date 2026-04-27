@@ -398,6 +398,43 @@ class SingleSkinRibPlot(RibPlot):
 
         return self.skin_cut
 
+    def insert_holes(self):
+        """Insert holes using the hull profile so they fit within the hull outline.
+
+        apply_holes() computes hole positions using rib.profile_2d (aero profile).
+        The rib outline uses get_hull() which has bows pushing the intrados upward.
+        Holes computed in aero space therefore extend below the hull intrados boundary
+        and are invisible in the pattern.  Fix: temporarily swap profile_2d to the
+        cached hull profile and clear stored available_height so get_points() measures
+        the hole height against hull thickness rather than aero thickness.
+        """
+        hull = getattr(self.rib, '_hull_profile', None)
+        if hull is None:
+            # Hull not yet cached (shouldn't happen after flatten) — fall back.
+            super(SingleSkinRibPlot, self).insert_holes()
+            return
+
+        orig_profile = self.rib.profile_2d
+        self.rib.profile_2d = hull
+        try:
+            for hole in self.rib.holes:
+                # Temporarily clear available_height so get_points() recomputes it
+                # from hull local_thickness instead of the stored aero-based value.
+                orig_ah = hole.available_height
+                hole.available_height = None
+                try:
+                    poly = hole.get_flattened(self.rib)
+                    self.plotpart.layers["cuts"].append(poly)
+                finally:
+                    hole.available_height = orig_ah
+        finally:
+            self.rib.profile_2d = orig_profile
+
+        # Cone holes use custom_points in normalized coords — draw them as-is.
+        for hole in getattr(self.rib, 'cone_holes', []):
+            poly = hole.get_flattened(self.rib)
+            self.plotpart.layers["cuts"].append(poly)
+
     def flatten(self, glider):
         self._get_singleskin_cut(glider)
         return super(SingleSkinRibPlot, self).flatten(glider)
