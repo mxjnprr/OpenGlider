@@ -1127,7 +1127,14 @@ class diagonals_table(base_table_widget):
                 item = self.table.item(row, col)
                 if item:
                     item.setText("")
-        
+
+        # Ensure the table has enough rows for all entries.
+        # With num_bands > 1 the generated list can easily exceed the 200-row default,
+        # causing Qt to silently drop setItem() calls beyond rowCount().
+        needed = max(200, len(diagonals_list) + 20)
+        if self.table.rowCount() < needed:
+            self.table.setRowCount(needed)
+
         # Fill with new data
         for row, element in enumerate(diagonals_list):
             # Format: rf_x, rf_h, rb_x, rb_h, lb_x, lb_h, lf_x, lf_h, cells
@@ -1136,7 +1143,7 @@ class diagonals_table(base_table_widget):
             lb = element["left_back"]
             lf = element["left_front"]
             cells_str = ",".join(map(str, element["cells"]))
-            
+
             entries = [rf[0], rf[1], rb[0], rb[1], lb[0], lb[1], lf[0], lf[1], cells_str]
             for col, value in enumerate(entries):
                 self.table.setItem(row, col, value)
