@@ -385,9 +385,16 @@ class SingleSkinRib(Rib):
         json_dict["single_skin_par"] = self.single_skin_par
         return json_dict
 
-    @cached_property("self")
+    @property
     def profile_3d(self):
-        """Always built from the ORIGINAL aero profile, not the hull with bows."""
+        """Always built from the ORIGINAL aero profile with shear applied.
+
+        Deliberately NOT cached: shear_map is set at runtime by apply_ss_rib_warp
+        and is not part of __json__ / the cache hash key.  If this were cached,
+        the version computed before the warp (shear_map={}) would be returned
+        for all subsequent calls — including the final lineset.recalc() — causing
+        suspension line endpoints to point at the unwarped rib positions.
+        """
         aero = getattr(self, '_aero_profile_2d', None) or self.profile_2d
         if aero.data is not None:
             return Profile3D(self.align_all(aero.data))

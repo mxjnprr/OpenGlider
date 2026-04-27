@@ -508,7 +508,11 @@ class CellTool(BaseTool):
             if projections:
                 proj_map = {}
                 for proj in projections:
-                    proj_map[round(proj['ap'].rib_pos, 4)] = proj
+                    # Key by the ORIGINAL parametric rib_pos (before apply_ss_rib_warp moved it
+                    # to the intrados intersection), so _get_axis_x can match it against
+                    # the values returned by _get_suspended_ribs_with_layer (parametric lineset).
+                    key_pos = getattr(proj['ap'], '_orig_rib_pos', abs(proj['ap'].rib_pos))
+                    proj_map[round(key_pos, 4)] = proj
                 rib_projections[rib_idx] = proj_map
             # Cache extrados poly for angle intersection
             try:

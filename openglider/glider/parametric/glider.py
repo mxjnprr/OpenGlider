@@ -1303,6 +1303,13 @@ class ParametricGlider(object):
                     
             rib.shear_map = shear_map
             rib.xrot = 0.0
+            # Explicitly invalidate ALL cached properties on this rib.
+            # shear_map is a runtime attribute not included in __json__, so
+            # cached_property("self") would NOT detect the change.  Clearing the
+            # _cache dict forces profile_3d (and anything else) to recompute
+            # with the correct shear on the next access (e.g. lineset.recalc).
+            if hasattr(rib, '_cache'):
+                rib._cache.clear()
 
     def apply_single_skin(self, glider):
         """Apply single skin configuration to glider ribs.
@@ -2480,10 +2487,13 @@ class ParametricGlider(object):
         # Remove intrados panels and convert to SingleSkinRib.
         self.apply_single_skin(glider)
 
-        # Force all SingleSkin APs to extrados temporarily for ray casting
+        # Force all SingleSkin APs to extrados temporarily for ray casting.
+        # Save _orig_rib_pos BEFORE modification so tools (e.g. auto-fill diagonals)
+        # can match projections against the original parametric chord position.
         from openglider.glider.rib.rib import SingleSkinRib
         for att in glider.lineset.attachment_points:
             if hasattr(att, 'rib') and isinstance(att.rib, SingleSkinRib):
+                att._orig_rib_pos = abs(att.rib_pos)   # parametric chord pos (e.g. 0.30)
                 att.rib_pos = -abs(att.rib_pos)
 
         glider.lineset.calculate_sag = False
