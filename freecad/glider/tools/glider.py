@@ -652,6 +652,7 @@ def draw_glider(
         _suspended_ribs = {
             att.rib for att in glider.lineset.attachment_points
             if hasattr(att, 'rib')
+            and getattr(att, '_orig_rib_pos', att.rib_pos) <= 0.9
         }
         for rib in glider.ribs:
             # Non-suspended SS ribs don't physically exist — skip in 3D view.

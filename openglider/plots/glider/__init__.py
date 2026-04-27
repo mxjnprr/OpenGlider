@@ -122,10 +122,12 @@ class PlotMaker(object):
     def get_ribs(self, rotate=False):
         from openglider.glider.rib.rib import SingleSkinRib
 
-        # Build the set of suspended ribs (have line attachments)
+        # Build the set of suspended ribs (have real suspension line attachments).
+        # Exclude brake tab attachments (original rib_pos > 0.9, near trailing edge).
         suspended_ribs = {
             att.rib for att in self.glider_3d.lineset.attachment_points
             if hasattr(att, 'rib')
+            and getattr(att, '_orig_rib_pos', att.rib_pos) <= 0.9
         }
 
         self.ribs = []
