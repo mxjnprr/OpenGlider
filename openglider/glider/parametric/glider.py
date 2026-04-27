@@ -398,11 +398,6 @@ class ParametricGlider(object):
         MIN_CHORD_FOR_HOLES = 0.15  # 15cm minimum chord (reduced from 30cm)
 
         for rib_idx, rib in enumerate(glider.ribs):
-            # Skip SingleSkinRib — their profiles are truncated (bows replace
-            # intrados), so standard hole geometry would overflow
-            from openglider.glider.rib.rib import SingleSkinRib
-            if isinstance(rib, SingleSkinRib):
-                continue
 
             # Skip sealed ribs (solid walls around SS zone — no holes)
             ss_sealed = getattr(glider, '_ss_sealed_rib_indices', set())

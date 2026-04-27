@@ -286,18 +286,6 @@ class Rib(CachedObject):
 
 
 class SingleSkinRib(Rib):
-    def get_mesh(self, hole_num=10, glider=None, filled=False, max_area=None):
-        if not filled:
-            return super(SingleSkinRib, self).get_mesh(hole_num, glider, filled, max_area)
-        else:
-            # Bypass MeshPy triangulation for SingleSkin ribs to prevent SIGSEGV.
-            # The complex non-convex hull with parabolic bows often creates degenerate
-            # or near-degenerate geometries that cause triangle.c to crash the interpreter.
-            # Instead, we return a single N-gon and let FreeCAD tessellate it natively.
-            vertices = list(self.get_hull(glider))[:-1]
-            boundary = list(range(len(vertices)))
-            return Mesh.from_indexed(self.align_all(vertices), {"ribs": [boundary]}, {})
-
     def __init__(
         self,
         profile_2d=None,
