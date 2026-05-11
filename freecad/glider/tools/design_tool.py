@@ -458,9 +458,24 @@ class DesignTool(BaseTool):
         self._update_point_buttons_state()
     
     def path_cut_type_changed(self):
-        """Handle path cut type change."""
+        """Handle path cut type change.
+
+        Applies to the currently selected design path, and also to any
+        CutLines selected in the event separator, so this dropdown can be
+        used interchangeably with the "cut type" combobox.
+        """
+        text = self.Qpath_cut_type.currentText()
         if self._selected_path:
-            self._selected_path.cut_type = self.Qpath_cut_type.currentText()
+            self._selected_path.cut_type = text
+        for element in self.event_separator.selected_objects:
+            if isinstance(element, CutLine):
+                element.cut_type = text
+        # Mirror into the other combobox.
+        cut_index = self.Qcut_type.findText(text)
+        if cut_index is not None and cut_index >= 0:
+            self.Qcut_type.blockSignals(True)
+            self.Qcut_type.setCurrentIndex(cut_index)
+            self.Qcut_type.blockSignals(False)
     
     def path_selection_changed(self):
         """Handle selection change in path separator - select the path of clicked marker."""
@@ -739,9 +754,79 @@ class DesignTool(BaseTool):
                 self.event_separator.select_object(line, multi=True)
 
     def delete_selected_cuts(self):
-        """Delete all selected CutPoints and CutLines."""
-        # Simply use the native pivy remove_selected which works correctly
-        self.event_separator.remove_selected()
+        """Delete the selected CutLines / CutPoints without cascading
+        through shared endpoints.
+
+        CutPoints at the same (rib_nr, rib_pos) are intentionally shared
+        between adjacent cells (that is what makes ``select_connected``
+        traverse a whole chord-percentage chain). Pivy's native
+        ``remove_selected`` propagates ``_delete`` through those shared
+        points via ``CutLine.check_dependency``, which wipes every cut
+        that touches the shared endpoint - not just the one the user
+        clicked.
+
+        Here we instead build the explicit set of CutLines to remove:
+        - any selected CutLine,
+        - plus every CutLine incident to a selected CutPoint (a point
+          selection still means "remove the cut(s) ending here").
+        Then we detach those lines from their endpoints before flagging
+        them, so neighbouring lines keep their shared point alive. A
+        point is only removed once no surviving line references it.
+        """
+        sep = self.event_separator
+        selected = list(sep.selected_objects)
+        if not selected:
+            return
+
+        lines_to_delete = set()
+        points_explicit = set()
+        for el in selected:
+            if isinstance(el, CutLine):
+                lines_to_delete.add(el)
+            elif isinstance(el, CutPoint):
+                points_explicit.add(el)
+
+        for pt in points_explicit:
+            for ln in list(pt.lines):
+                lines_to_delete.add(ln)
+
+        for ln in lines_to_delete:
+            for pt in (ln.point1, ln.point2):
+                if ln in pt.lines:
+                    pt.lines.remove(ln)
+            if ln.is_upper:
+                if ln in CutLine.upper_line_list:
+                    CutLine.upper_line_list.remove(ln)
+            else:
+                if ln in CutLine.lower_line_list:
+                    CutLine.lower_line_list.remove(ln)
+            ln._delete = True
+
+        points_to_delete = set(points_explicit)
+        for ln in lines_to_delete:
+            for pt in (ln.point1, ln.point2):
+                if not pt.lines:
+                    points_to_delete.add(pt)
+
+        for pt in points_to_delete:
+            CutLine.upper_point_set.discard(pt)
+            CutLine.lower_point_set.discard(pt)
+            pt._delete = True
+
+        to_remove = [o for o in sep.dynamic_objects + sep.static_objects
+                     if getattr(o, "_delete", False)]
+        sep.selected_objects = []
+        sep.over_object = None
+        for obj in to_remove:
+            if obj in sep.dynamic_objects:
+                sep.dynamic_objects.remove(obj)
+            elif obj in sep.static_objects:
+                sep.static_objects.remove(obj)
+            try:
+                sep.objects.removeChild(obj)
+            except Exception:
+                pass
+        sep.selection_changed()
 
     def selection_changed(self):
         points = set()
@@ -766,14 +851,30 @@ class DesignTool(BaseTool):
             self.QPointPos.blockSignals(False)
 
     def set_cut_type(self, text):
+        # Keep both dropdowns in sync with the currently selected cut so the
+        # user does not have to guess which combobox reflects the real type.
         index = self.Qcut_type.findText(text)
-        if index is not None:
+        if index is not None and index >= 0:
+            self.Qcut_type.blockSignals(True)
             self.Qcut_type.setCurrentIndex(index)
+            self.Qcut_type.blockSignals(False)
+        path_index = self.Qpath_cut_type.findText(text)
+        if path_index is not None and path_index >= 0:
+            self.Qpath_cut_type.blockSignals(True)
+            self.Qpath_cut_type.setCurrentIndex(path_index)
+            self.Qpath_cut_type.blockSignals(False)
 
     def cut_type_changed(self):
+        text = self.Qcut_type.currentText()
         for element in self.event_separator.selected_objects:
             if isinstance(element, CutLine):
-                element.cut_type = self.Qcut_type.currentText()
+                element.cut_type = text
+        # Mirror the change into the path dropdown so both stay consistent.
+        path_index = self.Qpath_cut_type.findText(text)
+        if path_index is not None and path_index >= 0:
+            self.Qpath_cut_type.blockSignals(True)
+            self.Qpath_cut_type.setCurrentIndex(path_index)
+            self.Qpath_cut_type.blockSignals(False)
 
     def point_pos_changed(self):
         points = set()
