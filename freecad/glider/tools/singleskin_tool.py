@@ -508,7 +508,8 @@ class SingleSkinTool(BaseTool):
                 desired_normal = -desired_normal
             cos_angle = np.clip(np.dot(current_normal, desired_normal), -1, 1)
             sin_angle = np.dot(np.cross(desired_normal, current_normal), chord_3d)
-            rib.xrot = np.arctan2(sin_angle, cos_angle)
+            rib.shear_angle = np.arctan2(sin_angle, cos_angle)
+            rib.xrot = 0.0
 
         return glider
 
