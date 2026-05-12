@@ -26,8 +26,7 @@ class ColorPolygon(Polygon):
         self.enabled = True
 
     def set_color(self, col=None):
-        if col is not None:
-            self.std_col = col
+        self.std_col = col or self.std_col
         self.color.diffuseColor = self.std_col
 
     def unset_mouse_over(self):
