@@ -1,13 +1,13 @@
+import datetime
 import os
 import re
-import datetime
 
+import openglider.utils.table
 from openglider.glider.glider import Glider
 from openglider.glider.parametric import ParametricGlider
-import openglider.utils.table
 
 
-class GliderProject(object):
+class GliderProject:
     _regex_revision_no = re.compile(r"(.*)_rev([0-9]*)$")
 
     def __init__(
@@ -82,7 +82,7 @@ class GliderProject(object):
         elif filename.endswith(".json"):
             openglider.save(self, filename)
         else:
-            raise ValueError("Invalid Extension ({})".format(filename))
+            raise ValueError(f"Invalid Extension ({filename})")
 
         self.filename = filename
 

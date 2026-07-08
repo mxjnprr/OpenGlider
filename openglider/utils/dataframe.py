@@ -1,4 +1,3 @@
-import pandas as pd
 
 
 def to_df(the_list):

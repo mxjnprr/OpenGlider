@@ -1,8 +1,8 @@
 # updaing projects to newer versions of openglider and dependencies
 # defining an interface to do this?
 
-import openglider
 from freecad import app
+
 from .glider import addProperty
 
 # 1 write update function:
@@ -38,7 +38,7 @@ def from_0_01_to_0_02(obj):
         obj.openglider_version = "0.02"
         obj.freecad_version = "{}.{}".format(*app.Version())
         app.Console.PrintWarning(
-            "updating {} from openglider 0.01 to openglider 0.02\n".format(obj.Label)
+            f"updating {obj.Label} from openglider 0.01 to openglider 0.02\n"
         )
 
 
@@ -50,7 +50,7 @@ def from_0_02_to_0_03(obj):
             addProperty(obj, "vertical_shift", value, "hole", "relative vertical shift")
         obj.openglider_version = "0.03"
         app.Console.PrintWarning(
-            "updating {} from openglider 0.02 to openglider 0.03\n".format(obj.Label)
+            f"updating {obj.Label} from openglider 0.02 to openglider 0.03\n"
         )
 
 
@@ -79,7 +79,7 @@ def from_0_03_to_0_04(obj):
         obj.addProperty("App::PropertyFloat", "span", "gliderdata", "span in [m]", 1)
         obj.openglider_version = "0.04"
         app.Console.PrintWarning(
-            "updating {} from openglider 0.03 to openglider 0.04\n".format(obj.Label)
+            f"updating {obj.Label} from openglider 0.03 to openglider 0.04\n"
         )
 
 
@@ -94,5 +94,5 @@ def from_0_04_to_0_05(obj):
             obj.parent = parent
         obj.openglider_version = "0.05"
         app.Console.PrintWarning(
-            "updating {} from openglider 0.04 to openglider 0.05\n".format(obj.Label)
+            f"updating {obj.Label} from openglider 0.04 to openglider 0.05\n"
         )

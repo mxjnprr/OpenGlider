@@ -1,5 +1,4 @@
 # ! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -30,7 +29,7 @@ from openglider.graphics.elements import *
 # problems with this line on ubuntu 15.04
 
 
-class Graphics(object):
+class Graphics:
     """Creates a Graphics Instance"""
 
     def __init__(self, graphicobjects, coordinates=None, rotation=True, show=True):
@@ -132,12 +131,12 @@ class Graphics(object):
 
 class Graphics3D(Graphics):
     def __init__(self, graphicsobject, coordinates=None):
-        super(Graphics3D, self).__init__(graphicsobject, coordinates, rotation=True)
+        super().__init__(graphicsobject, coordinates, rotation=True)
 
 
 class Graphics2D(Graphics):
     def __init__(self, graphicsobject, coordinates=None):
-        super(Graphics2D, self).__init__(graphicsobject, coordinates, rotation=False)
+        super().__init__(graphicsobject, coordinates, rotation=False)
 
 
 def show(*graphics):

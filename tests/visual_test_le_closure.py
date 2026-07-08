@@ -1,5 +1,4 @@
 #! /usr/bin/python
-# -*- coding: utf-8; -*-
 #
 # Visual Test for LeadingEdgeClosure
 # Tests the 3D geometry and 2D flattening of the leading edge closure feature.
@@ -13,12 +12,12 @@ try:
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
 
+import numpy as np
+
 from openglider.glider.ballooning import BallooningBezier
 from openglider.glider.cell.cell import Cell
 from openglider.glider.cell.elements import LeadingEdgeClosure
 from openglider.glider.rib.rib import Rib
-from openglider.vector import norm
-import numpy as np
 
 # Try to import graphics (optional, needs vtk)
 try:

@@ -12,12 +12,12 @@ except ValueError as e:
     raise RuntimeError(
         "Could not set API version (%s): did you import PyQt4 directly?" % e
     )
-from PyQt4 import QtGui, QtCore
+from PyQt4 import QtCore, QtGui
 
 
 class ApplicationWindow(QtGui.QMainWindow):
     def __init__(self, widgets=None, title="application main window"):
-        super(ApplicationWindow, self).__init__()
+        super().__init__()
         self.setWindowTitle(title)
         self.mainwidget = QtGui.QWidget(self)
         self.splitter = QtGui.QSplitter(self.mainwidget)

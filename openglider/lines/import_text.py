@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,12 +18,9 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 
-from openglider.lines.functions import *
 from openglider.lines.elements import Line, Node
-from openglider.lines import LineSet
+from openglider.lines.functions import *
 from openglider.lines.line_types import LineType
-from openglider.vector.functions import normalize
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +66,7 @@ def try_convert(str, form):
 
 def import_file(path, key_dict):
     current_key = None
-    with open(path, "r") as lfile:
+    with open(path) as lfile:
         line_nr = 1
         for line in lfile:
             line = line.replace("\n", "")

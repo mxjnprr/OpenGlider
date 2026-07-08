@@ -1,7 +1,7 @@
 import numpy
 
+from openglider.vector.functions import cut, norm, rotation_2d, vector_angle
 from openglider.vector.polyline import PolyLine2D
-from openglider.vector.functions import cut, rotation_2d, vector_angle, norm
 
 
 class Polygon2D(PolyLine2D):
@@ -56,7 +56,7 @@ class Polygon2D(PolyLine2D):
         # todo: alternative: winding number
 
 
-class CirclePart(object):
+class CirclePart:
     """
     "A piece of the cake"
 
@@ -101,9 +101,7 @@ class CirclePart(object):
         svg = "<svg>"
 
         def point(p, color="red"):
-            return '<circle cx="{}" cy="{}" r="1" stroke="{}" fill="transparent" stroke-width="5"/>'.format(
-                p[0], p[1], color
-            )
+            return f'<circle cx="{p[0]}" cy="{p[1]}" r="1" stroke="{color}" fill="transparent" stroke-width="5"/>'
 
         svg += point(self.center, "blue")
 
@@ -115,7 +113,7 @@ class CirclePart(object):
         return svg
 
 
-class Ellipse(object):
+class Ellipse:
     def __init__(self, center, radius, width, rotation=0):
         self.center = center
         self.radius = radius

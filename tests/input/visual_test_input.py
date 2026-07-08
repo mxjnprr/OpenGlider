@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,13 +16,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-import unittest
-import sys
 import os
+import sys
+import unittest
 
-from PyQt4 import QtGui
 from openglider.gui import ApplicationWindow
-
+from PyQt4 import QtGui
 
 try:
     import openglider
@@ -33,7 +31,7 @@ except ImportError:
 
 from openglider.input import ControlPoint, MplWidget
 from openglider.input.ballooning import input_ballooning
-from openglider.input.shape import shapeinput, MplSymmetricBezier
+from openglider.input.shape import MplSymmetricBezier, shapeinput
 
 qApp = QtGui.QApplication(sys.argv)
 testfolder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,5 +65,5 @@ class GliderTestClass(unittest.TestCase):
         window.show()
         qApp.exec_()
 
-if __name__ is '__main__':
+if __name__ == '__main__':
     unittest.main()

@@ -7,21 +7,18 @@ This module provides a single tool for aerodynamic analysis combining:
 - Polars: Flight performance curves (speed polar, sink rate, drag polar)
 """
 
-from __future__ import division
 
 import logging
-from copy import deepcopy
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 import FreeCADGui as Gui
-from openglider.glider.in_out.export_3d import parabem_Panels
-from openglider.utils.distribution import Distribution
+import matplotlib.pyplot as plt
+import numpy as np
+from pivy.graphics import COLORS, InteractionSeparator, Line, Marker, coin
 from PySide import QtCore, QtGui
 
-from .tools import BaseTool, input_field, text_field
-from pivy.graphics import COLORS, InteractionSeparator, Line, Marker, coin
+from openglider.glider.in_out.export_3d import parabem_Panels
+
+from .tools import BaseTool
 
 
 def rho_isa(altitude_m, temp_sea_level_C=15.0):
@@ -69,7 +66,7 @@ class AerodynamicTool(BaseTool):
         scipy_available = False
 
     def __init__(self, obj):
-        super(AerodynamicTool, self).__init__(obj)
+        super().__init__(obj)
         
         if not self.parabem:
             self.QWarning = QtGui.QLabel(
@@ -448,7 +445,7 @@ class AerodynamicTool(BaseTool):
             line_drag_raw = self.obj.Proxy.getGliderInstance().lineset.get_normalized_drag()
             cD_lines = line_drag_raw / area * 2
             self.Qline_drag_display.setText(f"<b>{cD_lines:.5f}</b>")
-        except Exception as e:
+        except Exception:
             self.Qline_drag_display.setText("<i>N/A</i>")
             cD_lines = 0.01
         
@@ -793,10 +790,11 @@ class AerodynamicTool(BaseTool):
         This version doesn't require pandas - parses xfoil output directly.
         Requires 'xfoil' to be installed and in PATH (e.g. 'sudo apt install xfoil').
         """
-        import subprocess
-        import tempfile
         import os
         import re
+        import subprocess
+        import tempfile
+
         import numpy as np
         
         try:
@@ -917,7 +915,7 @@ quit
             rex_number = r"([+-]?\d+\.?\d*)"
             rex_line = re.compile(r"\s+" + r"\s+".join([rex_number] * 9))
             
-            with open(result_file, 'r') as f:
+            with open(result_file) as f:
                 for line in f:
                     match = rex_line.match(line)
                     if match:

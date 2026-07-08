@@ -1,22 +1,22 @@
 import numpy as np
 
 from openglider.utils import sign
-from openglider.utils.cache import cached_property, HashedList
+from openglider.utils.cache import HashedList, cached_property
+from openglider.utils.table import Table
 from openglider.vector.functions import (
+    curvature_from_3points,
+    cut,
     norm,
     normalize,
+    radius_from_3points,
     rangefrom,
     rotation_2d,
-    cut,
-    radius_from_3points,
-    curvature_from_3points,
 )
-from openglider.utils.table import Table
 
 
 class PolyLine(HashedList):
     def __init__(self, data, name=None):
-        super(PolyLine, self).__init__(data, name)
+        super().__init__(data, name)
 
     def __getitem__(self, ik):
         if isinstance(ik, int) and 0 <= ik < len(self):  # easiest case
@@ -273,7 +273,7 @@ class PolyLine2D(PolyLine):
             raise ValueError("cannot append: ", self.__class__, other.__class__)
 
     def __getitem__(self, ik):
-        res = super(PolyLine2D, self).__getitem__(ik)
+        res = super().__getitem__(ik)
         if isinstance(ik, slice):
             return PolyLine2D(res.data)
         return res
@@ -336,7 +336,7 @@ class PolyLine2D(PolyLine):
         """
         Check for mistakes in the array, such as for the moment: self-cuttings,..
         """
-        super(PolyLine2D, self).check()
+        super().check()
         for i in range(len(self.data) - 3):
             if i > len(self.data) - 4:
                 break

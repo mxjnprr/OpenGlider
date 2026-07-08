@@ -5,11 +5,8 @@ Provides Bezier and line paths that can be edited on the plan view
 and projected onto panel cuts.
 """
 
-from __future__ import division
-import numpy as np
 from pivy import coin
 from pivy.graphics import Line, Marker
-
 
 # Manual point placement (clicking near an edge in the Design Tool) snaps the
 # click onto the leading/trailing edge when it lands at, or up to this many

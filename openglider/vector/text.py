@@ -1,8 +1,8 @@
 import numpy as np
 
+from openglider.vector.drawing.part import PlotPart
 from openglider.vector.functions import normalize
 from openglider.vector.polyline import PolyLine2D
-from openglider.vector.drawing.part import PlotPart
 
 text_vectors = {
     "1": [[0.2, 0.5], [0.6, 1.0], [0.6, 0.0]],
@@ -181,7 +181,7 @@ text_vectors = {
 }
 
 
-class Text(object):
+class Text:
     letters = text_vectors
 
     def __init__(
@@ -230,9 +230,7 @@ class Text(object):
                 letter = "_"
             else:
                 raise KeyError(
-                    "Letter {} from word '{}' not available".format(
-                        letter, self.text.upper()
-                    )
+                    f"Letter {letter} from word '{self.text.upper()}' not available"
                 )
 
         data = self.letters[letter]

@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,14 +16,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import division
 import numpy as np
 
+from openglider.airfoil import Profile2D
 from openglider.utils.cache import cached_property
 from openglider.vector import Plane
 from openglider.vector.functions import norm, normalize
 from openglider.vector.polyline import PolyLine
-from openglider.airfoil import Profile2D
 
 
 class Profile3D(PolyLine):
@@ -58,7 +56,7 @@ class Profile3D(PolyLine):
         # prev
         try:
             yvect = normalize(yvect)
-        except ValueError as e:
+        except ValueError:
             # yvect  = [0,0,0] (stabi)
             # TODO: handle somewhere else
             pass

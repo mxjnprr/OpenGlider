@@ -1,20 +1,19 @@
-import random
 import os
+import random
+import sys
 import unittest
 
 import numpy as np
 
-import sys
 from openglider.vector import PolyLine
-
 
 try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
     import openglider
-from openglider.graphics import Graphics2D, Graphics, Line, Green, Red, Blue
 import openglider.airfoil
+from openglider.graphics import Blue, Graphics, Graphics2D, Green, Line, Red
 from openglider.vector.spline import *
 
 

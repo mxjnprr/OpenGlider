@@ -1,5 +1,6 @@
-import sys
 import os
+import sys
+
 try:
     import openglider
 except ImportError:

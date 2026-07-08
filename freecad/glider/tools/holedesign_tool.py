@@ -1,18 +1,18 @@
-from .tools import BaseTool, Line_old
+
 import FreeCADGui as Gui
-from PySide import QtCore, QtGui
-from openglider.glider.rib import RibHole
-from openglider.utils.geometry import is_inside_triangle
 import numpy as np
 from pivy import coin
-import os
+from PySide import QtGui
+
 from .pull_axis_utils import compute_pull_axis_projection
+from .tools import BaseTool, Line_old
+
 
 class HoleDesignTool(BaseTool):
     widget_name = "Hole Design"
 
     def __init__(self, obj):
-        super(HoleDesignTool, self).__init__(obj)
+        super().__init__(obj)
 
         # UI Elements with parent widget specified
         self.ribTypeComboBox = QtGui.QComboBox(self.base_widget)
@@ -1436,7 +1436,6 @@ class HoleDesignTool(BaseTool):
     
     def _ray_curve_intersect_preview(self, ray_origin, ray_dir, curve):
         """Find where a ray intersects a PolyLine2D (for preview)."""
-        from numpy.linalg import norm
         normal = np.array([-ray_dir[1], ray_dir[0]])
         ref_val = np.dot(ray_origin, normal)
         best = None
@@ -1663,4 +1662,4 @@ class HoleDesignTool(BaseTool):
         is_suspended = self.ribTypeComboBox.currentIndex() == 1
         self.update_glider_data(is_suspended)
         self.update_view_glider()
-        super(HoleDesignTool, self).accept()
+        super().accept()

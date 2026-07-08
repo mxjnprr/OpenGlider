@@ -1,30 +1,22 @@
-from __future__ import division
 
+import logging
 import numbers
 import re
 
 import ezodf
 import numpy as np
-import logging
-import typing
 
-from openglider.airfoil import BezierProfile2D, Profile2D
-from openglider.vector.spline import Bezier, SymmetricBezier, SymmetricBSpline
-from openglider.vector import Interpolation
-
-from openglider.glider.parametric.arc import ArcCurve
-from openglider.glider.parametric.shape import ParametricShape
-from openglider.glider.parametric.lines import (
-    UpperNode2D,
-    LowerNode2D,
-    BatchNode2D,
-    Line2D,
-    LineSet2D,
-)
-from openglider.glider.rib import MiniRib
+from openglider.airfoil import Profile2D
 from openglider.glider.ballooning import BallooningBezier, BallooningBezierNeu
+from openglider.glider.parametric.arc import ArcCurve
+from openglider.glider.parametric.lines import (
+    LineSet2D,
+    LowerNode2D,
+)
+from openglider.glider.parametric.shape import ParametricShape
 from openglider.utils.table import Table
-
+from openglider.vector import Interpolation
+from openglider.vector.spline import Bezier, SymmetricBezier, SymmetricBSpline
 
 logger = logging.getLogger(__name__)
 element_keywords = {
@@ -276,7 +268,7 @@ def get_geometry_explicit(sheet):
         if not line[0]:
             break  # skip empty line
         if not all(isinstance(c, numbers.Number) for c in line[:10]):
-            raise ValueError("Invalid row ({}): {}".format(i, line))
+            raise ValueError(f"Invalid row ({i}): {line}")
         # Index, Choord, Span(x_2d), Front(y_2d=x_3d), d_alpha(next), aoa,
         chord = line[1]
         span = line[2]
@@ -433,7 +425,7 @@ def transpose_columns(sheet, columnswidth=2):
             if all([j is None for j in row]):  # Break at empty line
                 break
             if not all([isinstance(j, numbers.Number) for j in row]):
-                raise ValueError("Invalid value at row {}: {}".format(i, row))
+                raise ValueError(f"Invalid value at row {i}: {row}")
             element.append(row)
         result.append((name, element))
     return result

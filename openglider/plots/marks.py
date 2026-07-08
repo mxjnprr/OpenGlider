@@ -1,14 +1,14 @@
 import math
+
 import numpy as np
 
 from openglider.vector.functions import rotation_2d
 from openglider.vector.polyline import PolyLine2D
-from openglider.vector.transformation import Translation, Scale, Rotation
 
 default_scale = 0.8
 
 
-class Mark(object):
+class Mark:
     def __repr__(self):
         return self.__class__.__name__
 
@@ -35,7 +35,7 @@ class Polygon(Mark):
 
 class Triangle(Polygon):
     def __init__(self, scale=default_scale):
-        super(Triangle, self).__init__(3, scale)
+        super().__init__(3, scale)
 
     def __json__(self):
         return {"scale": self.scale}
@@ -112,7 +112,7 @@ class _Modify(Mark):
         return {"func": self.func}
 
     def __repr__(self):
-        return "{}->{}".format(self.__class__.__name__, repr(self.func))
+        return f"{self.__class__.__name__}->{repr(self.func)}"
 
     def __call__(self, p1, p2, *args, **kwargs):
         return self.func(p1, p2, *args, **kwargs)
@@ -122,13 +122,13 @@ class Rotate(_Modify):
     def __init__(self, func, rotation, center=True):
         self.angle = rotation
         self.rotation = rotation_2d(rotation)
-        super(Rotate, self).__init__(func)
+        super().__init__(func)
 
     def __json__(self):
         return {"func": self.func, "rotation": self.angle}
 
     def __repr__(self):
-        return "Rotate({})->{}".format(self.angle, self.func)
+        return f"Rotate({self.angle})->{self.func}"
 
     def __call__(self, p1, p2):
         diff = (p2 - p1) / 2
@@ -136,7 +136,7 @@ class Rotate(_Modify):
         diff_new = self.rotation.dot(diff)
 
         p1_new, p2_new = center + diff_new, center - diff_new
-        return super(Rotate, self).__call__(p1_new, p2_new)
+        return super().__call__(p1_new, p2_new)
 
 
 class OnLine(_Modify):
@@ -151,7 +151,7 @@ class OnLine(_Modify):
     def __call__(self, p1, p2, *args, **kwargs):
         p1_2 = 0.5 * (p1 + p2)
         p2_2 = 1.5 * p1 - 0.5 * p2
-        return super(OnLine, self).__call__(p1_2, p2_2, *args, **kwargs)
+        return super().__call__(p1_2, p2_2, *args, **kwargs)
 
 
 class Inside(_Modify):
@@ -167,4 +167,4 @@ class Inside(_Modify):
     def __call__(self, p1, p2, *args, **kwargs):
         p1_2 = 2 * p1 - p2
         p2_2 = p1
-        return super(Inside, self).__call__(p1_2, p2_2, *args, **kwargs)
+        return super().__call__(p1_2, p2_2, *args, **kwargs)

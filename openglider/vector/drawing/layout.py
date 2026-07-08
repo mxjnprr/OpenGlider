@@ -1,5 +1,5 @@
-import os
 import math
+import os
 from typing import List, Union
 
 import numpy as np
@@ -7,13 +7,13 @@ import svgwrite
 import svgwrite.container
 import svgwrite.shapes
 
-from openglider.vector.drawing.part import PlotPart
 from openglider.utils.css import get_material_color, normalize_class_names
 from openglider.vector import PolyLine2D
+from openglider.vector.drawing.part import PlotPart
 from openglider.vector.text import Text
 
 
-class Layout(object):
+class Layout:
     point_width = None
     layer_config = {
         "cuts": {
@@ -516,7 +516,7 @@ class Layout(object):
                 _class_new = normalize_class_names(_class)
 
                 if colour:
-                    styles[_class_new] = ["fill: {}".format(colour)]
+                    styles[_class_new] = [f"fill: {colour}"]
             if hasattr(elem, "elements"):
                 for sub_elem in elem.elements:
                     add_style(sub_elem)
@@ -524,9 +524,9 @@ class Layout(object):
         add_style(drawing)
 
         for css_class, attribs in styles.items():
-            style.append(".{} {{\n".format(css_class))
+            style.append(f".{css_class} {{\n")
             for attrib in attribs:
-                style.append("\t{};\n".format(attrib))
+                style.append(f"\t{attrib};\n")
             style.append("}\n")
         style.append("\nline { vector-effect: non-scaling-stroke; stroke-width: 1; }")
         style.append(
@@ -541,8 +541,8 @@ class Layout(object):
         height = int(width * self.height / self.width) + 1
         drawing = self.get_svg_drawing()
         self.add_svg_styles(drawing)
-        drawing["width"] = "{}px".format(width)
-        drawing["height"] = "{}px".format(height)
+        drawing["width"] = f"{width}px"
+        drawing["height"] = f"{height}px"
 
         # self.add_svg_styles(drawing)
 
@@ -608,13 +608,13 @@ class Layout(object):
         filename = os.path.split(path)[-1]
 
         def format_line(line):
-            a = "\nA {} ".format(len(line))
-            b = " ".join(["({:.5f},{:.5f})".format(p[0], p[1]) for p in line])
+            a = f"\nA {len(line)} "
+            b = " ".join([f"({p[0]:.5f},{p[1]:.5f})" for p in line])
             return a + b
 
         with open(path, "w") as outfile:
             # head
-            outfile.write("A {} {} 1 1 0 0 0 0\n".format(len(filename), filename))
+            outfile.write(f"A {len(filename)} {filename} 1 1 0 0 0 0\n")
             for part in self.parts:
                 # part-header: 1A {name}, {position_x} {pos_y} {rot_degrees} {!derivePerimeter} {useAngle} {flipped}
                 part_header = (
@@ -638,7 +638,7 @@ class Layout(object):
                     for layer_origin in self.ntv_layer_config[plottype]:
                         for line in part.layers[layer_origin]:
                             # line-header type: (R->ignore, P->plot, C->cut
-                            outfile.write("\n1A P 0 {} 0 0 0".format(plottype))
+                            outfile.write(f"\n1A P 0 {plottype} 0 0 0")
                             outfile.write(format_line(line))
 
                 # part-end

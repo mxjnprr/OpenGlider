@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -20,19 +19,18 @@
 
 
 #!/bin/python2
-import random
-import unittest
 import os
-import math
 import sys
+import unittest
+
 import numpy as np
 
 try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
+from openglider.graphics import Blue, Line, Point, Red
 from openglider.vector import Plane
-from openglider.graphics import Graphics, Line, Red, Point, Blue
 
 
 class TestLayer(unittest.TestCase):

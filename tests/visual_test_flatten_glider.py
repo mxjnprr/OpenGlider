@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -21,6 +20,7 @@ import os
 import random
 import sys
 import unittest
+
 from openglider.plots.glider.cell import flattened_cell
 
 try:
@@ -28,9 +28,10 @@ try:
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
     import openglider
+from test_glider import GliderTestClass
+
 import openglider.graphics
 import openglider.plots
-from test_glider import GliderTestClass
 
 testfolder = os.path.dirname(os.path.abspath(__file__))
 importpath = testfolder+"/demokite.ods"
@@ -38,7 +39,7 @@ importpath = testfolder+"/demokite.ods"
 
 class TestGlider_Flatten(GliderTestClass):
     def setUp(self, complete=False):
-        super(TestGlider_Flatten, self).setUp(complete=complete)
+        super().setUp(complete=complete)
 
     def get_flattened_cell(self, allowance=0.02):
         cell = self.glider.cells[random.randint(0, len(self.glider.cells)-1)]

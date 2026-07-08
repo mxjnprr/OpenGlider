@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -20,11 +19,11 @@
 import ezodf
 import numpy as np
 
-from openglider.lines import Line, Node, LineSet
 from openglider.airfoil import Profile2D
-from openglider.glider.cell import Panel, Cell
-from openglider.glider.rib import AttachmentPoint, Rib
 from openglider.glider.ballooning import BallooningBezier
+from openglider.glider.cell import Cell, Panel
+from openglider.glider.rib import AttachmentPoint, Rib
+from openglider.lines import Line, LineSet, Node
 
 
 def import_ods(filename, glider):
@@ -91,7 +90,7 @@ def import_ods(filename, glider):
             aoa,
             zrot,
             data["GLIDE"],
-            name="Rib ({})".format(i),
+            name=f"Rib ({i})",
         )
         if i == 1 and y != 0:  # Middle-cell
             lastrib = thisrib.copy()

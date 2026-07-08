@@ -1,12 +1,12 @@
+import os
+import tempfile
 import unittest
 
-import tempfile
-import os
+from common import TestCase
+
 import openglider
 import openglider.plots
 import openglider.plots.glider
-from common import TestCase
-
 
 TEMPDIR =  tempfile.gettempdir()
 

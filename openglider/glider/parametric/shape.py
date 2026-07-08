@@ -1,13 +1,12 @@
-from __future__ import division
 import math
+
 import numpy as np
 
 from openglider.glider.shape import Shape
 from openglider.vector import Interpolation, PolyLine2D
-from openglider.utils.table import Table
 
 
-class ParametricShape(object):
+class ParametricShape:
     num_shape_interpolation = 50
     num_distribution_interpolation = 50
     num_depth_integral = 50
@@ -28,12 +27,7 @@ class ParametricShape(object):
         }
 
     def __repr__(self):
-        return "{}\n\tcells: {}\n\tarea: {:.2f}\n\taspect_ratio: {:.2f}".format(
-            super(ParametricShape, self).__repr__(),
-            self.cell_num,
-            self.area,
-            self.aspect_ratio,
-        )
+        return f"{super().__repr__()}\n\tcells: {self.cell_num}\n\tarea: {self.area:.2f}\n\taspect_ratio: {self.aspect_ratio:.2f}"
 
     def copy(self):
         return self.__class__(
@@ -235,9 +229,7 @@ class ParametricShape(object):
             self.scale(factor, 1)
         else:
             raise ValueError(
-                "Invalid Value: {} for 'constant' (aspect_ratio, span, depth)".format(
-                    fixed
-                )
+                f"Invalid Value: {fixed} for 'constant' (aspect_ratio, span, depth)"
             )
 
         return self.area

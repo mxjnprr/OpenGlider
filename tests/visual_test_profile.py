@@ -1,20 +1,17 @@
 import os
-import math
 import random
 import sys
 import unittest
+
+import openglider.plots.marks
 from openglider.airfoil.parametric import BezierProfile2D
 from openglider.vector import Polygon2D, PolyLine2D
-import openglider.plots.marks
 
 try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
 from openglider.airfoil import Profile2D
-import openglider.graphics as Graph
-from openglider.glider.ballooning import BallooningBezier
-
 
 proffile = os.path.dirname(os.path.abspath(__file__)) + "/testprofile.dat"
 #a.compute_naca(naca=2412, numpoints=200)

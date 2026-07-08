@@ -3,7 +3,7 @@ import numpy as np
 from openglider.vector.functions import normalize
 
 
-class Plane(object):
+class Plane:
     def __init__(self, p0, v1, v2):
         self.p0 = np.array(p0)
         self.v1 = np.array(v1)

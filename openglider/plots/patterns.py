@@ -1,23 +1,22 @@
 import datetime
-import os
-import subprocess
 import logging
+import os
 from typing import List
 
 import openglider.glider
-import openglider.plots.spreadsheets
-from openglider.plots.spreadsheets import get_glider_data
 import openglider.plots.cuts
 import openglider.plots.marks
-
+import openglider.plots.spreadsheets
+from openglider.glider.project import GliderProject
+from openglider.plots.glider import PlotMaker
+from openglider.plots.spreadsheets import get_glider_data
 from openglider.vector.drawing import Layout
 from openglider.vector.text import Text
-from openglider.plots.glider import PlotMaker
-from openglider.glider.project import GliderProject
+
 # import openglider.plots.sketches
 
 
-class PatternsNew(object):
+class PatternsNew:
     plotmaker = PlotMaker
     spreadsheet = get_glider_data
     plotmaker = PlotMaker
@@ -109,8 +108,8 @@ class PatternsNew(object):
 
         try:
             os.mkdir(outdir)
-        except FileExistsError as e:
-            print("directory {} already exists, overwrite files".format(outdir))
+        except FileExistsError:
+            print(f"directory {outdir} already exists, overwrite files")
 
         if self.config.profile_numpoints:
             self.glider_2d.num_profile = self.config.profile_numpoints

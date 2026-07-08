@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 Pattern Configuration Dialog for Unwrap Glider tool.
 Allows users to modify PatternConfig parameters before export.
 Bilingual FR/EN with toggle.
 """
 
-from PySide import QtGui, QtCore
-
+from PySide import QtCore, QtGui
 
 # Parameter definitions: (attribute_name, default_value, (desc_fr, desc_en), value_type, unit)
 # unit: 'mm' for millimeters (stored as meters internally), None for no unit
@@ -136,7 +134,7 @@ class PatternConfigDialog(QtGui.QDialog):
     """Dialog for configuring pattern export parameters."""
 
     def __init__(self, parent=None, config=None):
-        super(PatternConfigDialog, self).__init__(parent)
+        super().__init__(parent)
         self.setMinimumSize(750, 550)
 
         # 0 = FR, 1 = EN

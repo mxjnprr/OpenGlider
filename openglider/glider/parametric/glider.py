@@ -1,32 +1,31 @@
-from __future__ import division
 
-import math
-import logging
-import numpy as np
 import copy
+import logging
+import math
+
+import numpy as np
+
 try:
     import matplotlib.path as mpl_path
 except ImportError:
     mpl_path = None
 
-from openglider.glider.parametric.shape import ParametricShape
 from openglider.airfoil import Profile2D
+from openglider.glider.cell import Cell, DiagonalRib, Panel, TensionLine, TensionStrap
+from openglider.glider.cell.elements import LeadingEdgeClosure, PanelRigidFoil
 from openglider.glider.glider import Glider
-from openglider.glider.cell import Panel, DiagonalRib, TensionStrap, TensionLine, Cell
-from openglider.glider.cell.elements import PanelRigidFoil, LeadingEdgeClosure
-from openglider.glider.parametric.arc import ArcCurve
 from openglider.glider.parametric.export_ods import export_ods_2d
+from openglider.glider.parametric.fitglider import fit_glider_3d
 from openglider.glider.parametric.import_ods import import_ods_2d
 from openglider.glider.parametric.lines import LineSet2D, UpperNode2D
-from openglider.glider.rib import RibHole, RigidFoil, Rib, MiniRib
-from openglider.glider.parametric.fitglider import fit_glider_3d
+from openglider.glider.parametric.shape import ParametricShape
+from openglider.glider.rib import MiniRib, Rib, RibHole, RigidFoil
+from openglider.utils import ZipCmp
 from openglider.utils.distribution import Distribution
 from openglider.utils.table import Table
-from openglider.utils import ZipCmp
-from openglider.utils.geometry import is_inside_triangle
 
 
-class ParametricGlider(object):
+class ParametricGlider:
     """
     A parametric (2D) Glider object used for gui input
     """
@@ -462,7 +461,7 @@ class ParametricGlider(object):
                                 pilot_2d_x = te_2d_x + pilot_chord_pos * (le_2d_x - te_2d_x)
                                 pilot_2d_y = pilot_up_pos
                                 pilot_2d = np.array([pilot_2d_x, pilot_2d_y])
-                    except Exception as e:
+                    except Exception:
                         pass
                 for ap in attachment_points:
                     v1 = rib.profile_2d.align([ap.rib_pos, -1.0]) # Apex on intrados
@@ -869,7 +868,7 @@ class ParametricGlider(object):
                                 rib.cone_holes.append(
                                     RibHole(ap.rib_pos, custom_points=custom_pts)
                                 )
-                  except Exception as e:
+                  except Exception:
                       pass
 
             else:
@@ -1189,7 +1188,6 @@ class ParametricGlider(object):
         Must be called AFTER initial lineset.recalc().
         """
         from openglider.glider.rib.rib import SingleSkinRib
-        from openglider.glider.cell.elements import DiagonalRib
         from openglider.vector.polyline import PolyLine2D
 
         for rib in glider.ribs:
@@ -2125,7 +2123,7 @@ class ParametricGlider(object):
                 panel = Panel(
                     cut1,
                     cut2,
-                    name="c{}p{}".format(cell_no + 1, part_no + 1),
+                    name=f"c{cell_no + 1}p{part_no + 1}",
                     material_code=material_code,
                 )
 
@@ -2158,8 +2156,8 @@ class ParametricGlider(object):
                     # Split into 2 panels at y=0.5 using y_start/y_end
                     # Lookup colors by panel name if available
                     materials_by_name = self.elements.get("materials_by_name", {})
-                    name_L = "c{}p{}_L".format(cell_no + 1, part_no + 1)
-                    name_R = "c{}p{}_R".format(cell_no + 1, part_no + 1)
+                    name_L = f"c{cell_no + 1}p{part_no + 1}_L"
+                    name_R = f"c{cell_no + 1}p{part_no + 1}_R"
 
                     # Panel L: from rib1 (y=0) to mid (y=0.5)
                     panel_left = Panel(
@@ -2201,7 +2199,7 @@ class ParametricGlider(object):
             cell_elements.sort(key=lambda strap: strap.get_average_x())
 
             for strap_no, strap in enumerate(cell_elements):
-                strap.name = "c{}{}{}".format(cell_no + 1, name[0], strap_no)
+                strap.name = f"c{cell_no + 1}{name[0]}{strap_no}"
 
             elements.append(cell_elements)
 
@@ -2355,7 +2353,7 @@ class ParametricGlider(object):
             
             factor = profile_merge_curve(abs(pos))
             profile = self.get_merge_profile(factor, pos_x=pos, rib_index=rib_no)
-            profile.name = "Profile{}".format(rib_no)
+            profile.name = f"Profile{rib_no}"
             profile.x_values = profile_x_values
             
             # Debug profile thickness for last rib
@@ -2382,7 +2380,7 @@ class ParametricGlider(object):
                     zrot=zrot_int(pos),
                     holes=this_rib_holes,
                     rigidfoils=this_rigid_foils,
-                    name="rib{}".format(rib_no),
+                    name=f"rib{rib_no}",
                     material_code=rib_material,
                 )
             )
@@ -2401,7 +2399,7 @@ class ParametricGlider(object):
             ballooning_factor = ballooning_merge_curve(cell_centers[cell_no])
             ballooning = self.merge_ballooning(ballooning_factor)
 
-            cell = Cell(rib1, rib2, ballooning, name="c{}".format(cell_no + 1))
+            cell = Cell(rib1, rib2, ballooning, name=f"c{cell_no + 1}")
 
             glider.cells.append(cell)
 

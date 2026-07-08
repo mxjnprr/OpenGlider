@@ -30,7 +30,7 @@ class Encoder(json.JSONEncoder):
 
             return {"_type": class_name, "_module": module, "data": obj.__json__()}
         else:
-            return super(Encoder, self).default(obj)
+            return super().default(obj)
 
 
 def get_element(_module, _name):

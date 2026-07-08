@@ -1,11 +1,12 @@
-from .tools import BaseTool, input_field, Line_old
-from .table import base_table_widget
-from .glider import draw_glider
-from PySide import QtGui
-from openglider.glider.rib import MiniRib
-from pivy import coin
 import FreeCADGui as Gui
 import numpy as np
+from pivy import coin
+from PySide import QtGui
+
+from openglider.glider.rib import MiniRib
+
+from .table import base_table_widget
+from .tools import BaseTool, Line_old, input_field
 
 
 class MiniRibsTool(BaseTool):
@@ -14,7 +15,7 @@ class MiniRibsTool(BaseTool):
     widget_name = "Mini Ribs"
 
     def __init__(self, obj):
-        super(MiniRibsTool, self).__init__(obj)
+        super().__init__(obj)
         self.miniribs_table = miniribs_table()
         self.miniribs_table.get_from_ParametricGlider(self.parametric_glider)
         
@@ -249,13 +250,13 @@ class MiniRibsTool(BaseTool):
         self.miniribs_table.hide()
         del self.miniribs_table
         self.task_separator.removeAllChildren()
-        super(MiniRibsTool, self).accept()
+        super().accept()
 
     def reject(self):
         self.miniribs_table.hide()
         del self.miniribs_table
         self.task_separator.removeAllChildren()
-        super(MiniRibsTool, self).reject()
+        super().reject()
 
 
 class miniribs_table(base_table_widget):
@@ -263,7 +264,7 @@ class miniribs_table(base_table_widget):
     keyword = "miniribs"
 
     def __init__(self):
-        super(miniribs_table, self).__init__(name="miniribs")
+        super().__init__(name="miniribs")
         self.table.setRowCount(200)
         self.table.setColumnCount(11)  # Added transition column
         self.table.setHorizontalHeaderLabels(

@@ -1,9 +1,8 @@
-import unittest
 import os
+import unittest
 
-from openglider.lines.import_text import import_lines
 from openglider.lines import LineSet
-
+from openglider.lines.import_text import import_lines
 
 test_dir = os.path.dirname(os.path.abspath(__file__))
 

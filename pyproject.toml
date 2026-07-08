@@ -31,9 +31,10 @@ extend-exclude = ["docs", "_bmad", "_bmad-output", "_bmad-custom-backup-temp"]
 #  UP    = pyupgrade (modernisation syntaxe)
 select = ["E9", "F", "B", "I", "UP"]
 
-# On tolère les imports "inutilisés" dans les __init__.py (ré-exports volontaires).
+# Dans les __init__.py : imports "inutilisés" = ré-exports volontaires (F401),
+# et l'ordre des imports est sémantique (dépendances circulaires) → pas de tri (I001).
 [tool.ruff.lint.per-file-ignores]
-"**/__init__.py" = ["F401"]
+"**/__init__.py" = ["F401", "I001"]
 
 [tool.setuptools]
 packages = ["openglider",

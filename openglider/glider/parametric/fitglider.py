@@ -1,12 +1,11 @@
-from __future__ import division
 
 import numpy as np
 
 from openglider.glider.parametric.arc import ArcCurve
 from openglider.glider.parametric.lines import LineSet2D
 from openglider.glider.parametric.shape import ParametricShape
-from openglider.vector import PolyLine2D, Interpolation
-from openglider.vector.spline import SymmetricBezier, Bezier
+from openglider.vector import Interpolation, PolyLine2D
+from openglider.vector.spline import Bezier, SymmetricBezier
 
 
 def fit_glider_3d(cls, glider, numpoints=3):

@@ -1,8 +1,9 @@
+import os
+import tempfile
 import unittest
 
-import tempfile
-import os
 from common import *
+
 from openglider import jsonify
 from openglider.glider import ParametricGlider
 

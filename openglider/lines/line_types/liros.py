@@ -1,6 +1,5 @@
 from openglider.lines.line_types.linetype import LineType
 
-
 LineType("liros.ltc25", 0.39, [[250, 4.8]], 250, 0.13)
 
 LineType("liros.ltc45", 0.55, [[100, 0.85]], 450, 0.28)

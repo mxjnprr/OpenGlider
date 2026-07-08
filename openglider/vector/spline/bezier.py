@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,14 +16,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import division
 
 import numpy as np
 
-from openglider.utils.cache import HashedList
-from openglider.vector import norm, Interpolation
-from openglider.vector.transformation import Reflection
 from openglider.utils import dualmethod
+from openglider.utils.cache import HashedList
+from openglider.vector import Interpolation, norm
+from openglider.vector.transformation import Reflection
 
 
 class _BernsteinFactory:
@@ -66,7 +64,7 @@ class Bezier(HashedList):
         http://en.wikipedia.org/wiki/Bezier_curve#Generalization
         """
         self._matrix = None
-        super(Bezier, self).__init__(controlpoints)
+        super().__init__(controlpoints)
 
     def __repr__(self):
         return self.__class__.__name__ + ":\n" + str(self.controlpoints)
@@ -99,7 +97,7 @@ class Bezier(HashedList):
 
     def __call__(self, value):
         dim = len(self.data[0])
-        assert 0 <= value <= 1, "value must be in the range (0,1), not {}".format(value)
+        assert 0 <= value <= 1, f"value must be in the range (0,1), not {value}"
 
         val = np.zeros(dim)
         base = self.basefactory(len(self.data))
@@ -302,7 +300,7 @@ class Bezier(HashedList):
 class SymmetricBezier(Bezier):
     def __init__(self, controlpoints=None, mirror=None):
         self._mirror = mirror or Reflection([1.0, 0.0, 0.0])
-        super(SymmetricBezier, self).__init__(controlpoints=None)
+        super().__init__(controlpoints=None)
         if controlpoints:
             self.controlpoints = controlpoints
 
@@ -334,7 +332,7 @@ class SymmetricBezier(Bezier):
 
     @dualmethod
     def fit(cls, data, numpoints=3, start=True, end=True):
-        bez = super(SymmetricBezier, cls).fit(
+        bez = super().fit(
             data, numpoints=2 * numpoints, start=start, end=start
         )
         bez.controlpoints = bez.controlpoints[numpoints:]

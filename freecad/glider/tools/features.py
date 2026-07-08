@@ -1,9 +1,9 @@
 import copy
 import os
 
+import FreeCAD as App
 import numpy as np
 
-import FreeCAD as App
 from openglider.airfoil.profile_2d import Profile2D
 from openglider.glider.rib import RibHole, SingleSkinRib
 
@@ -17,7 +17,7 @@ class BaseFeature(OGBaseObject):
             "App::PropertyLink", "parent", "link", "the parent of the feature"
         )
         obj.parent = parent
-        super(BaseFeature, self).__init__(obj)
+        super().__init__(obj)
         self.addProperties()
 
     def drawGlider(self, call_parent=True):
@@ -58,7 +58,7 @@ class BaseFeature(OGBaseObject):
 
     def execute(self, fp):
         self.drawGlider()
-        super(BaseFeature, self).execute(fp)
+        super().execute(fp)
 
     ################# this function belongs to the gui and should be implemented in another way
     def onDocumentRestored(self, obj):
@@ -91,7 +91,7 @@ class BaseFeature(OGBaseObject):
 
 class RibFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(RibFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
 
     def addProperties(self):
         self.obj.addProperty("App::PropertyIntegerList", "ribs", "not yet", "docs")
@@ -120,7 +120,7 @@ class VRibFeature(OGGliderVP):
 
 class BallooningFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(BallooningFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
         obj.addProperty("App::PropertyIntegerList", "cells", "not yet", "docs")
         obj.addProperty("App::PropertyInteger", "ballooning", "not yet", "docs")
 
@@ -137,7 +137,7 @@ class BallooningFeature(BaseFeature):
 
 class BallooningMultiplier(BaseFeature):
     def __init__(self, obj, parent):
-        super(BallooningMultiplier, self).__init__(obj, parent)
+        super().__init__(obj, parent)
         obj.addProperty(
             "App::PropertyFloatList",
             "mutiply_values",
@@ -163,7 +163,7 @@ class VBallooningFeature(OGGliderVP):
 
 class SharkFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(SharkFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
 
     def addProperties(self):
         self.addProperty("ribs", [], "not_yet", "docs", int)
@@ -196,7 +196,6 @@ class SharkFeature(BaseFeature):
 
     def getGliderInstance(self):
         x1, x2, x3, y_add = self.obj.x1, self.obj.x2, self.obj.x3, self.obj.y_add
-        from openglider.airfoil.profile_2d import Profile2D
 
         glider = copy.deepcopy(self.obj.parent.Proxy.getGliderInstance())
         for i, rib in enumerate(glider.ribs):
@@ -214,7 +213,7 @@ class VSharkFeature(OGGliderVP):
 
 class SingleSkinRibFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(SingleSkinRibFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
         obj.addProperty("App::PropertyIntegerList", "ribs", "not yet", "docs")
         self.addProperties()
 
@@ -311,7 +310,7 @@ class VSingleSkinRibFeature(OGGliderVP):
 
 class FlapFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(FlapFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
 
     def addProperties(self):
         self.addProperty(
@@ -338,7 +337,7 @@ class VFlapFeature(OGGliderVP):
 
 class ScaleFeature(BaseFeature):
     def __init__(self, obj, parent):
-        super(ScaleFeature, self).__init__(obj, parent)
+        super().__init__(obj, parent)
 
     def addProperties(self):
         self.addProperty("scale", 1.0, "scale", "scales the glider")

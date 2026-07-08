@@ -1,14 +1,18 @@
-from __future__ import division
 
-import numpy as np
 
-import FreeCAD as App
-from openglider.glider.cell.elements import Panel
-from PySide import QtCore, QtGui
-
-from .tools import BaseTool, coin, input_field, text_field, vector3D
 from pivy.graphics import InteractionSeparator, Line, Marker
-from .design_path import DesignPath, BezierPath, LinePath, PolylinePath, EDGE_SNAP_CHORD_FACTOR
+from PySide import QtGui
+
+from openglider.glider.cell.elements import Panel
+
+from .design_path import (
+    EDGE_SNAP_CHORD_FACTOR,
+    BezierPath,
+    DesignPath,
+    LinePath,
+    PolylinePath,
+)
+from .tools import BaseTool, coin, input_field, text_field, vector3D
 
 
 def refresh():
@@ -35,7 +39,7 @@ class DesignTool(BaseTool):
     widget_name = "Design Tool"
 
     def __init__(self, obj):
-        super(DesignTool, self).__init__(obj)
+        super().__init__(obj)
         self.side = "upper"
 
 
@@ -1220,7 +1224,7 @@ class DesignTool(BaseTool):
         # Get cuts and handle symmetric mirroring if needed
         cuts = CutLine.get_cut_dict()
         self.parametric_glider.elements["cuts"] = cuts
-        super(DesignTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
@@ -1228,12 +1232,12 @@ class DesignTool(BaseTool):
         self.view.removeEventCallbackPivy(
             coin.SoKeyboardEvent.getClassTypeId(), self.add_cb
         )
-        super(DesignTool, self).reject()
+        super().reject()
 
 
 class CutPoint(Marker):
     def __init__(self, rib_nr, rib_pos, parametric_glider=None, x_value=None, min_y=None, max_y=None):
-        super(CutPoint, self).__init__([[0, 0, 0]], True)
+        super().__init__([[0, 0, 0]], True)
         self.marker.markerIndex = coin.SoMarkerSet.CROSS_7_7
         self.parametric_glider = parametric_glider
         self.rib_nr = rib_nr - parametric_glider.shape.has_center_cell
@@ -1386,7 +1390,7 @@ class CutLine(Line):
     lower_line_list = []
 
     def __init__(self, point1, point2, cut_type):
-        super(CutLine, self).__init__([point1.get_2D(), point2.get_2D()], dynamic=True)
+        super().__init__([point1.get_2D(), point2.get_2D()], dynamic=True)
         self.drawstyle.lineWidth = 1.5
         self.point1 = point1
         self.point2 = point2
@@ -1555,4 +1559,4 @@ class CutLine(Line):
         else:
             if self in CutLine.lower_line_list:
                 CutLine.lower_line_list.remove(self)
-        super(CutLine, self).delete()
+        super().delete()

@@ -5,8 +5,6 @@ from openglider.plots import Layout
 from openglider.plots.glider import RibPlot
 
 
-
-
 class RibTest(unittest.TestCase):
     def setUp(self):
         self.glider_2d = openglider.load("../common/glider2d.json")

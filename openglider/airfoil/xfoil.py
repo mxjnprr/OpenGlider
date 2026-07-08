@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,11 +18,12 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import asyncio
 import os
 import re
-import asyncio
-import pandas
 import tempfile
+
+import pandas
 
 import openglider.airfoil
 import openglider.vector.interpolate
@@ -46,7 +46,7 @@ class XFoilCalc:
     def _write_case(self, directory):
         command_file = os.path.join(directory, "xfoil_command.dat")
 
-        alphas = "\n".join(["Alfa\n{}".format(alpha) for alpha in self.alpha])
+        alphas = "\n".join([f"Alfa\n{alpha}" for alpha in self.alpha])
 
         cmd_string = f"""
             PLOP
@@ -101,7 +101,7 @@ class XFoilCalc:
 
         data = []
 
-        with open(filename, "r") as infile:
+        with open(filename) as infile:
             for line in infile.readlines():
                 match = rex_line.match(line)
                 if match:

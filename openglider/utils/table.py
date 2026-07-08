@@ -229,17 +229,17 @@ class Table:
     def _repr_html_(self):
         html = "<table><thead><td></td>"
         for column_no in range(self.num_columns):
-            html += "<td>{}</td>".format(self.column_to_char(column_no + 1))
+            html += f"<td>{self.column_to_char(column_no + 1)}</td>"
 
         html += "</thead>"
         for row_no in range(self.num_rows):
-            html += "<tr><td>{}</td>".format(row_no + 1)
+            html += f"<tr><td>{row_no + 1}</td>"
             for column_no in range(self.num_columns):
                 ident = self.str_encrypt(column_no, row_no)
                 value = self.dct.get(ident, "")
                 if isinstance(value, float):
                     value = round(value, self.format_float_digits)
-                html += "<td>{}</td>".format(value)
+                html += f"<td>{value}</td>"
             html += "</tr>"
 
         html += "</table>"

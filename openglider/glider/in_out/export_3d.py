@@ -1,9 +1,11 @@
 import math
+
 import numpy as np
 
-# from openglider.graphics import Graphics3D, Line
-from openglider.vector.functions import norm, normalize
 from openglider.utils.distribution import Distribution
+
+# from openglider.graphics import Graphics3D, Line
+from openglider.vector.functions import norm
 
 
 def export_obj(glider, path, midribs=0, numpoints=None, floatnum=6, copy=True):
@@ -202,7 +204,7 @@ def export_apame(glider, path="", midribs=0, numpoints=None, *other):
     # write config
     outfile = open(path, "w")
     outfile.write("APAME input file\nVERSION 3.0\n")
-    outfile.write("AIRSPEED {}\n".format(speed))
+    outfile.write(f"AIRSPEED {speed}\n")
     outfile.write(
         "DENSITY 1.225\nPRESSURE 1.013e+005\nMACH 0\nCASE_NUM 1\n"
     )  # TODO: Multiple cases
@@ -231,12 +233,7 @@ def export_apame(glider, path="", midribs=0, numpoints=None, *other):
         for j in range(other.profile_numpoints):
             # COUNTER-CLOCKWISE!
             outfile.write(
-                "1 {0!s}\t{1!s}\t{2!s}\t{3!s}\n".format(
-                    i * len(ribs[0]) + j + 1,
-                    (i + 1) * len(ribs[0]) + j + 1,
-                    (i + 1) * len(ribs[0]) + j + 2,
-                    i * len(ribs[0]) + j + 2,
-                )
+                f"1 {i * len(ribs[0]) + j + 1!s}\t{(i + 1) * len(ribs[0]) + j + 1!s}\t{(i + 1) * len(ribs[0]) + j + 2!s}\t{i * len(ribs[0]) + j + 2!s}\n"
             )
 
     return outfile.close()
@@ -355,8 +352,8 @@ def parabem_Panels(
 
 
 def export_leparagliding(glider, path):
-    import pandas as pd
     import jinja2
+    import pandas as pd
 
     ####### computing the basic geometry
     glider = glider.copy_complete()
@@ -387,7 +384,7 @@ def export_leparagliding(glider, path):
     if glider.has_center_cell:
         data_frame = data_frame[1:]
     rib_geo = data_frame.to_string(
-        index=None, float_format=lambda x: "{:.3f}".format(x)
+        index=None, float_format=lambda x: f"{x:.3f}"
     )
 
     ############# exporting the glider
@@ -399,7 +396,7 @@ def export_leparagliding(glider, path):
         fn.write(
             template.render(
                 GR=glider.glide,
-                alpha_max="{:.2f}".format(alpha_max),
+                alpha_max=f"{alpha_max:.2f}",
                 rib_geo=rib_geo,
                 num_cells=len(glider.copy_complete().cells),
                 num_ribs=len(glider.copy_complete().ribs),

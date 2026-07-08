@@ -1,21 +1,21 @@
-from __future__ import division
 
 import json
 import os
 
+import FreeCADGui as Gui
 import numpy
 from pivy import coin
-import FreeCADGui as Gui
-from openglider.glider.ballooning import BallooningBezier
 from PySide import QtCore, QtGui
+
+from openglider.glider.ballooning import BallooningBezier
 
 from .tools import (
     BaseTool,
+    ControlPointContainer,
+    Line_old,
     QtGui,
     spline_select,
-    Line_old,
     vector3D,
-    ControlPointContainer,
 )
 
 
@@ -25,7 +25,7 @@ class BallooningTool(BaseTool):
     COMPARE_COLORS = ["blue", "green", "yellow", "cyan", "magenta", "orange"]
 
     def __init__(self, obj):
-        super(BallooningTool, self).__init__(obj)
+        super().__init__(obj)
         # base_widget
         self.QList_View = QtGui.QListWidget(self.base_widget)
         self.Qdelete_button = QtGui.QPushButton("delete", self.base_widget)
@@ -117,7 +117,7 @@ class BallooningTool(BaseTool):
             text = coin.SoText2()
             trans = coin.SoTranslation()
             trans.translation = l
-            text.string = "{0:.1f} %".format(abs(l[1]) / self.scale_y * 100)
+            text.string = f"{abs(l[1]) / self.scale_y * 100:.1f} %"
             textsep += [trans, text]
             self.grid += textsep
 
@@ -172,7 +172,7 @@ class BallooningTool(BaseTool):
         )
         for filename in filenames:
             try:
-                with open(filename, "r") as f:
+                with open(filename) as f:
                     data = json.load(f)
                 upper = data.get("upper")
                 lower = data.get("lower")
@@ -382,13 +382,13 @@ class BallooningTool(BaseTool):
             balloonings.append(ballooning.ballooning)
         self.parametric_glider.balloonings = balloonings
         self.update_view_glider()
-        super(BallooningTool, self).accept()
+        super().accept()
 
 
 class QBalooning(QtGui.QListWidgetItem):
     def __init__(self, ballooning, scale_y=10):
         self.ballooning = ballooning
-        super(QBalooning, self).__init__()
+        super().__init__()
         self.setText(self.ballooning.name)
         self.scale_y = scale_y
         self.upper_controlpoints = (

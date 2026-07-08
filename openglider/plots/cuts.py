@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,8 +18,9 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import math
 
-from openglider.vector.functions import normalize, rotation_2d, norm
+from openglider.vector.functions import norm, normalize, rotation_2d
 from openglider.vector.polyline import PolyLine2D
+
 
 def robust_cut(poly, p1, p2, startpoint, reference_p):
     try:
@@ -42,7 +42,7 @@ class CutResult:
 ###############CUTS####################
 # Check doc/drawings 7-9 for sketches
 # DESIGN-CUT Style
-class DesignCut(object):
+class DesignCut:
     def __init__(self, amount, num_folds=1):
         self.amount = amount * num_folds
 
@@ -255,7 +255,7 @@ class Cut3D_2(DesignCut):
 class FoldedCut(DesignCut):
     def __init__(self, amount, num_folds=2):
         self.num_folds = num_folds
-        super(FoldedCut, self).__init__(amount)
+        super().__init__(amount)
 
     def apply(self, inner_lists, outer_left, outer_right, amount_3d=None):
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)

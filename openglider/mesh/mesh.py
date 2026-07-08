@@ -1,16 +1,16 @@
-from __future__ import division
 
 import copy
 import logging
 
 import numpy as np
+
 import openglider.vector as vector
 
 USE_POLY_TRI = False
 logger = logging.getLogger(__name__)
 
 
-class Vertex(object):
+class Vertex:
     dmin = 10**-10
 
     def __init__(self, x, y, z, attributes=None):
@@ -65,16 +65,14 @@ class Vertex(object):
         self.z = round(self.z, places)
 
     def __repr__(self):
-        return super(Vertex, self).__repr__() + " {}, {}, {}\n".format(
-            self.x, self.y, self.z
-        )
+        return super().__repr__() + f" {self.x}, {self.y}, {self.z}\n"
 
     @classmethod
     def from_vertices_list(cls, vertices):
         return [cls(*v) for v in vertices]
 
 
-class Polygon(object):
+class Polygon:
     """the polygon is a simple list, but using a Polygon-object instead of \
        a list let you monkey-patch the object"""
 
@@ -131,7 +129,7 @@ class Polygon(object):
         return sum(attribute_list) / len(attribute_list)
 
 
-class Mesh(object):
+class Mesh:
     """
     Mesh Surface: vertices and polygons
 
@@ -151,7 +149,7 @@ class Mesh(object):
         for poly_group in polygons:
             for poly in polygons[poly_group]:
                 if not isinstance(poly, Polygon):
-                    raise Exception("Not a polygon: {} ({})".format(poly, poly_group))
+                    raise Exception(f"Not a polygon: {poly} ({poly_group})")
         # all nodes that might be in touch with other meshes
         self.boundary_nodes = boundary_nodes or {}
         self.name = name or "unnamed"
@@ -163,7 +161,7 @@ class Mesh(object):
         for poly in self.all_polygons:
             for node in poly:
                 if not isinstance(node, Vertex):
-                    raise Exception("Not a Vertex: {} ({})".format(node, poly))
+                    raise Exception(f"Not a Vertex: {node} ({poly})")
                 vertices.add(node)
 
         return vertices
@@ -265,9 +263,7 @@ class Mesh(object):
         return cls(polys, boundaries_new, name)
 
     def __repr__(self):
-        return "Mesh {} ({} faces, {} vertices)".format(
-            self.name, len(self.all_polygons), len(self.vertices)
-        )
+        return f"Mesh {self.name} ({len(self.all_polygons)} faces, {len(self.vertices)} vertices)"
 
     # def copy(self):
     #     poly_copy = {key: [p.copy() for p in polygons]
@@ -313,7 +309,7 @@ class Mesh(object):
             out += "v {:.6f} {:.6f} {:.6f}\n".format(*vertex)
 
         for polygon_group_name, poly_group in polygons.items():
-            out += "o {}\n".format(polygon_group_name)
+            out += f"o {polygon_group_name}\n"
             for obj in poly_group:
                 if len(obj) == 2:
                     # line
@@ -349,6 +345,7 @@ class Mesh(object):
 
     def export_dxf(self, path=None, version="AC1021"):
         import ezdxf
+
         import openglider.mesh.dxf_colours as dxfcolours
 
         dwg = ezdxf.new(dxfversion=version)
@@ -399,8 +396,8 @@ class Mesh(object):
                 if len(obj) > 2:
                     out_str = str(len(obj))
                     for x in obj:
-                        out_str += " {}".format(x)
-                    out_str += " {}".format(i)
+                        out_str += f" {x}"
+                    out_str += f" {i}"
                     panels_lines.append(out_str)
 
         with open(path, "w") as outfile:
@@ -408,9 +405,9 @@ class Mesh(object):
             outfile.write("format ascii 1.0\n")
             outfile.write("comment exported using openglider\n")
 
-            outfile.write("element vertex {}\n".format(len(vertices)))
+            outfile.write(f"element vertex {len(vertices)}\n")
             for coord in ("x", "y", "z"):
-                outfile.write("property float32 {}\n".format(coord))
+                outfile.write(f"property float32 {coord}\n")
 
             # outfile.write("element material {}\n".format(len(material_lines)))
             # outfile.write("property ambient_red uchar\n")
@@ -426,7 +423,7 @@ class Mesh(object):
             # outfile.write("property specular_blue uchar\n")
             # outfile.write("property specular_coeff float\n")
 
-            outfile.write("element face {}\n".format(len(panels_lines)))
+            outfile.write(f"element face {len(panels_lines)}\n")
             outfile.write("property list uchar uint vertex_indices\n")
             # outfile.write("property material_index int\n")
 

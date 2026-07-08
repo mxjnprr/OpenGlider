@@ -6,7 +6,6 @@
 # Jerome Maillot
 # ISA (Inria Lorraine and CNRS), France
 
-from __future__ import division
 
 import numpy as np
 from numpy.linalg import norm
@@ -14,7 +13,7 @@ from numpy.linalg import norm
 np.set_printoptions(3, suppress=True)
 
 
-class LSCM(object):
+class LSCM:
     def __init__(self, vertices, triangles):
         self.vertices = np.array(vertices)  # n x 3
         self.triangles = np.array(triangles)  # m x 3
@@ -127,7 +126,7 @@ class LSCM(object):
     def from_obj(cls, file_path):
         vertices = []
         triangles = []
-        with open(file_path, "r") as _file:
+        with open(file_path) as _file:
             for line in _file:
                 if line[0] == "v":
                     vertices.append(map(float, line.split(" ")[1:]))

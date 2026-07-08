@@ -1,11 +1,11 @@
-import unittest
 import os
+import unittest
+
 import numpy as np
 
-from openglider.lines.import_text import import_lines
-from openglider.lines import LineSet
 import openglider.graphics as graph
-
+from openglider.lines import LineSet
+from openglider.lines.import_text import import_lines
 
 test_dir = os.path.dirname(os.path.abspath(__file__))
 

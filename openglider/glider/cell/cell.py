@@ -1,14 +1,14 @@
-from __future__ import division
 import copy
 import logging
 import math
-from typing import Callable, List
+from typing import List
 
 import numpy as np
-from openglider.airfoil.profile_2d import Profile2D
-import openglider.vector
+
 import openglider.utils
+import openglider.vector
 from openglider.airfoil import Profile3D
+from openglider.airfoil.profile_2d import Profile2D
 from openglider.glider.ballooning import Ballooning
 from openglider.glider.cell import BasicCell
 from openglider.glider.cell.elements import Panel
@@ -354,7 +354,7 @@ class Cell(CachedObject):
         v_knots = nurbs.create_knots_vector(
             u_min=0, u_max=1, degree=v_degree, num_poles=v_poles
         )
-        weights = np.ones((u_poles * v_poles))
+        weights = np.ones(u_poles * v_poles)
         base = nurbs.NurbsBase2D(u_knots, v_knots, weights, u_degree, v_degree)
         mat = base.getInfluenceMatrix(uv).toarray()
         # min (mat @ poles - x) ** 2

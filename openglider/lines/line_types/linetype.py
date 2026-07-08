@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,8 +16,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/
-from __future__ import division
-import sys
 import logging
 
 from openglider.vector import Interpolation
@@ -86,7 +83,7 @@ class LineType:
         try:
             return cls.types[name]
         except KeyError:
-            raise KeyError("Line-type {} not found".format(name))
+            raise KeyError(f"Line-type {name} not found")
 
     @classmethod
     def _repr_html_(self):

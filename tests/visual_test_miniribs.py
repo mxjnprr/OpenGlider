@@ -1,16 +1,15 @@
-import sys
 import os
+import sys
 import unittest
+
 import numpy as np
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import openglider
-from openglider.glider.rib import MiniRib
-from openglider.glider import ParametricGlider
-from openglider.airfoil import Profile2D
 import openglider.graphics as Graph
+from openglider.airfoil import Profile2D
+from openglider.glider import ParametricGlider
 from openglider.utils.distribution import Distribution
 
 
@@ -18,8 +17,8 @@ class TestMiniRibsVisualization(unittest.TestCase):
     def setUp(self):
         # Create a basic glider configuration
         # This mirrors minimal setup for a ParametricGlider
-        from openglider.glider.parametric.shape import ParametricShape
         from openglider.glider.parametric.arc import ArcCurve
+        from openglider.glider.parametric.shape import ParametricShape
 
         shape = ParametricShape(
             span=10, aspect_ratio=5, taper=0.7, sweep=0.5, area=25

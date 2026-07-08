@@ -1,6 +1,7 @@
 from common import *
-from openglider.glider import ParametricGlider
 from visual_test_glider import TestGlider
+
+from openglider.glider import ParametricGlider
 
 __ALL__ = ['GliderTestCase2D']
 

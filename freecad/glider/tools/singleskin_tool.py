@@ -1,12 +1,10 @@
-from __future__ import division
 
-import copy
 import numpy as np
 from pivy import coin
-from PySide import QtGui, QtCore
+from PySide import QtCore, QtGui
 
-from openglider.glider.rib.rib import SingleSkinRib
 from openglider.glider.rib import RibHole
+from openglider.glider.rib.rib import SingleSkinRib
 
 from .glider import draw_glider, draw_lines
 from .tools import BaseTool, input_field, text_field
@@ -22,7 +20,7 @@ class SingleSkinTool(BaseTool):
     widget_name = "Single Skin"
 
     def __init__(self, obj):
-        super(SingleSkinTool, self).__init__(obj)
+        super().__init__(obj)
 
         # Get glider info
         glider = self.parametric_glider.get_glider_3d()
@@ -106,7 +104,7 @@ class SingleSkinTool(BaseTool):
         cell_grid = QtGui.QGridLayout()
         cols = min(6, self.num_cells)
         for i in range(self.num_cells):
-            cb = QtGui.QCheckBox("C{}".format(i + 1))
+            cb = QtGui.QCheckBox(f"C{i + 1}")
             cb.setChecked(i in self.config["cells"])
             cb.stateChanged.connect(self._on_param_changed)
             self.cell_checks.append(cb)
@@ -293,7 +291,7 @@ class SingleSkinTool(BaseTool):
     # ── UI Callbacks ──────────────────────────────────────────────
 
     def _on_height_slider(self, value):
-        self.height_label.setText("{:.2f}".format(value / 100.0))
+        self.height_label.setText(f"{value / 100.0:.2f}")
         self._on_param_changed()
 
     def _on_holes_toggled(self, state):
@@ -548,9 +546,9 @@ class SingleSkinTool(BaseTool):
         """Save configuration and update the glider."""
         # Store config in ParametricGlider for persistence
         self.parametric_glider.single_skin_config = self._get_full_config()
-        super(SingleSkinTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         """Discard changes."""
-        super(SingleSkinTool, self).reject()
+        super().reject()

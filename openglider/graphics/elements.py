@@ -1,10 +1,12 @@
 import numpy as np
 import vtk
-from .functions import _isintlist
+
 from openglider.vector.functions import norm
 
+from .functions import _isintlist
 
-class GraphicObject(object):
+
+class GraphicObject:
     element_setter = None
 
     def __init__(self, points, colour=None):
@@ -41,10 +43,10 @@ class Point(GraphicObject):
     element_setter = "SetVerts"
 
     def __init__(self, pointnumbers, colour=None):
-        super(Point, self).__init__(pointnumbers, colour=colour)
+        super().__init__(pointnumbers, colour=colour)
 
     def draw(self, graphics):
-        cell, pointnums = super(Point, self).draw(graphics)
+        cell, pointnums = super().draw(graphics)
 
         cell.InsertNextCell(len(pointnums))
         for p in pointnums:
@@ -57,10 +59,10 @@ class Line(GraphicObject):
     # TODO: here is a bug mixing the colours around...
 
     def __init__(self, pointnumbers, colour=None):
-        super(Line, self).__init__(pointnumbers, colour=colour)
+        super().__init__(pointnumbers, colour=colour)
 
     def draw(self, graphics):
-        cell, pointnums = super(Line, self).draw(graphics)
+        cell, pointnums = super().draw(graphics)
 
         line = vtk.vtkPolyLine()
         line.GetPointIds().SetNumberOfIds(len(pointnums))
@@ -71,10 +73,10 @@ class Line(GraphicObject):
 
 class Arrow(GraphicObject):
     def __init__(self, pointnumbers, colour=None):
-        super(Arrow, self).__init__(pointnumbers, colour=colour)
+        super().__init__(pointnumbers, colour=colour)
 
     def draw(self, graphics):
-        cell, pointnums = super(Arrow, self).draw(graphics)
+        cell, pointnums = super().draw(graphics)
         assert len(pointnums) == 2
 
         arrow = vtk.vtkArrowSource()
@@ -89,10 +91,10 @@ class Polygon(GraphicObject):
     element_setter = "SetPolys"
 
     def __init__(self, pointnumbers, colour=None):
-        super(Polygon, self).__init__(pointnumbers, colour=colour)
+        super().__init__(pointnumbers, colour=colour)
 
     def draw(self, graphics):
-        cell, pointnums = super(Polygon, self).draw(graphics)
+        cell, pointnums = super().draw(graphics)
 
         polygon = vtk.vtkPolygon()
         polygon.GetPointIds().SetNumberOfIds(len(pointnums))
@@ -103,7 +105,7 @@ class Polygon(GraphicObject):
 
 class Axes(GraphicObject):
     def __init__(self, start=(0.0, 0.0, 0.0), size=None, label=False):
-        super(Axes, self).__init__(start)
+        super().__init__(start)
         self._is_direct = False
         self.size = size
         self.label = label
@@ -125,7 +127,7 @@ class Axes(GraphicObject):
 
 #######################################################################
 ###################COLOURS#############################################
-class RGBColour(object):
+class RGBColour:
     def __init__(self, r=None, g=None, b=None):
         if r is None or g is None or b is None:
             self.colour = [255, 255, 255]

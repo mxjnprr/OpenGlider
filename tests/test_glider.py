@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -21,7 +20,6 @@ import random
 import unittest
 
 from common import *
-import openglider.glider
 
 
 class GliderTestClass(TestCase):

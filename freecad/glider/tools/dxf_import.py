@@ -23,8 +23,9 @@
 # *                                                                         *
 # ***************************************************************************
 
+import FreeCAD
 import numpy as np
-import FreeCAD, Part
+import Part
 
 GC_ENTITY_TYPE = 0
 GC_HANDLE = 5
@@ -239,7 +240,8 @@ class DXFSpline(DXFEntity):
         return (self.value(70) & 16) > 0
 
     def to_polygon(self):
-        import FreeCAD, Part
+        import FreeCAD
+        import Part
 
         poly = []
         for i in np.arange(len(self.value(GC_X))):
@@ -279,7 +281,7 @@ def dublette(dxffile):
 def prase(filename):
     entries = {"POLYLINE": 0, "VERTEX": 0, "LINE": 0, "SPLINE": 0, "3DFACE": 0}
     result = []
-    dxffile = open(filename, "r")
+    dxffile = open(filename)
     while True:
         code, value = dublette(dxffile)
         if value == "EOF":

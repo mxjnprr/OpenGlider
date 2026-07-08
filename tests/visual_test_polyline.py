@@ -1,12 +1,11 @@
-import numpy as np
-from pivy import coin
+import unittest
+
 from pivy import graphics
 
-from openglider.vector.polyline import PolyLine2D
 from openglider.airfoil import Profile2D
+from openglider.vector.polyline import PolyLine2D
 
 
-import unittest
 class TestLines(unittest.TestCase):
     def testOffset(self):
         viewer = graphics.GraphicsViewer()

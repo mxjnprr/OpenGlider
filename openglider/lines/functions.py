@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -18,10 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import division
-import numpy as np
 import logging
-import traceback
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +28,7 @@ def proj_force(force, vec):
     proj = np.dot(vec, force)
     try:
         assert proj**2 >= 0.00001
-    except AssertionError as e:
+    except AssertionError:
         logger.warning(f"singular force projection: {vec} / {force} ({proj}")
         return None
     return np.dot(force, force) / proj

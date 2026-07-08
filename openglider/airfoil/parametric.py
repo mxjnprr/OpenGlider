@@ -1,9 +1,9 @@
 import numpy as np
 
 from openglider.airfoil import Profile2D
+from openglider.vector import Interpolation, norm
 from openglider.vector.spline import Bezier
-from openglider.vector.spline.bspline import BSpline, BSpline3
-from openglider.vector import norm, Interpolation
+from openglider.vector.spline.bspline import BSpline
 
 
 class BezierProfile2D(Profile2D):
@@ -18,7 +18,7 @@ class BezierProfile2D(Profile2D):
         control_num_lower=8,
         control_num_upper=8,
     ):
-        super(BezierProfile2D, self).__init__(data=data, name=name)
+        super().__init__(data=data, name=name)
         self.close()
         self.normalize()
         self.upper_spline = None
@@ -31,7 +31,7 @@ class BezierProfile2D(Profile2D):
         )
 
     def __json__(self):
-        dct = super(BezierProfile2D, self).__json__()
+        dct = super().__json__()
         dct.update(
             {"upper_spline": self.upper_spline, "lower_spline": self.lower_spline}
         )

@@ -16,9 +16,7 @@ import math
 
 from pivy import coin
 from pivy.graphics import InteractionSeparator, Marker
-
 from PySide import QtGui
-
 
 # names of the FreeCAD properties used to persist the reference image
 _PROP_GROUP = "arc_background"
@@ -34,7 +32,7 @@ _PROPS = {
 }
 
 
-class BackgroundImage(object):
+class BackgroundImage:
     def __init__(self, render_manager, default_width=2.0, on_change=None):
         """
         render_manager: SoRenderManager used to register the drag handles

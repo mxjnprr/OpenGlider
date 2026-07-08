@@ -1,7 +1,7 @@
-import sys
-import os
-import unittest
 import json
+import os
+import sys
+import unittest
 from unittest.mock import MagicMock
 
 # Add project root to path
@@ -21,9 +21,9 @@ sys.modules["svgwrite.shapes"] = MagicMock()
 sys.modules["svgwrite.path"] = MagicMock()
 sys.modules["svgwrite.image"] = MagicMock()
 
-import openglider
-from openglider.glider.rib import MiniRib
 from openglider import jsonify
+from openglider.glider.rib import MiniRib
+
 
 class TestMiniRibsSerialization(unittest.TestCase):
     def test_jsonify_minirib(self):

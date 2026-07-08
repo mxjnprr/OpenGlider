@@ -1,8 +1,8 @@
 import numpy as np
 
+from openglider.plots import cuts, marks
 from openglider.utils import Config
 from openglider.utils.distribution import Distribution
-from openglider.plots import marks, cuts
 
 
 class PatternConfig(Config):

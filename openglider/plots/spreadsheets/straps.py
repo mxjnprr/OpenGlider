@@ -7,10 +7,10 @@ def get_length_table(glider):
 
     for cell_no, cell in enumerate(glider.cells):
         num = max(num, len(cell.straps))
-        table[cell_no + 1, 0].set_value("cell_{}".format(cell_no))
+        table[cell_no + 1, 0].set_value(f"cell_{cell_no}")
         for strap_no, strap in enumerate(cell.straps):
             table[cell_no + 1, 2 * strap_no + 1].set_value(
-                "{}/{}".format(strap.center_left, strap.center_right)
+                f"{strap.center_left}/{strap.center_right}"
             )
             table[cell_no + 1, 2 * strap_no + 2].set_value(
                 round(1000 * strap.get_center_length(cell), 1)

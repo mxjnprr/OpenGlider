@@ -1,5 +1,4 @@
 #! /usr/bin/python
-# -*- coding: utf-8; -*-
 """
 LE Panel Split Tool - Tool for splitting leading edge panels.
 
@@ -8,7 +7,6 @@ leading edge panel that is then split spanwise for manufacturing.
 
 The cut created is a "3d" type cut visible in the Design and Colors tools.
 """
-from __future__ import division
 
 from pivy import coin
 from PySide import QtGui
@@ -27,7 +25,7 @@ class LEPanelSplitTool(BaseTool):
     turn = False
 
     def __init__(self, obj):
-        super(LEPanelSplitTool, self).__init__(obj)
+        super().__init__(obj)
         
         # Get number of cells
         self.num_cells = self.parametric_glider.shape.half_cell_num
@@ -248,9 +246,9 @@ class LEPanelSplitTool(BaseTool):
 
     def accept(self):
         """Accept changes."""
-        super(LEPanelSplitTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         """Cancel changes."""
-        super(LEPanelSplitTool, self).reject()
+        super().reject()

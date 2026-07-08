@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,18 +16,19 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-import unittest
 import tempfile
+import unittest
+
+from openglider.glider.cell_elements import Panel
+
+from openglider.graphics import Graphics3D, Line
 from openglider.jsonify import load
 from openglider.plots import flatten_glider
-from openglider.plots.glider.cell import flattened_cell
-from openglider.plots.part import create_svg
-from openglider.glider.cell_elements import Panel
-from openglider.graphics import Line, Graphics2D, Red, Graphics3D
+
 
 class TestGlider(unittest.TestCase):
     def setUp(self):
-        with open("./fehler_nahtzugabe.gl3d.json", "r") as importfile:
+        with open("./fehler_nahtzugabe.gl3d.json") as importfile:
             self.glider = load(importfile)["data"]
             for i, cell in enumerate(self.glider.cells):
                 cell.panels = [Panel([-1, -1, 3, 0.012], [1, 1, 3, 0.012], i)]

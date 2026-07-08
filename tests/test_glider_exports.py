@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,13 +16,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-import tempfile
 import json
+import tempfile
 
 from common import *
-from openglider.plots import PlotMaker
+
 from openglider import jsonify
-from test_glider import GliderTestClass
+from openglider.plots import PlotMaker
 
 
 class TestGlider(TestCase):

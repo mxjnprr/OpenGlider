@@ -1,13 +1,11 @@
-from __future__ import division
 
 from pivy import coin
-
 from PySide import QtGui
 
 from .glider import draw_glider, draw_lines
-from .tools import BaseTool, input_field
-from .table import base_table_widget
 from .pull_axis_utils import compute_pull_axis_projection
+from .table import base_table_widget
+from .tools import BaseTool, input_field
 
 
 def refresh():
@@ -28,7 +26,7 @@ class CellTool(BaseTool):
     _last_diagonal_offset = 0
 
     def __init__(self, obj):
-        super(CellTool, self).__init__(obj)
+        super().__init__(obj)
         self.diagonals_table = diagonals_table()
         self.diagonals_table.get_from_ParametricGlider(self.parametric_glider)
         self.diagonals_button = QtGui.QPushButton("diagonals")
@@ -89,7 +87,7 @@ class CellTool(BaseTool):
         self.vector_table.apply_to_glider(self.parametric_glider)
 
     def accept(self):
-        super(CellTool, self).accept()
+        super().accept()
         self.diagonals_table.hide()
         self.vector_table.hide()
         del self.diagonals_table
@@ -97,7 +95,7 @@ class CellTool(BaseTool):
         self.update_view_glider()
 
     def reject(self):
-        super(CellTool, self).reject()
+        super().reject()
         self.diagonals_table.hide()
         self.vector_table.hide()
         del self.diagonals_table
@@ -1074,7 +1072,7 @@ class diagonals_table(base_table_widget):
     keyword = "diagonals"
 
     def __init__(self):
-        super(diagonals_table, self).__init__(name="diagonals")
+        super().__init__(name="diagonals")
         self.table.setRowCount(200)
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels(
@@ -1172,7 +1170,7 @@ class diagonals_table(base_table_widget):
 
 class vector_table(base_table_widget):
     def __init__(self):
-        super(vector_table, self).__init__(name="vector straps")
+        super().__init__(name="vector straps")
         self.table.setRowCount(200)
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["left", "right", "width", "height", "cells"])
@@ -1240,6 +1238,6 @@ class vector_table(base_table_widget):
             return list(map(float, str_row[:-1])) + [
                 list(map(int, str_row[-1].replace(".", ",").split(",")))
             ]
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError):
             print("something wrong with row " + str(n_row))
             return None

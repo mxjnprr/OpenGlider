@@ -2,17 +2,15 @@ import random
 import unittest
 
 from visual_test_glider import GliderTestClass
-import common
 
-import openglider
-from openglider.glider.rib import RibHole, RigidFoil, GibusArcs #, Mylar
 import openglider.graphics as Graph
-from openglider.vector import norm, PolyLine2D
+from openglider.glider.rib import GibusArcs, RibHole, RigidFoil  #, Mylar
+from openglider.vector import PolyLine2D, norm
 
 
 class TestRibElements(GliderTestClass):
     def setUp(self):
-        super(TestRibElements, self).setUp()
+        super().setUp()
         attachent_points = []
         rib = None
 

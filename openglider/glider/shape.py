@@ -1,8 +1,8 @@
-from openglider.vector.drawing import PlotPart, Layout
 from openglider.vector import PolyLine2D, norm
+from openglider.vector.drawing import Layout, PlotPart
 
 
-class Shape(object):
+class Shape:
     def __init__(self, front, back):
         if not isinstance(front, PolyLine2D):
             front = PolyLine2D(front)

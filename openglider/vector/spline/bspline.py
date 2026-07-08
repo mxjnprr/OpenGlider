@@ -1,5 +1,4 @@
 from openglider.vector.spline.bezier import Bezier, SymmetricBezier
-from openglider.utils import dualmethod
 
 
 class BSplineBase:

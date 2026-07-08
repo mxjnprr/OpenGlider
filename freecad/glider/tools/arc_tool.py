@@ -2,22 +2,21 @@ import os
 
 import FreeCADGui as Gui
 from pivy import coin
+from pivy.graphics import Line, Point
+from PySide import QtCore, QtGui
 
 from openglider.vector.polygon import CirclePart
-from PySide import QtGui, QtCore
 
-from pivy.graphics import InteractionSeparator, Line, Point, Marker
-
+from .background_image import BackgroundImage
 from .tools import (
     BaseTool,
+    ControlPointContainer,
     input_field,
     spline_select,
     text_field,
-    vector3D,
     vector2D,
-    ControlPointContainer,
+    vector3D,
 )
-from .background_image import BackgroundImage
 
 
 class ArcTool(BaseTool):
@@ -26,7 +25,7 @@ class ArcTool(BaseTool):
 
     def __init__(self, obj):
         """adds a symmetric spline to the scene"""
-        super(ArcTool, self).__init__(obj)
+        super().__init__(obj)
         sbrot1 = coin.SbRotation()
         sbrot1.setValue(coin.SbVec3f(1, 0, 0), coin.SbVec3f(0, 1, 0))
         sbrot2 = coin.SbRotation()
@@ -406,7 +405,7 @@ class ArcTool(BaseTool):
         self.bg_image.remove_callbacks()
         self.bg_image.save_to(self.obj)
         self.obj.ViewObject.Proxy.set_transparency(0.0)
-        super(ArcTool, self).accept()
+        super().accept()
         self.obj.ViewObject.Proxy.rotate()
         self.update_view_glider()
         Gui.activeDocument().activeView().viewFront()
@@ -417,4 +416,4 @@ class ArcTool(BaseTool):
         self.obj.ViewObject.Proxy.set_transparency(0.0)
         self.obj.ViewObject.Proxy.rotate()
         Gui.activeDocument().activeView().viewFront()
-        super(ArcTool, self).reject()
+        super().reject()

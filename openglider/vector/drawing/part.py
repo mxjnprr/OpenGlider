@@ -3,7 +3,7 @@ import copy
 import numpy as np
 
 
-class Layer(object):
+class Layer:
     stroke = "black"
     stroke_width = 1
     visible = True
@@ -58,14 +58,14 @@ class Layer(object):
         }
 
 
-class Layers(object):
+class Layers:
     def __init__(self, **layers):
         self.layers = layers
 
     def __repr__(self):
         """pretty-print"""
         lines = ["Layers:"] + [
-            "{} ({})".format(layer_name, len(layer))
+            f"{layer_name} ({len(layer)})"
             for layer_name, layer in self.layers.items()
         ]
         return "\n  - ".join(lines)
@@ -115,7 +115,7 @@ class Layers(object):
         return layer
 
 
-class PlotPart(object):
+class PlotPart:
     def __init__(
         self,
         cuts=None,
@@ -266,9 +266,9 @@ class PlotPart(object):
 
     def get_svg_group(self, non_scaling_stroke=True):
         import svgwrite
-        import svgwrite.shapes
         import svgwrite.container
         import svgwrite.path
+        import svgwrite.shapes
 
         # if it has an envelope use the envelope to group elements
         if False and "envelope" in self.layers and len(self.layers["envelope"]) == 1:

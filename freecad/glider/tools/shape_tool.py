@@ -1,26 +1,21 @@
-from __future__ import division
-
-import time
-import numpy as np
-
-from pivy import coin
-from pivy.graphics import Line as _Line
 
 import FreeCAD as App
 import FreeCADGui as Gui
-from openglider.vector.polygon import CirclePart
+import numpy as np
+from pivy import coin
+from PySide import QtGui
+
 from openglider.vector import PolyLine2D
-from openglider.vector.spline import Bezier
-from PySide import QtCore, QtGui
+from openglider.vector.polygon import CirclePart
 
 from .tools import (
     BaseTool,
+    ControlPointContainer,
+    Line_old,
     input_field,
     text_field,
-    ControlPointContainer,
     vector2D,
     vector3D,
-    Line_old,
 )
 
 
@@ -28,7 +23,7 @@ class ShapeTool(BaseTool):
     widget_name = "Shape Tool"
 
     def __init__(self, obj):
-        super(ShapeTool, self).__init__(obj)
+        super().__init__(obj)
 
         # Remember initial cell count to detect changes
         self._initial_cell_num = self.parametric_glider.shape.cell_num
@@ -121,14 +116,14 @@ class ShapeTool(BaseTool):
         self.back_cpc.remove_callbacks()
         self.front_cpc.remove_callbacks()
         self.cell_dist_cpc.remove_callbacks()
-        super(ShapeTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         self.back_cpc.remove_callbacks()
         self.front_cpc.remove_callbacks()
         self.cell_dist_cpc.remove_callbacks()
-        super(ShapeTool, self).reject()
+        super().reject()
 
     def update_controls(self):
         self.front_cpc.control_pos = (
@@ -404,9 +399,7 @@ class ShapeTool(BaseTool):
             trans.translation = pos
             textsep = coin.SoSeparator()
             text = coin.SoAsciiText()
-            text.string = "rib_{}, l = {} m, x = {}, y = {}".format(
-                i, round(l, 2), round(front[0], 2), round(front[1], 2)
-            )
+            text.string = f"rib_{i}, l = {round(l, 2)} m, x = {round(front[0], 2)}, y = {round(front[1], 2)}"
             textsep += [color, trans, scale, rot, text]
             self.rib_lengths += textsep
 

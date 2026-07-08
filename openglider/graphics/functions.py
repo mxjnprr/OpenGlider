@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,13 +18,10 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import vtk
-import numpy as np
 
 from openglider.vector import depth
 
 # Quick graphics lib to imitate mathematicas graphics functions
-from openglider.vector.functions import norm, normalize
 
 
 def tofloat(lst):

@@ -1,19 +1,18 @@
-import copy
-import re
 import ast
-import numpy as np
+import copy
 import logging
+import re
+
+import numpy as np
 
 from openglider.glider.rib.elements import AttachmentPoint, CellAttachmentPoint
-from openglider.lines import Node, Line, LineSet
-from openglider.utils import recursive_getattr
-from openglider.lines import line_types
+from openglider.lines import Line, LineSet, Node, line_types
 from openglider.utils.table import Table
 
 logging.getLogger(__name__)
 
 
-class LowerNode2D(object):
+class LowerNode2D:
     """lower attachment point"""
 
     def __init__(self, pos_2D, pos_3D, name="unnamed", layer=None):
@@ -23,7 +22,7 @@ class LowerNode2D(object):
         self.layer = layer or ""
 
     def __repr__(self):
-        return "<LowerNode2D {}>".format(self.name)
+        return f"<LowerNode2D {self.name}>"
 
     def __json__(self):
         return {
@@ -40,7 +39,7 @@ class LowerNode2D(object):
         return Node(node_type=0, position_vector=np.array(self.pos_3D), name=self.name)
 
 
-class UpperNode2D(object):
+class UpperNode2D:
     """stores the 2d data of an attachment point"""
 
     def __init__(
@@ -64,9 +63,7 @@ class UpperNode2D(object):
         }
 
     def __repr__(self):
-        return "<UpperNode2D name:{} cell_no:{} cell_pos: {} rib_pos:{}".format(
-            self.name, self.cell_no, self.cell_pos, self.rib_pos
-        )
+        return f"<UpperNode2D name:{self.name} cell_no:{self.cell_no} cell_pos: {self.cell_pos} rib_pos:{self.rib_pos}"
 
     def get_2D(self, parametric_shape):
         return parametric_shape[self.cell_no, self.rib_pos]
@@ -114,7 +111,7 @@ class UpperNode2D(object):
         return node
 
 
-class BatchNode2D(object):
+class BatchNode2D:
     def __init__(self, pos_2D, name=None, layer=None):
         self.pos_2D = pos_2D  # pos => 2d coordinates
         self.name = name
@@ -130,7 +127,7 @@ class BatchNode2D(object):
         return self.pos_2D
 
 
-class LineSet2D(object):
+class LineSet2D:
     regex_node = re.compile(r"([a-zA-Z]*)([0-9]*)")
 
     def __init__(self, line_list):
@@ -351,9 +348,7 @@ class LineSet2D(object):
             else:  # Insert a top node
                 name = line.upper_node.name
                 if not name:
-                    name = "Rib_{}/{}".format(
-                        line.upper_node.rib_no, line.upper_node.rib_pos
-                    )
+                    name = f"Rib_{line.upper_node.rib_no}/{line.upper_node.rib_pos}"
                 table[row, column] = name
                 row += 1
             return row
@@ -598,7 +593,7 @@ class LineSet2D(object):
             temp = temp_new
 
 
-class Line2D(object):
+class Line2D:
     def __init__(
         self,
         lower_node,

@@ -1,14 +1,13 @@
-from __future__ import division
 import copy
-import math
+
 import numpy as np
-from openglider.airfoil import Profile3D
-from openglider.utils.cache import CachedObject, cached_property
-from openglider.vector.functions import rotation_3d, set_dimension
-from openglider.vector.transformation import Rotation, Scale, Translation
-from openglider.mesh import Mesh, triangulate
-from openglider.glider.rib.elements import FoilCurve
 from numpy.linalg import norm
+
+from openglider.airfoil import Profile3D
+from openglider.mesh import Mesh, triangulate
+from openglider.utils.cache import CachedObject, cached_property
+from openglider.vector.functions import set_dimension
+from openglider.vector.transformation import Rotation, Scale, Translation
 
 
 def _point_in_polygon(point, polygon):
@@ -160,7 +159,7 @@ class Rib(CachedObject):
             return Profile3D(self.align_all(self.profile_2d.data))
         else:
             raise ValueError(
-                "no 2d-profile present for the rib at rib {}".format(self.name)
+                f"no 2d-profile present for the rib at rib {self.name}"
             )
 
     def point(self, x_value):
@@ -304,7 +303,7 @@ class SingleSkinRib(Rib):
         material_code=None,
         single_skin_par=None,
     ):
-        super(SingleSkinRib, self).__init__(
+        super().__init__(
             profile_2d=profile_2d,
             startpoint=startpoint,
             chord=chord,
@@ -368,7 +367,7 @@ class SingleSkinRib(Rib):
         return cls(**json_dict)
 
     def __json__(self):
-        json_dict = super(SingleSkinRib, self).__json__()
+        json_dict = super().__json__()
         json_dict["single_skin_par"] = self.single_skin_par
         return json_dict
 
@@ -385,7 +384,7 @@ class SingleSkinRib(Rib):
         aero = getattr(self, '_aero_profile_2d', None) or self.profile_2d
         if aero.data is not None:
             return Profile3D(self.align_all(aero.data))
-        raise ValueError("no 2d-profile present for rib {}".format(self.name))
+        raise ValueError(f"no 2d-profile present for rib {self.name}")
 
     def get_hull(self, glider=None):
         """
@@ -492,7 +491,7 @@ class SingleSkinRib(Rib):
     def align_all(self, data):
         """Override to apply progressive Y-shear for SingleSkin ribs."""
         if not self.shear_map or self._original_extrados is None or self.ss_x_start is None:
-            return super(SingleSkinRib, self).align_all(data)
+            return super().align_all(data)
 
         # Ensure x is increasing for np.interp (extrados points go from TE to LE, i.e. 1 to 0)
         ext_x = self._original_extrados[:, 0][::-1]

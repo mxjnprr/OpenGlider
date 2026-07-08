@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,20 +16,20 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
+import logging
+import math
 import os
 import re
-import math
-import numpy as np
-import tempfile
 import shutil
-import logging
+import tempfile
+
+import numpy as np
 
 from openglider.utils.cache import HashedList
 from openglider.utils.distribution import Distribution
 from openglider.vector.functions import norm_squared
 from openglider.vector.polygon import Polygon2D
 from openglider.vector.polyline import PolyLine2D
-
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +41,11 @@ class Profile2D(Polygon2D):
 
     def __init__(self, data, name=None):
         self.noseindex = None
-        super(Profile2D, self).__init__(data, name)
+        super().__init__(data, name)
 
     def __imul__(self, other):
         fakt = np.array([1, float(other)])
-        return super(Profile2D, self).__imul__(fakt)
+        return super().__imul__(fakt)
 
     def __call__(self, xval):
         xval = float(xval)
@@ -152,8 +151,8 @@ class Profile2D(Polygon2D):
         """
         Import an airfoil from a '.dat' file
         """
-        name = "imported from {}".format(path)
-        with open(path, "r") as p_file:
+        name = f"imported from {path}"
+        with open(path) as p_file:
             return cls._import_dat(p_file)
 
     @classmethod

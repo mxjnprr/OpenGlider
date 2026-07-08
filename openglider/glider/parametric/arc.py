@@ -1,11 +1,12 @@
 import copy
+
 import numpy as np
 
 from openglider.vector import PolyLine2D
-from openglider.vector.spline import SymmetricBezier, SymmetricBSpline
+from openglider.vector.spline import SymmetricBSpline
 
 
-class ArcCurve(object):
+class ArcCurve:
     """
     _
     """

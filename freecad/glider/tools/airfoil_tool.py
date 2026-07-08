@@ -1,14 +1,13 @@
 import os
 from copy import deepcopy
 
+import FreeCADGui as Gui
 import numpy as np
 from pivy import coin
+from PySide import QtCore, QtGui
 
-import FreeCADGui as Gui
 from openglider import jsonify
 from openglider.airfoil import BezierProfile2D
-from openglider.vector import norm, normalize
-from PySide import QtCore, QtGui
 
 from .tools import BaseTool, ControlPointContainer, Line_old, vector3D
 
@@ -17,7 +16,7 @@ class AirfoilTool(BaseTool):
     widget_name = "Selection"
 
     def __init__(self, obj):
-        super(AirfoilTool, self).__init__(obj)
+        super().__init__(obj)
         # base_widget
         self.QList_View = QtGui.QListWidget(self.base_widget)
         self.Qdelete_button = QtGui.QPushButton("delete", self.base_widget)
@@ -142,7 +141,7 @@ class AirfoilTool(BaseTool):
                     QAirfoil_item(BezierProfile2D.import_from_dat(filename[0]))
                 )
             elif format == ".json":
-                with open(filename[0], "r") as fp:
+                with open(filename[0]) as fp:
                     airfoil = jsonify.load(fp)["data"]
                     self.QList_View.addItem(QAirfoil_item(airfoil))
 
@@ -405,13 +404,13 @@ class AirfoilTool(BaseTool):
             airfoil.name = self.QList_View.item(index).text()
             airfoil.apply_splines()
             profiles.append(airfoil)
-        super(AirfoilTool, self).accept()
+        super().accept()
         self.parametric_glider.profiles = profiles
         self.update_view_glider()
 
     def reject(self):
         self.unset_edit_mode()
-        super(AirfoilTool, self).reject()
+        super().reject()
 
     def pressure_vis(self):
         self.pressure_sep.removeAllChildren()
@@ -504,7 +503,7 @@ class AirfoilTool(BaseTool):
 class QAirfoil_item(QtGui.QListWidgetItem):
     def __init__(self, airfoil):
         self.airfoil = airfoil
-        super(QAirfoil_item, self).__init__()
+        super().__init__()
         self.setFlags(self.flags() | QtCore.Qt.ItemIsEditable)
         self.setFlags(self.flags() | QtCore.Qt.ItemIsUserCheckable)
         self.setText(self.airfoil.name)

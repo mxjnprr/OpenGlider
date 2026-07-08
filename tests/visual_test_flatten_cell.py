@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -29,13 +28,13 @@ try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
-from openglider.glider.ballooning import BallooningBezier
-from openglider.vector.projection import flatten_list
-import openglider.plots
-from openglider.glider.cell.cell import Cell
-from openglider.glider.rib.rib import Rib
 import numpy as np
 
+import openglider.plots
+from openglider.glider.ballooning import BallooningBezier
+from openglider.glider.cell.cell import Cell
+from openglider.glider.rib.rib import Rib
+from openglider.vector.projection import flatten_list
 
 prof = openglider.airfoil.Profile2D.import_from_dat(os.path.dirname(os.path.abspath(__file__)) + "/common/testprofile.dat")
 

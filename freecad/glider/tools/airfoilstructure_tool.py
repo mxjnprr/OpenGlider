@@ -6,13 +6,15 @@ This tool allows configuration of structural elements on rib profiles:
 - Attachment reinforcements with half-moon load distribution rods (suspended ribs only)
 """
 
-from .tools import BaseTool, Line_old
+
 import FreeCADGui as Gui
-from PySide import QtCore, QtGui
-from openglider.glider.rib import RodSleeve, AttachmentReinforcement
 import numpy as np
 from pivy import coin
-import os
+from PySide import QtCore, QtGui
+
+from openglider.glider.rib import AttachmentReinforcement, RodSleeve
+
+from .tools import BaseTool, Line_old
 
 
 class RodSleeveConfigWidget(QtGui.QWidget):
@@ -20,7 +22,7 @@ class RodSleeveConfigWidget(QtGui.QWidget):
     changed = QtCore.Signal()
     
     def __init__(self, surface='extrados', parent=None):
-        super(RodSleeveConfigWidget, self).__init__(parent)
+        super().__init__(parent)
         self.surface = surface
         self.layout = QtGui.QFormLayout(self)
         self.layout.setContentsMargins(5, 5, 5, 5)
@@ -185,7 +187,7 @@ class SurfaceRodSleeveGroup(QtGui.QGroupBox):
     changed = QtCore.Signal()
     
     def __init__(self, surface='extrados', title="Extrados Rod Sleeves", parent=None):
-        super(SurfaceRodSleeveGroup, self).__init__(title, parent)
+        super().__init__(title, parent)
         self.surface = surface
         self.rod_widgets = []
         
@@ -282,7 +284,7 @@ class AirfoilStructureTool(BaseTool):
     widget_name = "Airfoil Structure"
 
     def __init__(self, obj):
-        super(AirfoilStructureTool, self).__init__(obj)
+        super().__init__(obj)
 
         # Profile type selector
         self.ribTypeComboBox = QtGui.QComboBox(self.base_widget)
@@ -419,7 +421,7 @@ class AirfoilStructureTool(BaseTool):
                 # Use rib.name if available, otherwise use index+1
                 name = rib.name if hasattr(rib, 'name') and rib.name else f"r{glider_instance.ribs.index(rib) + 1}"
                 self.previewRibComboBox.addItem(name)
-        except Exception as e:
+        except Exception:
             self.previewRibComboBox.addItem("r1")
 
     def get_representative_rib(self, suspended=False):
@@ -500,7 +502,7 @@ class AirfoilStructureTool(BaseTool):
         self.reinforcement_widgets = []
         
         for i, ap in enumerate(valid_aps):
-            label = "AP {} ({:.1f}%)".format(i + 1, ap.rib_pos * 100)
+            label = f"AP {i + 1} ({ap.rib_pos * 100:.1f}%)"
             widget = ReinforcementConfigWidget()
             widget.changed.connect(self.update_preview)
             self.reinforcementTabs.addTab(widget, label)
@@ -742,16 +744,16 @@ class AirfoilStructureTool(BaseTool):
 
         # Save reinforcement values (only for suspended)
         if is_suspended:
-            setattr(pg, 'reinforcement_enabled_s', self.reinforcementEnabledCheckBox.isChecked())
-            setattr(pg, 'reinforcement_apply_all_s', self.reinforcementApplyAllCheckBox.isChecked())
-            setattr(pg, 'reinforcement_master_s', self.masterConfig.get_values())
+            pg.reinforcement_enabled_s = self.reinforcementEnabledCheckBox.isChecked()
+            pg.reinforcement_apply_all_s = self.reinforcementApplyAllCheckBox.isChecked()
+            pg.reinforcement_master_s = self.masterConfig.get_values()
             
             # Save excluded ribs for reinforcements
-            setattr(pg, 'reinforcement_excluded_ribs_s', self.get_reinforcement_excluded_ribs())
+            pg.reinforcement_excluded_ribs_s = self.get_reinforcement_excluded_ribs()
             
             # Save list of configs
             configs = [w.get_values() for w in self.reinforcement_widgets]
-            setattr(pg, 'reinforcement_configs_s', configs)
+            pg.reinforcement_configs_s = configs
     
     def get_reinforcement_excluded_ribs(self):
         """Parse excluded ribs for reinforcements. Returns list of 0-based indices."""
@@ -907,7 +909,7 @@ class AirfoilStructureTool(BaseTool):
         self.apply_reinforcements_to_ribs()
         self.apply_rod_sleeves_to_ribs()
         self.update_view_glider()
-        super(AirfoilStructureTool, self).accept()
+        super().accept()
 
 
 class ReinforcementConfigWidget(QtGui.QWidget):
@@ -915,7 +917,7 @@ class ReinforcementConfigWidget(QtGui.QWidget):
     changed = QtCore.Signal()
     
     def __init__(self, parent=None):
-        super(ReinforcementConfigWidget, self).__init__(parent)
+        super().__init__(parent)
         self.layout = QtGui.QFormLayout(self)
         self.layout.setContentsMargins(0, 5, 0, 5)
         

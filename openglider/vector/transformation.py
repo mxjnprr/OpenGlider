@@ -1,8 +1,9 @@
 import numpy as np
+
 from .functions import normalize
 
 
-class Transformation(object):
+class Transformation:
     """
     Transformation represented by a 4x4 matrix. This includes transformation + translation.
     """
@@ -64,7 +65,7 @@ class Rotation(Transformation):
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        super(Rotation, self).__init__(mat)
+        super().__init__(mat)
 
 
 class Reflection(Transformation):
@@ -81,7 +82,7 @@ class Reflection(Transformation):
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        super(Reflection, self).__init__(mat)
+        super().__init__(mat)
 
 
 class Scale(Transformation):
@@ -93,7 +94,7 @@ class Scale(Transformation):
         _scale_values = np.ones(4)
         _scale_values[: len(scale_values)] = scale_values
         mat = np.diag(_scale_values)
-        super(Scale, self).__init__(mat)
+        super().__init__(mat)
 
 
 class Translation(Transformation):
@@ -102,4 +103,4 @@ class Translation(Transformation):
             vec = np.zeros(3)
         mat = np.eye(4)
         mat[-1, : len(vec)] = vec
-        super(Translation, self).__init__(mat)
+        super().__init__(mat)

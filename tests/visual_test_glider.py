@@ -1,5 +1,4 @@
 # ! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,23 +16,24 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import division
 import os
 import random
 import sys
-import numpy as np
 
+import numpy as np
 
 try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
     import openglider
+import unittest
+
+from test_glider import GliderTestClass
+
 import openglider.graphics
 import openglider.graphics as graphics
 from openglider.vector.spline import Bezier
-from test_glider import GliderTestClass
-import unittest
 
 
 class TestGlider(GliderTestClass):
@@ -133,7 +133,7 @@ class TestGlider(GliderTestClass):
         self.glider.export_3d(path)
         import openglider.jsonify
 
-        file = open(path, "r")
+        file = open(path)
         data = openglider.jsonify.load(file)
         graphics.Graphics([graphics.Polygon(panel["node_no"]) for panel in data["panels"] if not panel["is_wake"]],
                           #G.Graphics([G.Polygon(data["panels"][0]["node_no"])],

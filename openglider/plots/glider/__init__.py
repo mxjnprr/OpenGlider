@@ -6,7 +6,7 @@ from openglider.plots.glider.ribs import RibPlot, SingleSkinRibPlot
 from openglider.plots.glider.config import PatternConfig, OtherPatternConfig
 
 
-class PlotMaker(object):
+class PlotMaker:
     CellPlotMaker = CellPlotMaker
     RibPlot = RibPlot
     DefaultConfig = OtherPatternConfig

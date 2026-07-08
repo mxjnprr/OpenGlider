@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,27 +18,25 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import copy
 import logging
-from typing import Tuple
-import numpy as np
 import math
+from typing import TYPE_CHECKING, Tuple
+
+import numpy as np
 
 import openglider.vector
 from openglider.airfoil import get_x_value
 from openglider.mesh import Mesh, triangulate
+from openglider.utils import Config
 from openglider.utils.cache import cached_function, hash_list
-from openglider.vector import norm, PolyLine
+from openglider.vector import PolyLine, norm
 from openglider.vector.polyline import PolyLine2D
 from openglider.vector.projection import flatten_list
-from openglider.utils import Config
-
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openglider.glider.cell import Cell
 
 
-class DiagonalRib(object):
+class DiagonalRib:
     def __init__(
         self,
         left_front,
@@ -669,7 +666,7 @@ class DiagonalRib(object):
         ) / 4
 
 
-class DoubleDiagonalRib(object):
+class DoubleDiagonalRib:
     pass  # TODO
 
 
@@ -684,7 +681,7 @@ class TensionStrap(DiagonalRib):
         :param name: name of TensionStrap (optional)
         """
         width /= 2
-        super(TensionStrap, self).__init__(
+        super().__init__(
             (left - width / 2, height),
             (left + width / 2, height),
             (right - width / 2, height),
@@ -711,7 +708,7 @@ class TensionLine(TensionStrap):
         :param material_code: color/material-name
         :param name: optional argument names
         """
-        super(TensionLine, self).__init__(
+        super().__init__(
             left, right, 0.01, material_code=material_code, name=name
         )
         self.left = left
@@ -752,7 +749,7 @@ class TensionLine(TensionStrap):
         )
 
 
-class PanelCut(object):
+class PanelCut:
     def __init__(self, left, right, style=0, is_3d=False):
         self.left = left
         self.right = right
@@ -774,7 +771,7 @@ class PanelCut(object):
         return (self.left + self.right) / 2
 
 
-class Panel(object):
+class Panel:
     """
     Glider cell-panel
     :param cut_front {'left': 0.06, 'right': 0.06, 'type': 'orthogonal'}

@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,10 +16,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import division
 import math
-import sys
 import os
+import sys
 
 import numpy as np
 
@@ -28,15 +26,13 @@ from openglider.glider.cell.cell import Cell
 from openglider.glider.rib.minirib import MiniRib
 from openglider.glider.rib.rib import Rib
 
-
 try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
-from openglider.airfoil import Profile2D
 import openglider.graphics as Graph
+from openglider.airfoil import Profile2D
 from openglider.glider.ballooning import BallooningBezier
-
 
 profile = Profile2D.import_from_dat(os.path.dirname(os.path.abspath(__file__)) + "/common/testprofile.dat")
 #a.Numpoints = 40

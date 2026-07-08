@@ -1,6 +1,6 @@
+import os
 import random
 import sys
-import os
 import unittest
 
 from visual_test_glider import GliderTestClass
@@ -9,14 +9,13 @@ try:
     import openglider
 except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
-    import openglider
-from openglider.glider.cell import DiagonalRib, Panel, TensionStrap
 import openglider.graphics as Graph
+from openglider.glider.cell import DiagonalRib, Panel, TensionStrap
 
 
 class TestCellElements(GliderTestClass):
     def setUp(self, complete=True):
-        super(TestCellElements, self).setUp()
+        super().setUp()
         self.cell_no = random.randint(0, len(self.glider.cells) - 1)
         self.cell = self.glider.cells[self.cell_no]
 

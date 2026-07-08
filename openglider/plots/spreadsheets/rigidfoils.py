@@ -1,6 +1,5 @@
 from openglider.utils.table import Table
 
-
 # Number of columns used to describe a single rod sleeve:
 #   chord position (start%/end%) | seam-contour length | centreline length
 # Both lengths are measured from termination to termination.
@@ -8,9 +7,7 @@ COLS_PER_SLEEVE = 3
 
 
 def _sleeve_values(sleeve, rib, glider):
-    position = "{:.0f}% / {:.0f}%".format(
-        sleeve.start_chord * 100, sleeve.end_chord * 100
-    )
+    position = f"{sleeve.start_chord * 100:.0f}% / {sleeve.end_chord * 100:.0f}%"
     seam_length = round(1000 * sleeve.get_seam_length(rib, glider=glider), 1)
     center_length = round(1000 * sleeve.get_center_length(rib, glider=glider), 1)
     return position, seam_length, center_length
@@ -57,7 +54,7 @@ def get_length_table(glider):
     def write_headers(block_start, count, label):
         for i in range(count):
             col = block_start + i * COLS_PER_SLEEVE
-            table[1, col] = "{} {} corde".format(label, i + 1)
+            table[1, col] = f"{label} {i + 1} corde"
             table[1, col + 1] = "L. couture [mm]"
             table[1, col + 2] = "L. milieu [mm]"
 
@@ -66,7 +63,7 @@ def get_length_table(glider):
 
     for rib_no, (rib, upper, lower) in enumerate(ribs_data):
         row = rib_no + 2
-        table[row, 0] = "Nervure {}".format(rib_no)
+        table[row, 0] = f"Nervure {rib_no}"
 
         def write_block(block_start, sleeves):
             for i, sleeve in enumerate(sleeves):

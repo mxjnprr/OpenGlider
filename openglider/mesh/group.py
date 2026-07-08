@@ -1,14 +1,14 @@
 from openglider.mesh import Mesh
 
 
-class MeshGroup(object):
+class MeshGroup:
     def __init__(self, *objects):
         self.objects = list(objects)
 
     def __repr__(self):
         text = "MeshGroup: [\n"
         for obj in self.objects:
-            text += "\t{},\n".format(obj)
+            text += f"\t{obj},\n"
         text += "]"
         return text
 

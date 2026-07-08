@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -18,15 +17,15 @@
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import logging
+
 import numpy as np
-import logging
 
 from openglider.lines import line_types
 from openglider.lines.functions import proj_force, proj_to_surface
-from openglider.utils.cache import cached_property, CachedObject
+from openglider.mesh import Mesh, Polygon, Vertex
+from openglider.utils.cache import CachedObject, cached_property
 from openglider.vector import PolyLine
 from openglider.vector.functions import norm, normalize
-from openglider.mesh import Mesh, Vertex, Polygon
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +399,7 @@ class Line(CachedObject):
         return f * self.force / l
 
 
-class Node(object):
+class Node:
     def __init__(
         self, node_type, position_vector=None, attachment_point=None, name=None
     ):
@@ -423,9 +422,7 @@ class Node(object):
             force = self.force @ direction / np.linalg.norm(direction)
         if force is None:
             logging.warn(
-                "projected force for line {} is None, direction: {}, force: {}".format(
-                    self.name, direction, self.force
-                )
+                f"projected force for line {self.name} is None, direction: {direction}, force: {self.force}"
             )
             force = 0.00001
         return normalize(direction) * force

@@ -42,7 +42,7 @@ class TestCase(unittest.TestCase):
             # test profile_3d this should include align, profile,...
             for xyz_1, xyz_2 in zip(rib_1.profile_3d, rib_2.profile_3d):
                 for i, (_p1, _p2) in enumerate(zip(xyz_1, xyz_2)):
-                    self.assertAlmostEqual(_p1, _p2, places=precision, msg="Not matching at Rib {}, Coordinate {}; {}//{}".format(rib_no, i, _p1, _p2))
+                    self.assertAlmostEqual(_p1, _p2, places=precision, msg=f"Not matching at Rib {rib_no}, Coordinate {i}; {_p1}//{_p2}")
                     # todo: expand test: lines, diagonals,...
 
     def assertEqualGlider2D(self, glider1, glider2):

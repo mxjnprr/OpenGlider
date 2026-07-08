@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Airfoil Control Tool - Unified airfoil management for OpenGlider
 
@@ -11,26 +10,21 @@ Combines:
 - AoA (Angle of Attack) management
 - Z Rotation (incidence) management
 """
-from __future__ import division
 
 import os
 from copy import deepcopy
 
 import numpy as np
-from pivy import coin
-from PySide import QtGui, QtCore
+from pivy import coin, graphics
+from PySide import QtCore, QtGui
 
-from pivy import graphics
 from openglider import jsonify
-from openglider.airfoil import Profile2D, BezierProfile2D
+from openglider.airfoil import BezierProfile2D, Profile2D
 from openglider.glider.rib import Rib
 from openglider.vector.spline import SymmetricBSpline
 
 from .tools import (
     BaseTool,
-    input_field,
-    spline_select,
-    text_field,
     ControlPointContainer,
     Line_old,
     vector3D,
@@ -44,7 +38,7 @@ class AirfoilControlTool(BaseTool):
     num_release = 200
     
     def __init__(self, obj):
-        super(AirfoilControlTool, self).__init__(obj)
+        super().__init__(obj)
         
         # Create main tab widget
         self.tab_widget = QtGui.QTabWidget(self.base_widget)
@@ -254,7 +248,7 @@ class AirfoilControlTool(BaseTool):
         """Create a new NACA 4412 airfoil."""
         j = self.airfoil_list.count()
         airfoil = BezierProfile2D.compute_naca(4412)
-        airfoil.name = "airfoil{}".format(j)
+        airfoil.name = f"airfoil{j}"
         item = QtGui.QListWidgetItem(airfoil.name)
         item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
         item.setCheckState(QtCore.Qt.Unchecked)
@@ -296,7 +290,7 @@ class AirfoilControlTool(BaseTool):
                 if ext == ".dat":
                     airfoil = BezierProfile2D.import_from_dat(filename)
                 elif ext == ".json":
-                    with open(filename, "r") as fp:
+                    with open(filename) as fp:
                         airfoil = jsonify.load(fp)["data"]
                 else:
                     continue
@@ -449,7 +443,7 @@ class AirfoilControlTool(BaseTool):
         layout.addWidget(QtGui.QLabel("Available profiles:"))
         self.profile_list = QtGui.QListWidget()
         for i, p in enumerate(self.parametric_glider.profiles):
-            self.profile_list.addItem("{}. {}".format(i, p.name))
+            self.profile_list.addItem(f"{i}. {p.name}")
         layout.addWidget(self.profile_list)
         
         layout.addStretch()
@@ -481,7 +475,7 @@ class AirfoilControlTool(BaseTool):
         self.override_table.setRowCount(len(x_values))
         for i, x in enumerate(x_values):
             # Rib number
-            rib_item = QtGui.QTableWidgetItem("R{}".format(i))
+            rib_item = QtGui.QTableWidgetItem(f"R{i}")
             rib_item.setFlags(rib_item.flags() & ~QtCore.Qt.ItemIsEditable)
             self.override_table.setItem(i, 0, rib_item)
             
@@ -497,7 +491,7 @@ class AirfoilControlTool(BaseTool):
             combo = QtGui.QComboBox()
             combo.addItem("(Use distribution)")
             for j, p in enumerate(self.parametric_glider.profiles):
-                combo.addItem("{}. {}".format(j, p.name))
+                combo.addItem(f"{j}. {p.name}")
             
             # Set current override if exists
             if str(i) in overrides:
@@ -587,7 +581,7 @@ class AirfoilControlTool(BaseTool):
         self.sharknose_cell_checkboxes = []
         cols = 4
         for i in range(num_cells):
-            cb = QtGui.QCheckBox("Cell {}".format(i))
+            cb = QtGui.QCheckBox(f"Cell {i}")
             cb.setChecked(i in sharknose_cells)
             cb.stateChanged.connect(self._update_sharknose)
             cell_layout.addWidget(cb, i // cols, i % cols)
@@ -1210,7 +1204,7 @@ class AirfoilControlTool(BaseTool):
             trans = coin.SoTranslation()
             trans.translation = (-0.8, y, 0.001)
             text = coin.SoText2()
-            text.string = "{} °".format(round(degree_val, 1))
+            text.string = f"{round(degree_val, 1)} °"
             textsep += [color, trans, text]
             self.aoa_coords.addChild(textsep)
         
@@ -1251,7 +1245,7 @@ class AirfoilControlTool(BaseTool):
             rot.angle.setValue(np.pi / 2)
             trans.translation = (pt[0], pt[1], 0.001)
             val_deg = interpolation(pt[0]) * self.aoa_value_scale
-            text.string = "{} °".format(round(val_deg, 2))
+            text.string = f"{round(val_deg, 2)} °"
             textsep += [color, trans, scale_node, rot, text]
             self.aoa_grid.addChild(textsep)
     
@@ -2131,13 +2125,13 @@ class AirfoilControlTool(BaseTool):
                 QtGui.QMessageBox.information(
                     self.base_widget,
                     "Success",
-                    "Imported last airfoil profile: {}".format(profile.name)
+                    f"Imported last airfoil profile: {profile.name}"
                 )
             except Exception as e:
                 QtGui.QMessageBox.warning(
                     self.base_widget,
                     "Import Error",
-                    "Failed to import profile: {}".format(str(e))
+                    f"Failed to import profile: {str(e)}"
                 )
                 
     def accept(self):
@@ -2161,7 +2155,7 @@ class AirfoilControlTool(BaseTool):
             self.aoa_controlpoints.remove_callbacks()
         if hasattr(self, 'zrot_controlpoints'):
             self.zrot_controlpoints.remove_callbacks()
-        super(AirfoilControlTool, self).accept()
+        super().accept()
         self.update_view_glider()
         
     def reject(self):
@@ -2174,7 +2168,7 @@ class AirfoilControlTool(BaseTool):
             self.aoa_controlpoints.remove_callbacks()
         if hasattr(self, 'zrot_controlpoints'):
             self.zrot_controlpoints.remove_callbacks()
-        super(AirfoilControlTool, self).reject()
+        super().reject()
 
 
 # Keep old name for backwards compatibility

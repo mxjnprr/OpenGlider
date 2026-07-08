@@ -1,9 +1,8 @@
-from __future__ import division
 
 from PySide import QtCore, QtGui
 from PySide.QtGui import QGuiApplication
 
-from .tools import BaseTool, input_field, text_field
+from .tools import BaseTool, input_field
 
 
 def refresh():
@@ -14,7 +13,7 @@ class table_tool(BaseTool):
     hide = False
 
     def __init__(self, obj):
-        super(table_tool, self).__init__(obj)
+        super().__init__(obj)
 
         self.table_widget = base_table_widget()
         self.table_button = QtGui.QPushButton("table")
@@ -41,7 +40,7 @@ class base_table_widget(QtGui.QWidget):
 
     def __init__(self, parent=None, name="test"):
         base_table_widget.instances.append(self)
-        super(base_table_widget, self).__init__(parent)
+        super().__init__(parent)
         self.layout = QtGui.QVBoxLayout()
         self.table = base_table(self)
         self.setLayout(self.layout)
@@ -59,7 +58,7 @@ class base_table_widget(QtGui.QWidget):
     def show(self):
         if self.isHidden():
             base_table_widget.hide_all()
-            super(base_table_widget, self).show()
+            super().show()
             if base_table_widget._last_pos:
                 self.move(base_table_widget._last_pos)
         else:
@@ -99,12 +98,12 @@ class base_table_widget(QtGui.QWidget):
         if not self.isHidden():
             base_table_widget._last_pos = self.pos()
             if hide:
-                super(base_table_widget, self).hide()
+                super().hide()
 
 
 class base_table(QtGui.QTableWidget):
     def __init__(self, parent=None):
-        super(base_table, self).__init__(parent)
+        super().__init__(parent)
         # self.horizontalHeader().setResizeMode(QtGui.QHeaderView.Stretch)
 
     @property
@@ -137,7 +136,7 @@ class base_table(QtGui.QTableWidget):
             entry = str(entry)[1:-1]
         else:
             entry = str(entry)
-        super(base_table, self).setItem(row, col, QtGui.QTableWidgetItem(entry))
+        super().setItem(row, col, QtGui.QTableWidgetItem(entry))
 
     def setRow(self, row, items, start=0):
         for col, item in enumerate(items):

@@ -1,8 +1,7 @@
-from __future__ import division
 import numpy as np
 
 
-class JoukowskyAirfoil(object):
+class JoukowskyAirfoil:
     """the joukowsky airfoil is created by applieng the joukowsky transformation
     1 + 1 / z at a circle which passes 1 + 0j and has the center point in the
     second quatrant of the complex-plane.
@@ -106,7 +105,7 @@ class VanDeVoorenAirfoil(JoukowskyAirfoil):
         self.tau = tau
         self.epsilon = epsilon
         self.chord_length = chord_length
-        super(VanDeVoorenAirfoil, self).__init__(midpoint=0 + 0j)
+        super().__init__(midpoint=0 + 0j)
 
     @property
     def k(self):
@@ -148,7 +147,7 @@ class TrefftzKuttaAirfoil(JoukowskyAirfoil):
 
     def __init__(self, midpoint, tau):
         self.tau = tau
-        super(TrefftzKuttaAirfoil, self).__init__(midpoint)
+        super().__init__(midpoint)
 
     @property
     def n(self):

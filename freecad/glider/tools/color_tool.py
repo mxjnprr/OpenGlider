@@ -1,21 +1,15 @@
-from __future__ import division
 
-import numpy as np
 
-import FreeCAD as App
 import FreeCADGui
-from PySide import QtCore, QtGui
+from pivy.graphics import InteractionSeparator, Polygon
+from PySide import QtGui
 
 from .tools import (
     BaseTool,
-    coin,
     hex_to_rgb,
     input_field,
     rgb_to_hex,
-    text_field,
-    vector3D,
 )
-from pivy.graphics import InteractionSeparator, Polygon, COLORS
 
 
 class ColorPolygon(Polygon):
@@ -44,12 +38,12 @@ def refresh():
 
 def _rgb_css(rgb):
     r, g, b = (max(0, min(255, int(round(c * 255)))) for c in rgb)
-    return "rgb({}, {}, {})".format(r, g, b)
+    return f"rgb({r}, {g}, {b})"
 
 
 def _swatch_style(rgb):
     return (
-        "background-color: {}; border: 1px solid #444;".format(_rgb_css(rgb))
+        f"background-color: {_rgb_css(rgb)}; border: 1px solid #444;"
     )
 
 
@@ -64,7 +58,7 @@ class ReplaceColorDialog(QtGui.QDialog):
     SCOPE_ALL = "all"
 
     def __init__(self, old_color, parent=None):
-        super(ReplaceColorDialog, self).__init__(parent)
+        super().__init__(parent)
         self.setWindowTitle("Replace color")
         self._old_color = tuple(old_color)
         self._new_color = tuple(old_color)
@@ -124,7 +118,7 @@ class ColorTool(BaseTool):
     widget_name = "Color Tool"
 
     def __init__(self, obj):
-        super(ColorTool, self).__init__(obj)
+        super().__init__(obj)
 
         self.panels = self.parametric_glider.get_panels()
 
@@ -239,9 +233,9 @@ class ColorTool(BaseTool):
 
         self.parametric_glider.elements["materials"] = colors
         self.parametric_glider.elements["materials_by_name"] = colors_by_name
-        super(ColorTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         self.selector.unregister()
-        super(ColorTool, self).reject()
+        super().reject()

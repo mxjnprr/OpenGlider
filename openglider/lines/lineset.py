@@ -1,19 +1,20 @@
-import re
-import numpy as np
 import copy
 import logging
-from openglider.lines import SagMatrix
+import re
 
-from openglider.lines.functions import proj_force
+import numpy as np
+
+from openglider.lines import SagMatrix
 from openglider.lines.elements import Node
+from openglider.lines.functions import proj_force
 from openglider.mesh import Mesh
-from openglider.vector.functions import norm, normalize
 from openglider.utils.table import Table
+from openglider.vector.functions import norm, normalize
 
 logger = logging.getLogger(__name__)
 
 
-class LineSet(object):
+class LineSet:
     """
     Set of different lines
     """
@@ -35,11 +36,11 @@ class LineSet(object):
         self.glider = None
 
     def __repr__(self):
-        return """
-        {}
-        Lines: {}
-        Length: {}
-        """.format(super(LineSet, self).__repr__(), len(self.lines), self.total_length)
+        return f"""
+        {super().__repr__()}
+        Lines: {len(self.lines)}
+        Length: {self.total_length}
+        """
 
     @property
     def lowest_lines(self):
@@ -680,9 +681,7 @@ class LineSet(object):
             percentage = ""
 
             if line.type.min_break_load:
-                percentage = "{}%".format(
-                    round(100 * line.force / line.type.min_break_load, 1)
-                )
+                percentage = f"{round(100 * line.force / line.type.min_break_load, 1)}%"
 
             return [line.type.name, line.force, percentage]
 

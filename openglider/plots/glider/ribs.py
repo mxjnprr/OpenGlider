@@ -1,18 +1,17 @@
-# coding=utf-8
 
 import numpy as np
 
 import openglider.glider
 from openglider.airfoil import get_x_value
 from openglider.plots import marks
-from openglider.vector.drawing import PlotPart
 from openglider.plots.glider.config import PatternConfig
 from openglider.vector import PolyLine2D
-from openglider.vector.functions import rotation_2d, norm
+from openglider.vector.drawing import PlotPart
+from openglider.vector.functions import norm, rotation_2d
 from openglider.vector.text import Text
 
 
-class RibPlot(object):
+class RibPlot:
     class DefaultConfig(PatternConfig):
         # allowance_general = 0.01
         # allowance_trailing_edge = 0.02
@@ -401,7 +400,7 @@ class SingleSkinRibPlot(RibPlot):
 
     def _get_inner_outer(self, x_value):
         # TODO: shift when after the endpoint
-        inner, outer = super(SingleSkinRibPlot, self)._get_inner_outer(x_value)
+        inner, outer = super()._get_inner_outer(x_value)
 
         if self.skin_cut is None or x_value < self.skin_cut:
             return inner, outer
@@ -444,7 +443,7 @@ class SingleSkinRibPlot(RibPlot):
         hull = getattr(self.rib, '_hull_profile', None)
         if hull is None:
             # Hull not yet cached (shouldn't happen after flatten) — fall back.
-            super(SingleSkinRibPlot, self).insert_holes()
+            super().insert_holes()
             return
 
         orig_profile = self.rib.profile_2d
@@ -470,7 +469,7 @@ class SingleSkinRibPlot(RibPlot):
 
     def flatten(self, glider):
         self._get_singleskin_cut(glider)
-        return super(SingleSkinRibPlot, self).flatten(glider)
+        return super().flatten(glider)
 
     def draw_rib(self, glider):
         """

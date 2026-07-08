@@ -1,22 +1,17 @@
-from __future__ import division
 
 import sys
 import traceback
 
 if sys.version_info.major > 2:
-    from importlib import reload
+    pass
 
+import FreeCAD as App
 import numpy as np
-from PySide import QtCore, QtGui
-
 from pivy import coin
 from pivy.graphics import Arrow, InteractionSeparator
 from pivy.graphics import Line as _Line
 from pivy.graphics import Marker as _Marker
-from pivy.graphics import Object3D
-
-import FreeCAD as App
-import FreeCADGui as Gui
+from PySide import QtCore, QtGui
 
 from openglider.glider.parametric.lines import (
     BatchNode2D,
@@ -27,20 +22,20 @@ from openglider.glider.parametric.lines import (
 )
 from openglider.lines.line_types import LineType
 
-from .glider import draw_glider, draw_lines
-from .tools import BaseTool, input_field, text_field, vector3D
+from .glider import draw_glider
 from .lines_auto_placement_dialog import LinesAutoPlacementDialog
+from .tools import BaseTool, input_field, text_field, vector3D
 
 
 class Line(_Line):
     def set_disabled(self):
-        super(Line, self).set_disabled()
+        super().set_disabled()
         points = np.array(self.points)
         points.T[2] = -1
         self.points = points
 
     def set_enabled(self):
-        super(Line, self).set_enabled()
+        super().set_enabled()
         points = np.array(self.points)
         points.T[2] = 0
         self.points = points
@@ -48,13 +43,13 @@ class Line(_Line):
 
 class Marker(_Marker):
     def set_disabled(self):
-        super(Marker, self).set_disabled()
+        super().set_disabled()
         points = np.array(self.points)
         points.T[2] = -1
         self.points = points
 
     def set_enabled(self):
-        super(Marker, self).set_enabled()
+        super().set_enabled()
         points = np.array(self.points)
         points.T[2] = 0
         self.points = points
@@ -103,7 +98,7 @@ class LineTool(BaseTool):
     widget_name = "Line Tool"
 
     def __init__(self, obj):
-        super(LineTool, self).__init__(obj)
+        super().__init__(obj)
 
         # get the parametric shape
         _shape = self.parametric_glider.shape.get_half_shape()
@@ -725,7 +720,7 @@ class LineTool(BaseTool):
             new_lines = LineSet2D(lines)
             self.parametric_glider.lineset = new_lines
             self.parametric_glider.get_glider_3d(self.obj.Proxy.getGliderInstance())
-        except Exception as e:
+        except Exception:
             App.Console.PrintError(traceback.format_exc())
             self.parametric_glider.lineset = lineset
             self.parametric_glider.get_glider_3d(self.obj.Proxy.getGliderInstance())
@@ -733,13 +728,13 @@ class LineTool(BaseTool):
 
         self.shape.unregister()
         self.remove_all_callbacks()
-        super(LineTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         self.shape.unregister()
         self.remove_all_callbacks()
-        super(LineTool, self).reject()
+        super().reject()
 
 
 class NodeMarker(Marker):
@@ -751,7 +746,7 @@ class NodeMarker(Marker):
         if pos is None:
             pos = node.get_2D(par_glider.shape)
         pos = vector3D(pos)
-        super(NodeMarker, self).__init__([pos], dynamic=True)
+        super().__init__([pos], dynamic=True)
         self._node = node
         self.par_glider = par_glider
         self.name = node.name
@@ -783,7 +778,7 @@ class Upper_Att_Marker(NodeMarker):
     std_col = "blue"
 
     def __init__(self, node, par_glider):
-        super(Upper_Att_Marker, self).__init__(node, par_glider)
+        super().__init__(node, par_glider)
 
     @property
     def force(self):
@@ -825,7 +820,7 @@ class Lower_Att_Marker(NodeMarker):
 
     def __init__(self, node, par_glider):
         pos = node.pos_2D
-        super(Lower_Att_Marker, self).__init__(node, par_glider)
+        super().__init__(node, par_glider)
 
     @property
     def pos_3D(self):
@@ -846,7 +841,7 @@ class Lower_Att_Marker(NodeMarker):
 
 class ConnectionLine(Line):
     def __init__(self, marker1, marker2):
-        super(ConnectionLine, self).__init__([marker1.pos, marker2.pos], dynamic=True)
+        super().__init__([marker1.pos, marker2.pos], dynamic=True)
         self.marker1 = marker1
         self.marker2 = marker2
         self.marker1.on_drag.append(self.update_line)
@@ -891,28 +886,28 @@ class ConnectionLine(Line):
 class QLineType_item(QtGui.QListWidgetItem):
     def __init__(self, line_type):
         self.line_type = line_type
-        super(QLineType_item, self).__init__()
+        super().__init__()
         self.setText(self.line_type.name)
 
 
 class LayerComboBox(QtGui.QComboBox):
     def __init__(self, parent=None):
-        super(LayerComboBox, self).__init__(parent)
+        super().__init__(parent)
         self.setInsertPolicy(QtGui.QComboBox.InsertAlphabetically)
         self.addItem("")
 
     def addItem(self, text):
         if self.findText(text) == -1:
-            super(LayerComboBox, self).addItem(text)
+            super().addItem(text)
 
     def removeItem(self, index):
-        super(LayerComboBox, self).removeItem(index)
+        super().removeItem(index)
         if self.count() == 0:
             self.addItem("")
 
     def removeAll(self):
         while self.currentIndex() != -1:
-            super(LayerComboBox, self).removeItem(self.currentIndex())
+            super().removeItem(self.currentIndex())
 
     def getAllItems(self, other):
         self.removeAll()
@@ -999,7 +994,7 @@ class LineObserveTool(BaseTool):
     turn = False
 
     def __init__(self, obj):
-        super(LineObserveTool, self).__init__(obj)
+        super().__init__(obj)
         self.g3d = self.obj.Proxy.getGliderInstance()
         self.setup_widget()
         self.g3d.lineset.recalc(False)
@@ -1007,12 +1002,12 @@ class LineObserveTool(BaseTool):
 
     def setup_widget(self):
         self.force = QtGui.QLabel(
-            "x: {:5.1f} N\n" "y: {:5.1f} N\n" "z: {:5.1f} N".format(0, 0, 0)
+            f"x: {0:5.1f} N\n" f"y: {0:5.1f} N\n" f"z: {0:5.1f} N"
         )
         self.length = QtGui.QLabel(
-            "length without sag: {:5.3f} m\n"
-            "length with sag:    {:5.3f} m\n"
-            "stretched lengths:  {:5.3f} m".format(0, 0, 0)
+            f"length without sag: {0:5.3f} m\n"
+            f"length with sag:    {0:5.3f} m\n"
+            f"stretched lengths:  {0:5.3f} m"
         )
 
         self.force_factor = QtGui.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -1020,8 +1015,8 @@ class LineObserveTool(BaseTool):
         self.force_factor.setMinimum(1)
         self.force_factor.setValue(10)
 
-        self.weight = QtGui.QLabel("weight: {:5.1f} g".format(0))
-        self.max_g_force = QtGui.QLabel("{:2.2f}".format(0.0))
+        self.weight = QtGui.QLabel(f"weight: {0:5.1f} g")
+        self.max_g_force = QtGui.QLabel(f"{0.0:2.2f}")
         self.line_type = QtGui.QLabel("no selection")
 
         # try:
@@ -1113,15 +1108,15 @@ class LineObserveTool(BaseTool):
             "length with sag:    {:5.3f} m\n"
             "stretched lengths   {:5.3f} m".format(*length)
         )
-        self.weight.setText("weight: {:5.1f} g".format(weight))
+        self.weight.setText(f"weight: {weight:5.1f} g")
         self.line_type.setText(line_type)
         if max_g_force:
-            self.max_g_force.setText("{:2.2f}".format(max_g_force))
+            self.max_g_force.setText(f"{max_g_force:2.2f}")
 
     def accept(self):
         self.line_sep.unregister()
-        super(LineObserveTool, self).accept()
+        super().accept()
 
     def reject(self):
         self.line_sep.unregister()
-        super(LineObserveTool, self).reject()
+        super().reject()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import copy
 import logging
 from typing import TypeVar
@@ -10,7 +11,7 @@ import openglider
 cache_instances = []
 
 
-class CachedObject(object):
+class CachedObject:
     """
     An object to provide cached properties and functions.
     Provide a list of attributes to hash down for tracking changes
@@ -29,17 +30,17 @@ class CachedObject(object):
                 prop.cache.pop(id(self))
 
     def __repr__(self):
-        rep = super(CachedObject, self).__repr__()
+        rep = super().__repr__()
         if hasattr(self, "name"):
-            rep = rep[:-1] + ': "{}">'.format(self.name)
+            rep = rep[:-1] + f': "{self.name}">'
         return rep
 
 
 def cached_property(*hashlist):
     # @functools.wraps
-    class CachedProperty(object):
+    class CachedProperty:
         def __init__(self, fget=None, doc=None):
-            super(CachedProperty, self).__init__()
+            super().__init__()
             self.function = fget
             self.__doc__ = doc or fget.__doc__
             self.__module__ = fget.__module__
@@ -78,7 +79,7 @@ def cached_function(*hashlist):
 
         def __get__(self, instance, parentclass):
             if not hasattr(instance, "cached_functions"):
-                setattr(instance, "cached_functions", {})
+                instance.cached_functions = {}
 
             if self not in instance.cached_functions:
 
@@ -239,7 +240,7 @@ class HashedList(CachedObject):
         return str(self.data)
 
     def __repr__(self):
-        return "<class '{}' name: {}".format(self.__class__, self.name)
+        return f"<class '{self.__class__}' name: {self.name}"
 
     @property
     def data(self) -> np.ndarray:

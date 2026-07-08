@@ -17,7 +17,7 @@ Gui.clear = _clear
 # glider commands
 
 
-class activeGlider(object):
+class activeGlider:
     def __init__(self):
         self._update()
 

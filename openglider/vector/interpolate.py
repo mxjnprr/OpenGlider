@@ -3,7 +3,7 @@ from openglider.vector import PolyLine2D
 
 class Interpolation(PolyLine2D):
     def __init__(self, data, name=None, extrapolate=True):
-        super(Interpolation, self).__init__(data, name)
+        super().__init__(data, name)
         self.extrapolate = extrapolate
 
     def __call__(self, xval):

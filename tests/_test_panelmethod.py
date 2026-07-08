@@ -1,9 +1,9 @@
 import unittest
 
-from openglider.physics.flow import GliderPanelMethod
-from openglider.utils.distribution import Distribution
-
 from common import TestCase
+from openglider.physics.flow import GliderPanelMethod
+
+from openglider.utils.distribution import Distribution
 
 
 class PanelMethodTest(TestCase):

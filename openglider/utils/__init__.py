@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -76,7 +75,7 @@ def linspace(start, stop, count):
 # assert len(list_lengths_set) == 1
 # assert list_length > len(lists)
 # self.lists = lists
-class ZipCmp(object):
+class ZipCmp:
     def __init__(self, list):
         self.list = list
 
@@ -85,7 +84,7 @@ class ZipCmp(object):
             yield x, y
 
 
-class dualmethod(object):
+class dualmethod:
     """
     A Decorator to have a combined class-/instancemethod
 
@@ -118,7 +117,7 @@ class dualmethod(object):
         return temp
 
 
-class Config(object):
+class Config:
     def __init__(self, dct=None):
         self.__dict__ = {}
         items = inspect.getmembers(self.__class__, lambda a: not (inspect.isroutine(a)))
@@ -132,7 +131,7 @@ class Config(object):
         return {"dct": self.__dict__}
 
     def __repr__(self):
-        repr_str = "{}\n".format(self.__class__)
+        repr_str = f"{self.__class__}\n"
         width = max([len(x) for x in self.__dict__])
         for key, value in self.__dict__.items():
             repr_str += "    -{0: <{width}} -> {value}\n".format(
@@ -181,7 +180,7 @@ class Config(object):
 
     @classmethod
     def read(cls, filename):
-        with open(filename, "r") as jsonfile:
+        with open(filename) as jsonfile:
             data = json.load(jsonfile)
 
         return cls(data["data"]["data"]["dct"])

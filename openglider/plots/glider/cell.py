@@ -1,20 +1,16 @@
-import math
-import numpy as np
 import logging
-from typing import Tuple
 
-from openglider.glider.cell import Panel
+import numpy as np
+
 from openglider.airfoil import get_x_value
+from openglider.glider.cell import Panel
 from openglider.plots.glider.config import PatternConfig
-from openglider.vector import PolyLine2D, vector_angle
+from openglider.vector import PolyLine2D, norm, normalize, vector_angle
+from openglider.vector.drawing import PlotPart
 from openglider.vector.text import Text
-from openglider.vector.drawing import PlotPart, Layout
-import openglider.vector.projection as projection
-from openglider.vector import normalize, norm
-import openglider.utils
 
 
-class PanelPlot(object):
+class PanelPlot:
     DefaultConf = PatternConfig
 
     def __init__(self, panel: Panel, cell, flattended_cell, config=None):
@@ -267,7 +263,8 @@ class PanelPlot(object):
 
     def _insert_text(self, plotpart):
         import numpy as np
-        from openglider.vector.functions import normalize, norm
+
+        from openglider.vector.functions import norm
 
         if self.config.layout_seperate_panels and not self.panel.is_lower():
             left = get_x_value(self.x_values, self.panel.cut_back["left"])
@@ -453,7 +450,7 @@ class PanelPlot(object):
                     # Text size: fit in seam margin
                     ap_text_size = min(self.config.allowance_design * 0.8, 0.008)
                     plotpart.layers[text_layer] += Text(
-                        " {} ".format(ap_name),
+                        f" {ap_name} ",
                         p1,
                         p2,
                         size=ap_text_size,
@@ -543,7 +540,7 @@ class PanelPlot(object):
                     self.logger.debug(f"Failed to insert minirib mark: {e}")
 
 
-class DribPlot(object):
+class DribPlot:
     DefaultConf = PatternConfig
 
     def __init__(self, drib, cell, config):
@@ -648,7 +645,8 @@ class DribPlot(object):
         # opposite direction (outward) by the fold depth, so letters extend
         # upward from the bottom of the fold area toward the stitch line.
         import numpy as np
-        from openglider.vector import normalize, norm
+
+        from openglider.vector import norm
 
         mid = len(self.left) // 2
         body_dir = np.array(self.left[mid]) - np.array(self.left[0])
@@ -670,7 +668,7 @@ class DribPlot(object):
         use_dashed = getattr(self.config, 'laser_text_mode', False)
         text_layer = "cuts" if use_dashed else "text"
         plotpart.layers[text_layer] += Text(
-            " {} ".format(self.drib.name),
+            f" {self.drib.name} ",
             p1,
             p2,
             size=text_size,
@@ -992,7 +990,7 @@ class DribPlot(object):
                         plotpart, ap, inner, other_inner,
                         front, back, rib, config
                     )
-                except Exception as e:
+                except Exception:
                     pass
 
     def _create_diag_holes(self, plotpart, ap, inner, other_inner,
@@ -1425,7 +1423,6 @@ class CellPlotMaker:
         is defined for this cell. Returns split patterns for both
         left and right half-panels.
         """
-        from openglider.glider.cell.elements import LeadingEdgeClosure
         
         le_splits = []
         

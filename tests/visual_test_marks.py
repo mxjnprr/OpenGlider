@@ -1,8 +1,9 @@
 
-import sys
 import os
-import unittest
 import random
+import sys
+import unittest
+
 import numpy as np
 
 try:

@@ -15,9 +15,7 @@ Example for A lines with 6 attachment points:
 - Group 2 (A2): pattern 2:2:1 → 2+2 hautes connect via inters to basse A2
 """
 
-from __future__ import division
 
-import numpy as np
 from PySide import QtCore, QtGui
 
 from openglider.glider.parametric.lines import (
@@ -36,7 +34,7 @@ class GroupPatternWidget(QtGui.QWidget):
     PATTERNS = ["1:1", "2:1", "3:1", "2:2:1", "3:2:1", "4:2:1"]
     
     def __init__(self, parent=None):
-        super(GroupPatternWidget, self).__init__(parent)
+        super().__init__(parent)
         layout = QtGui.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
@@ -83,7 +81,7 @@ class LineTypeConfigRow(QtGui.QWidget):
     configChanged = QtCore.Signal()
     
     def __init__(self, line_type_name, default_position, default_pattern="2:1", parent=None):
-        super(LineTypeConfigRow, self).__init__(parent)
+        super().__init__(parent)
         self.line_type_name = line_type_name
         
         layout = QtGui.QHBoxLayout(self)
@@ -195,7 +193,7 @@ class LinesAutoPlacementDialog(QtGui.QDialog):
     }
     
     def __init__(self, parametric_glider, parent=None):
-        super(LinesAutoPlacementDialog, self).__init__(parent)
+        super().__init__(parent)
         self.parametric_glider = parametric_glider
         self.half_cell_num = parametric_glider.shape.half_cell_num
         self.half_rib_num = parametric_glider.shape.half_rib_num
@@ -1187,7 +1185,7 @@ class LinesAutoPlacementDialog(QtGui.QDialog):
                 # Even hautes alone exceeds available — shouldn't happen often
                 inter = 0.20
                 basses = 0.30
-                print(f"[AutoPlace] WARNING: Cone much too short for fork angle constraint!")
+                print("[AutoPlace] WARNING: Cone much too short for fork angle constraint!")
             
             print(f"[AutoPlace] Fork angle: spacings h={max_hautes_spacing:.3f} i={max_inter_spacing:.3f} b={max_basses_spacing:.3f}")
             print(f"[AutoPlace] Fork angle: lengths h={hautes:.2f} i={inter:.2f} b={basses:.2f} (cone={hauteur:.1f}, riser={riser_len:.2f})")

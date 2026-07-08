@@ -1,6 +1,7 @@
+import numpy as np
+
 from openglider.airfoil import Profile3D
 from openglider.mesh import Mesh, triangulate
-import numpy as np
 
 
 class MiniRib:
@@ -211,7 +212,7 @@ class MiniRib:
         for x in x_values_extrados:
             try:
                 points_3d.append(get_point_3d(x))
-            except Exception as e:
+            except Exception:
                 continue
         
         # Trailing edge points: add BOTH upper and lower to create flat truncated edge
@@ -221,14 +222,14 @@ class MiniRib:
             pt_lower = get_point_3d(te_x)   # Intrados at TE position
             points_3d.append(pt_upper)  # End of extrados at TE
             points_3d.append(pt_lower)  # Start of intrados at TE
-        except Exception as e:
+        except Exception:
             pass
         
         # Intrados points
         for x in x_values_intrados:
             try:
                 points_3d.append(get_point_3d(x))
-            except Exception as e:
+            except Exception:
                 continue
         
         return Profile3D(points_3d)
@@ -241,8 +242,9 @@ class MiniRib:
         - Transition: progressively thinner
         - Back: exact profile thickness (flat)
         """
-        from openglider.vector import PolyLine2D
         import numpy as np
+
+        from openglider.vector import PolyLine2D
         
         rib1 = cell.rib1
         rib2 = cell.rib2
@@ -275,7 +277,7 @@ class MiniRib:
             midrib_3d = cell.basic_cell.midrib(y, ballooning=True)
             midrib_flat = midrib_3d.flatten()
             has_ballooned = True
-        except Exception as e:
+        except Exception:
             has_ballooned = False
         
         def get_point_2d(x):
@@ -295,7 +297,7 @@ class MiniRib:
         for x in x_values_extrados:
             try:
                 points_2d.append(get_point_2d(x))
-            except Exception as e:
+            except Exception:
                 continue
         
         # Trailing edge points: add BOTH upper and lower to create flat truncated edge
@@ -305,14 +307,14 @@ class MiniRib:
             pt_lower = get_point_2d(te_x)   # Intrados at TE position
             points_2d.append(pt_upper)  # End of extrados at TE
             points_2d.append(pt_lower)  # Start of intrados at TE
-        except Exception as e:
+        except Exception:
             pass
         
         # Intrados points
         for x in x_values_intrados:
             try:
                 points_2d.append(get_point_2d(x))
-            except Exception as e:
+            except Exception:
                 continue
         
         if len(points_2d) < 2:
@@ -416,8 +418,9 @@ class MiniRib:
         Get the 2D profile shape for the leading edge mini rib.
         Only returns shape if le_enabled is True.
         """
-        from openglider.vector import PolyLine2D
         import numpy as np
+
+        from openglider.vector import PolyLine2D
         
         if not self.le_enabled:
             return None
@@ -528,8 +531,9 @@ class MiniRib:
             miter_limit: Maximum miter extension factor (default 2.0).
                         Prevents excessive spikes at sharp corners.
         """
-        from openglider.vector import PolyLine2D
         import numpy as np
+
+        from openglider.vector import PolyLine2D
         
         shape = self.get_2d_shape(cell)
         if shape is None or len(shape.data) < 3:

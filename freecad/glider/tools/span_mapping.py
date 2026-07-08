@@ -1,20 +1,17 @@
-# -*- coding: utf-8 -*-
-from __future__ import division
 
 import numpy as np
-from pivy import coin
-
-from openglider.glider.rib import Rib
+from pivy import coin, graphics
 from PySide import QtGui
 
-from pivy import graphics
+from openglider.glider.rib import Rib
+
 from .tools import (
     BaseTool,
+    ControlPointContainer,
+    Line_old,
     input_field,
     spline_select,
     text_field,
-    ControlPointContainer,
-    Line_old,
     vector3D,
 )
 
@@ -28,7 +25,7 @@ class SpanMappingTool(BaseTool):
     value_scale = 1.0
 
     def __init__(self, obj):
-        super(SpanMappingTool, self).__init__(obj)
+        super().__init__(obj)
         self._grid_y_diff = self.grid_y_diff / self.value_scale
         pts = np.array(self.spline.controlpoints) * self.scale
         pts = list(map(vector3D, pts))
@@ -156,12 +153,12 @@ class SpanMappingTool(BaseTool):
 
     def accept(self):
         self.spline_controlpoints.remove_callbacks()
-        super(SpanMappingTool, self).accept()
+        super().accept()
         self.update_view_glider()
 
     def reject(self):
         self.spline_controlpoints.remove_callbacks()
-        super(SpanMappingTool, self).reject()
+        super().reject()
 
     def grid_points(self, grid_x, grid_y):
         return [[x, y] for y in grid_y for x in grid_x]
@@ -225,14 +222,14 @@ class AoaTool(SpanMappingTool):
     widget_name = "AoA"
 
     def __init__(self, obj):
-        super(AoaTool, self).__init__(obj)
+        super().__init__(obj)
 
     @property
     def spline(self):
         return self.parametric_glider.aoa
 
     def setup_widget(self):
-        super(AoaTool, self).setup_widget()
+        super().setup_widget()
         self.QGlide = QtGui.QDoubleSpinBox(self.base_widget)
         self.QGlide.setValue(self.parametric_glider.glide)
         self.layout.setWidget(3, text_field, QtGui.QLabel("glidenumber"))
@@ -241,7 +238,7 @@ class AoaTool(SpanMappingTool):
         self.QGlide.valueChanged.connect(self.update_glide)
 
     def setup_pivy(self):
-        super(AoaTool, self).setup_pivy()
+        super().setup_pivy()
         self.aoa_absolute_curve = Line_old([], color="blue", width=2)
         self.task_separator.addChild(self.aoa_absolute_curve.object)
         self.update_glide()
@@ -282,10 +279,10 @@ class AoaTool(SpanMappingTool):
     #    for arcangle, aoa in zip()
 
     def accept(self):
-        super(AoaTool, self).accept()
+        super().accept()
 
     def text_repr(self, value):
-        return "{} °".format(str(round(value / self.scale[1], 2)))
+        return f"{str(round(value / self.scale[1], 2))} °"
 
 
 class ZrotTool(SpanMappingTool):

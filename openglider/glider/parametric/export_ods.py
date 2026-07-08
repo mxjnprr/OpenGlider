@@ -7,7 +7,6 @@ import openglider.glider
 import openglider.glider.parametric.glider
 from openglider.glider.ballooning import BallooningBezierNeu
 from openglider.glider.cell import DiagonalRib
-from openglider.glider.parametric.arc import ArcCurve
 from openglider.utils.table import Table
 
 file_version = "V3"
@@ -254,7 +253,7 @@ def get_ballooning_sheet(glider_2d):
 
     for ballooning_no, ballooning in enumerate(balloonings):
         # sheet.append_columns(2)
-        table[0, 2 * ballooning_no] = "ballooning_{}".format(ballooning_no)
+        table[0, 2 * ballooning_no] = f"ballooning_{ballooning_no}"
         if type(ballooning) is BallooningBezierNeu:
             table[0, 2 * ballooning_no + 1] = "V3"
             pts = ballooning.controlpoints
@@ -323,7 +322,7 @@ def get_data_sheet(glider):
     for pt_no, att_pt in enumerate(glider.lineset.get_lower_attachment_points()):
         ods_sheet.append_rows(3)
         for i, axis in enumerate(["X", "Y", "Z"]):
-            ods_sheet[current_row + i, 0].set_value("AHP{}{}".format(axis, att_pt.name))
+            ods_sheet[current_row + i, 0].set_value(f"AHP{axis}{att_pt.name}")
             ods_sheet[current_row + i, 1].set_value(att_pt.pos_3D[i])
         current_row += 3
 

@@ -1,6 +1,6 @@
 import collections
-import math
 import copy
+import math
 
 import pyexcel_ods3
 import pyexcel_xls
@@ -9,7 +9,7 @@ from openglider.glider.cell import DiagonalRib
 from openglider.utils.table import Table
 
 
-class GliderSpreadsheet(object):
+class GliderSpreadsheet:
     """
     Tabular representation of a glider for easy manipulation
     """

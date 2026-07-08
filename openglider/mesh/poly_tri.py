@@ -1,5 +1,6 @@
-import numpy as np
 import copy
+
+import numpy as np
 
 
 def make_key(i1, i2):
@@ -11,7 +12,7 @@ def make_key(i1, i2):
     return (i2, i1)
 
 
-class PolyTri(object):
+class PolyTri:
     small = 1e-10
 
     def __init__(self, pts, boundaries=None, delaunay=True, holes=True, border=None):

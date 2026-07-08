@@ -1,7 +1,5 @@
-from __future__ import division
-from __future__ import absolute_import
-from meshpy.triangle import MeshInfo
 import numpy as np
+from meshpy.triangle import MeshInfo
 
 try:
     import meshpy._triangle as internals
@@ -12,7 +10,7 @@ except ImportError:
     # new API (pybind11)
 
 
-class Triangulation(object):
+class Triangulation:
     meshpy_keep_boundary = True
     meshpy_planar_straight_line_graph = True
     meshpy_restrict_area = True
@@ -51,7 +49,7 @@ class Triangulation(object):
         if self.meshpy_restrict_area:
             opts += "a"
             if self.meshpy_max_area is not None:
-                opts += "{:f}".format(self.meshpy_max_area)
+                opts += f"{self.meshpy_max_area:f}"
 
         return opts
 

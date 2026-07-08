@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -21,9 +20,11 @@
 import os
 import tempfile
 import unittest
+
 from common import import_dir
-from openglider.airfoil import Profile2D
 from test_vector import *
+
+from openglider.airfoil import Profile2D
 
 TEMPDIR =  tempfile.gettempdir()
 

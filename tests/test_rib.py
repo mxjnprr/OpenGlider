@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,17 +16,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-import unittest
 import random
-import sys
-import os
+import unittest
 
-
-import common
 import openglider
-from openglider.glider.rib.rib import Rib
 from openglider.glider.rib.elements import RibHole
-from openglider.mesh import Mesh
+from openglider.glider.rib.rib import Rib
 
 
 class TestRib(unittest.TestCase):

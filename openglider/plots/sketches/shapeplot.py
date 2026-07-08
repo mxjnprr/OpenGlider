@@ -1,16 +1,16 @@
 import numpy as np
 
-from openglider.vector import PolyLine2D
-from openglider.vector.text import Text
-from openglider.vector.drawing import Layout, PlotPart
 import openglider.plots.marks as marks
+from openglider.vector import PolyLine2D
+from openglider.vector.drawing import Layout, PlotPart
+from openglider.vector.text import Text
 
 
-class ShapePlot(object):
+class ShapePlot:
     attachment_point_mark = marks.Cross(name="attachment_point", rotation=np.pi / 4)
 
     def __init__(self, glider_2d, glider_3d=None, drawing=None):
-        super(ShapePlot, self).__init__()
+        super().__init__()
         self.glider_2d = glider_2d
         self.glider_3d = glider_3d or glider_2d.get_glider_3d()
         self.drawing = drawing or Layout()
@@ -132,7 +132,7 @@ class ShapePlot(object):
             part.layers["marks"] += cross
 
             if add_text and attachment_point.name:
-                text = Text(" {} ".format(attachment_point.name), p1, p2)
+                text = Text(f" {attachment_point.name} ", p1, p2)
                 vectors = text.get_vectors()
                 part.layers["text"] += vectors
 

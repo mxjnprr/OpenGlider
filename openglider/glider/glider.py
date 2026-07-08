@@ -1,5 +1,4 @@
 # ! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,7 +16,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-from __future__ import division
 
 import copy
 import math
@@ -25,20 +23,18 @@ from typing import List
 
 import numpy as np
 
-import openglider
-
 from openglider.glider.cell.cell import Cell
-from openglider.glider.in_out import IMPORT_GEOMETRY, EXPORT_3D
+from openglider.glider.in_out import EXPORT_3D, IMPORT_GEOMETRY
 from openglider.glider.shape import Shape
+from openglider.lines.lineset import LineSet
 from openglider.mesh import Mesh
 from openglider.utils import consistent_value
 from openglider.utils.distribution import Distribution
 from openglider.vector.functions import norm, rotation_2d
 from openglider.vector.projection import flatten_list
-from openglider.lines.lineset import LineSet
 
 
-class Glider(object):
+class Glider:
     cell_naming_scheme = "c{cell_no}"
     rib_naming_scheme = "r{rib_no}"
 
@@ -81,19 +77,13 @@ class Glider(object):
         return glider
 
     def __repr__(self):
-        return """
-        {}
-        Area: {}
-        Span: {}
-        A/R: {}
-        Cells: {}
-        """.format(
-            super(Glider, self).__repr__(),
-            self.area,
-            self.span,
-            self.aspect_ratio,
-            len(self.cells),
-        )
+        return f"""
+        {super().__repr__()}
+        Area: {self.area}
+        Span: {self.span}
+        A/R: {self.aspect_ratio}
+        Cells: {len(self.cells)}
+        """
 
     def replace_ribs(self, new_ribs):
         replace_dict = {}

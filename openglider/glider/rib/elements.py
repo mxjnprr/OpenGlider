@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -17,19 +16,19 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
-import numpy as np
 import math
 
+import numpy as np
+
 from openglider.lines import Node
+from openglider.vector import norm
+from openglider.vector.functions import set_dimension
 from openglider.vector.polygon import Circle
 from openglider.vector.polyline import PolyLine2D
-from openglider.vector.functions import set_dimension
 from openglider.vector.spline import Bezier
-from openglider.vector import norm
-from openglider.vector.transformation import Rotation, Translation, Scale
 
 
-class RigidFoil(object):
+class RigidFoil:
     def __init__(self, start=-0.1, end=0.1, distance=0.005, circle_radius=0.03):
         self.start = start
         self.end = end
@@ -98,7 +97,7 @@ class RigidFoil(object):
         ]
 
 
-class FoilCurve(object):
+class FoilCurve:
     def __init__(self, front=0, end=0.17):
         self.front = front
         self.end = end
@@ -118,7 +117,7 @@ class FoilCurve(object):
         return Bezier(cp).interpolation(numpoints)
 
 
-class GibusArcs(object):
+class GibusArcs:
     """
     A Reinforcement, in the shape of an arc, to reinforce attachment points
     """
@@ -177,7 +176,7 @@ class GibusArcs(object):
 
 class CellAttachmentPoint(Node):
     def __init__(self, cell, name, cell_pos, rib_pos, force=None):
-        super(CellAttachmentPoint, self).__init__(node_type=2)
+        super().__init__(node_type=2)
         self.cell = cell
         self.cell_pos = cell_pos
         self.rib_pos = rib_pos
@@ -185,7 +184,7 @@ class CellAttachmentPoint(Node):
         self.force = force
 
     def __repr__(self):
-        return "<Attachment point '{}' ({})>".format(self.name, self.rib_pos)
+        return f"<Attachment point '{self.name}' ({self.rib_pos})>"
 
     def __json__(self):
         return {
@@ -205,14 +204,14 @@ class CellAttachmentPoint(Node):
 # Node from lines
 class AttachmentPoint(Node):
     def __init__(self, rib, name, rib_pos, force=None):
-        super(AttachmentPoint, self).__init__(node_type=2)
+        super().__init__(node_type=2)
         self.rib = rib
         self.rib_pos = rib_pos
         self.name = name
         self.force = force
 
     def __repr__(self):
-        return "<Attachment point '{}' ({})>".format(self.name, self.rib_pos)
+        return f"<Attachment point '{self.name}' ({self.rib_pos})>"
 
     def __json__(self):
         return {
@@ -227,7 +226,7 @@ class AttachmentPoint(Node):
         return self.vec
 
 
-class RibHole(object):
+class RibHole:
     def __init__(self, pos, size=0.5, vertical_shift=0.0, rotation=0.0, shape='ellipse', available_height=None, custom_points=None, corner_radius=0.25):
         self.pos = pos
         if isinstance(size, (list, tuple, np.ndarray)):
@@ -392,11 +391,11 @@ class RibHole(object):
             "corner_radius": self.corner_radius,
         }
 
-class Mylar(object):
+class Mylar:
     pass
 
 
-class RodSleeve(object):
+class RodSleeve:
     """
     Rod sleeve (fourreau de jonc) following the airfoil surface.
     
@@ -907,7 +906,7 @@ class RodSleeve(object):
         return PolyLine2D(polygon)
 
 
-class AttachmentReinforcement(object):
+class AttachmentReinforcement:
     """
     Reinforcement at attachment points with half-moon shape and optional rod sleeve.
     

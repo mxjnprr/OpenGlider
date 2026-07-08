@@ -1,5 +1,4 @@
 # ! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -20,11 +19,10 @@
 import copy
 
 import numpy as np
-from numpy import interp
 
 import openglider
-from openglider.vector.spline import BSpline
 from openglider.vector.interpolate import Interpolation
+from openglider.vector.spline import BSpline
 
 
 class ArcSinc:
@@ -58,7 +56,7 @@ class ArcSinc:
         self.interpolate(numpoints)
 
 
-class Ballooning(object):
+class Ballooning:
     arcsinc = ArcSinc()
 
     def __init__(self, f_upper, f_lower):
@@ -80,7 +78,7 @@ class Ballooning(object):
             # return -self.lower.xpoint(xval)[1]
             return self.lower(xval)
         else:
-            raise ValueError("Value {} not between -1 and 1".format(xval))
+            raise ValueError(f"Value {xval} not between -1 and 1")
 
     def __call__(self, xval):
         """Get Ballooning Arc (phi) for a certain XValue"""
@@ -188,7 +186,7 @@ class Ballooning(object):
 
 class BallooningBezier(Ballooning):
     def __init__(self, upper=None, lower=None, name="ballooning"):
-        super(BallooningBezier, self).__init__(None, None)
+        super().__init__(None, None)
         upper = upper or [[0, 0], [0.1, 0], [0.2, 0.14], [0.8, 0.14], [0.9, 0], [1, 0]]
         lower = lower or [[0, 0], [0.1, 0], [0.2, 0.14], [0.8, 0.14], [0.9, 0], [1, 0]]
         self.upper_spline = BSpline(upper)
@@ -257,7 +255,7 @@ class BallooningBezier(Ballooning):
         )
 
     def scale(self, factor):
-        super(BallooningBezier, self).scale(factor)
+        super().scale(factor)
         self.upper_spline.scale(1, factor)
         self.lower_spline.scale(1, factor)
 
@@ -266,7 +264,7 @@ class BallooningBezierNeu(Ballooning):
     def __init__(self, spline, name="ballooning_neu"):
         self.spline_curve = BSpline(spline)
         self.name = name
-        super(BallooningBezierNeu, self).__init__(None, None)
+        super().__init__(None, None)
         self.apply_splines()
 
     def __json__(self):
@@ -280,7 +278,7 @@ class BallooningBezierNeu(Ballooning):
         if -1 <= xval <= 1:
             return self.interpolation(xval)
         else:
-            raise ValueError("Value {} not between -1 and 1".format(xval))
+            raise ValueError(f"Value {xval} not between -1 and 1")
 
     @classmethod
     def from_classic(cls, ballooning, numpoints=14):

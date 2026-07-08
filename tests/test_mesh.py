@@ -1,10 +1,8 @@
 import unittest
 
-
 from common import *
 
-from openglider.mesh import Mesh, Vertex, Polygon
-import openglider
+from openglider.mesh import Mesh, Polygon, Vertex
 from openglider.utils.distribution import Distribution
 
 

@@ -1,11 +1,9 @@
 import unittest
 
-from openglider.physics.mech import GliderFemCase
-from openglider.utils.distribution import Distribution
-from openglider.utils import Config
-from openglider import load
-
 from common import TestCase
+from openglider.physics.mech import GliderFemCase
+
+from openglider.utils.distribution import Distribution
 
 
 class FemTest(TestCase):

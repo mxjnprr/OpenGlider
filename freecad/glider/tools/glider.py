@@ -1,17 +1,16 @@
-from __future__ import division
 
 import os
 
-import numpy as np
-
 import FreeCAD as App
+import numpy as np
+from pivy import graphics
+
 import openglider
 from openglider import jsonify, mesh
+from openglider.airfoil.profile_2d import Profile2D
 from openglider.glider import ParametricGlider
 from openglider.glider.cell.elements import TensionLine
-from openglider.airfoil.profile_2d import Profile2D
 
-from pivy import graphics
 from .tools import coin, hex_to_rgb
 
 DEBUG = False
@@ -126,7 +125,7 @@ def addProperty(obj, name, value, group, docs, p_type=None):
     setattr(obj, name, value)
 
 
-class OGBaseObject(object):
+class OGBaseObject:
     def __init__(self, obj):
         obj.addProperty(
             "App::PropertyString",
@@ -194,7 +193,7 @@ class OGBaseObject(object):
         OGGliderVP(self.obj.ViewObject)
 
 
-class OGBaseVP(object):
+class OGBaseVP:
     def __init__(self, view_obj):
         view_obj.Proxy = self
         self.view_obj = view_obj
@@ -241,10 +240,10 @@ class OGGlider(OGBaseObject):
                 import_path
                 or os.path.dirname(__file__) + "/../data/default_glider2d.json"
             )
-            with open(import_path, "r") as importfile:
+            with open(import_path) as importfile:
                 obj.ParametricGlider = jsonify.load(importfile)["data"]
         obj.GliderInstance = obj.ParametricGlider.get_glider_3d()
-        super(OGGlider, self).__init__(obj)
+        super().__init__(obj)
 
     def drawGlider(self):
         if not self.obj.ViewObject.Visibility:
@@ -256,7 +255,7 @@ class OGGlider(OGBaseObject):
     @classmethod
     def load(cls, path):
         if path.endswith(".json"):
-            with open(path, "r") as importfile:
+            with open(path) as importfile:
                 parametricglider = jsonify.load(importfile)["data"]
         elif path.endswith(".ods"):
             parametricglider = ParametricGlider.import_ods(path)
@@ -293,7 +292,7 @@ class OGGlider(OGBaseObject):
             obj.ParametricGlider.profiles = airfs
             obj.GliderInstance = obj.ParametricGlider.get_glider_3d()
             self.obj.ViewObject.Proxy.updateData()
-        super(OGGlider, self).execute(obj)
+        super().execute(obj)
 
     def dumps(self):
         out = {
@@ -395,7 +394,7 @@ class OGGliderVP(OGBaseVP):
         view_obj.y = 0.0
         view_obj.z = 0.0
 
-        super(OGGliderVP, self).__init__(view_obj)
+        super().__init__(view_obj)
 
     def claimChildren(self):
         if hasattr(self.view_obj.Object, "airfoils"):
@@ -411,7 +410,7 @@ class OGGliderVP(OGBaseVP):
             return None
 
     def attach(self, view_obj):
-        super(OGGliderVP, self).attach(view_obj)
+        super().attach(view_obj)
         self.vis_glider = coin.SoSeparator()
         self.vis_lines = coin.SoSeparator()
         self.vis_extra = coin.SoSeparator()

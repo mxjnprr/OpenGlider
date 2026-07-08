@@ -1,10 +1,10 @@
-from __future__ import division
 import copy
 import math
+
 import numpy as np
+
 from openglider.airfoil import Profile3D
 from openglider.utils.cache import CachedObject, cached_property
-from openglider.vector import normalize, norm
 
 
 class BasicCell(CachedObject):

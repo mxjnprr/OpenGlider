@@ -43,7 +43,7 @@ except ImportError:
 # Commands-------------------------------------------------------------
 
 
-class BaseCommand(object):
+class BaseCommand:
     def __init__(self):
         pass
 
@@ -87,7 +87,7 @@ class BaseCommand(object):
         return tools.BaseTool(obj)
 
 
-class ViewCommand(object):
+class ViewCommand:
     def GetResources(self):
         return {
             "Pixmap": "cell_command.svg",
@@ -219,7 +219,7 @@ class ImportGlider(BaseCommand):
         if file_name[0].endswith(".json"):
             if self.glider_obj:
                 # replace current active par-glider with the imported par-glider
-                with open(file_name[0], "r") as importfile:
+                with open(file_name[0]) as importfile:
                     self.glider_obj.Proxy.setParametricGlider(
                         jsonify.load(importfile)["data"]
                     )
@@ -481,7 +481,7 @@ class RefreshCommand:
                 if rld in name:
                     mod = sys.modules[name]
                     if mod and name not in self.NOT_RELOAD:
-                        print("reload {}".format(name))
+                        print(f"reload {name}")
                         reload(mod)
         from pivy import coin
 
@@ -638,7 +638,7 @@ class GliderBallooningMultiplierFeatureCommand(GliderFeatureCommand):
         vp.updateData()
 
 
-class ImportDXFCommand(object):
+class ImportDXFCommand:
     def __init__(self):
         pass
 

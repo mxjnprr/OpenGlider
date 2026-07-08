@@ -1,6 +1,6 @@
 from openglider.plots.sketches.shapeplot import ShapePlot
-from openglider.vector.drawing import PlotPart
 from openglider.vector import PolyLine2D
+from openglider.vector.drawing import PlotPart
 
 
 class LinePlan(ShapePlot):

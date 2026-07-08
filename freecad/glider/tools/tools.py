@@ -1,23 +1,22 @@
-from __future__ import division
 
 from copy import deepcopy
 
-import numpy as np
-from pivy import coin
-from pivy.graphics import InteractionSeparator, Marker, Line
-
 import FreeCAD
 import FreeCADGui
+import numpy as np
+from pivy import coin
+from pivy.graphics import InteractionSeparator, Line, Marker
+from PySide import QtGui
+
 import openglider
 from openglider.glider import ParametricGlider
-from openglider.jsonify import dump, load
+from openglider.jsonify import load
 from openglider.vector.spline import BernsteinBase, BSplineBase
-from PySide import QtGui
 
 
 class ConstrainedMarker(Marker):
     def __init__(self, points, dynamic=False):
-        super(ConstrainedMarker, self).__init__(points, dynamic)
+        super().__init__(points, dynamic)
         self.constrained = [1.0, 1.0, 0.0]
 
     def drag(self, mouse_coords, fact=1.0):
@@ -41,7 +40,7 @@ class ConstrainedMarker(Marker):
                 foo()
 
 
-class Line_old(object):
+class Line_old:
     def __init__(self, points, color="black", width=1):
         if len(points) == 0:
             points = [[0.0, 0.0, 0.0]]
@@ -55,7 +54,7 @@ class Line_old(object):
 
 class ControlPointContainer(coin.SoSeparator):
     def __init__(self, rm, points=None):
-        super(ControlPointContainer, self).__init__()
+        super().__init__()
         self.interaction = InteractionSeparator(rm)
         self.control_points = []
         if points is not None:
@@ -115,7 +114,7 @@ def hex_to_rgb(hex_string):
         return tuple(
             int(value[i : i + lv // 3], 16) / 256.0 for i in range(0, lv, lv // 3)
         )
-    except (IndexError, ValueError) as e:
+    except (IndexError, ValueError):
         return (0.7, 0.7, 0.7)
 
 
@@ -160,7 +159,7 @@ def export_glider(glider_2d, glider_3d):
 def import_2d(glider):
     filename = QtGui.QFileDialog.getOpenFileName(parent=None, caption="import glider")
     if filename[0].endswith(".json"):
-        with open(filename, "r") as importfile:
+        with open(filename) as importfile:
             glider.ParametricGlider = load(importfile)["data"]
             glider.ParametricGlider.get_glider_3d(glider.GliderInstance)
             glider.ViewObject.Proxy.updateData()
@@ -180,7 +179,7 @@ class spline_select(QtGui.QComboBox):
     }
 
     def __init__(self, spline_objects, update_function, parent=None):
-        super(spline_select, self).__init__(parent)
+        super().__init__(parent)
         self.update_function = update_function
         self.spline_objects = spline_objects  # list of splines
         for key in ["Bezier", "BSpline_2", "BSpline_3"]:
@@ -205,7 +204,7 @@ class spline_select(QtGui.QComboBox):
         self.update_function()
 
 
-class BaseTool(object):
+class BaseTool:
     hide = True
     widget_name = "Unnamed"
     turn = True
