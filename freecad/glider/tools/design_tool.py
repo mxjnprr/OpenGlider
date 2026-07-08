@@ -8,7 +8,7 @@ from PySide import QtCore, QtGui
 
 from .tools import BaseTool, coin, input_field, text_field, vector3D
 from pivy.graphics import InteractionSeparator, Line, Marker
-from .design_path import DesignPath, BezierPath, LinePath, PolylinePath
+from .design_path import DesignPath, BezierPath, LinePath, PolylinePath, EDGE_SNAP_CHORD_FACTOR
 
 
 def refresh():
@@ -655,6 +655,11 @@ class DesignTool(BaseTool):
             # rib_pos is negative for upper (extrados), positive for lower (intrados).
             # Normalised distance from leading edge, signed by surface side.
             rib_pos = -(upper * 2.0 - 1.0) * abs(y_pos - front_y) / chord
+            # A cut snapped exactly onto the leading edge has rib_pos == 0, which
+            # would lose the surface side (is_upper tests rib_pos <= 0). Keep a
+            # tiny signed value so the cut stays on its own surface.
+            if abs(rib_pos) < 1e-4:
+                rib_pos = -1e-4 if upper else 1e-4
         
         # CutPoint expects rib_nr to be: list_idx + has_center_cell (then subtracts has_center_cell)
         # After subtraction, rib_nr becomes list_idx, which is correct
@@ -1110,7 +1115,11 @@ class DesignTool(BaseTool):
         max_y = max(front_y, back_y)
         
         pos[0] = x
-        if min_y < pos[1] < max_y:
+        # Snap clicks at or just beyond an edge onto the leading/trailing edge
+        # so a cut can be placed right at the edge and split a panel fully.
+        tol = EDGE_SNAP_CHORD_FACTOR * (max_y - min_y)
+        if min_y - tol <= pos[1] <= max_y + tol:
+            pos[1] = min(max(pos[1], min_y), max_y)
             if len(self.add_separator.static_objects) == 0:
                 self.add_separator.removeAllChildren()
                 marker = Marker([pos])
@@ -1171,12 +1180,16 @@ class DesignTool(BaseTool):
 
         if choose_left and left_available:
             pos[0] = x1
-            if min1 < pos[1] < max1:
+            tol1 = EDGE_SNAP_CHORD_FACTOR * (max1 - min1)
+            if min1 - tol1 <= pos[1] <= max1 + tol1:
+                pos[1] = min(max(pos[1], min1), max1)
                 new_rib_nr = rib_nr - 1
                 show_point = True
         elif right_available:
             pos[0] = x2
-            if min2 < pos[1] < max2:
+            tol2 = EDGE_SNAP_CHORD_FACTOR * (max2 - min2)
+            if min2 - tol2 <= pos[1] <= max2 + tol2:
+                pos[1] = min(max(pos[1], min2), max2)
                 new_rib_nr = rib_nr + 1
                 show_point = True
             

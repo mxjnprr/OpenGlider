@@ -2072,15 +2072,18 @@ class ParametricGlider(object):
                 cut.pop("cells")
 
             # add trailing edge (2x)
-            all_values = [c["left"] for c in cuts] + [c["right"] for c in cuts]
-
-            if -1 not in all_values:
+            # The implicit trailing-edge seam is only skipped when a cut already
+            # lies *fully* on the trailing edge (left == right == ±1).  A cut
+            # that merely touches ±1 at one end (e.g. a design curve snapped
+            # onto the trailing edge at one rib) still needs the trailing edge
+            # as the other boundary, otherwise the panel between them vanishes.
+            if not any(c["left"] == -1 and c["right"] == -1 for c in cuts):
                 cuts.append({"type": "parallel", "left": -1, "right": -1})
-            if 1 not in all_values:
+            if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
                 cuts.append({"type": "parallel", "left": 1, "right": 1})
 
             # Sort cuts by their average chord position (left+right)/2
-            # This handles polylines that fold back and might have 
+            # This handles polylines that fold back and might have
             # cut1.left < cut2.left but cut1.right > cut2.right
             cuts.sort(key=lambda cut: (cut["left"] + cut["right"]) / 2.0)
 
@@ -2099,7 +2102,7 @@ class ParametricGlider(object):
                     )
                     raise ValueError(error_str)
 
-                # If cuts cross (left smaller but right larger), swap them 
+                # If cuts cross (left smaller but right larger), swap them
                 # so the panel can be rendered without errors, or at least try
                 # to not crash the entire application
                 if cut1["right"] > cut2["right"]:
@@ -2125,11 +2128,11 @@ class ParametricGlider(object):
                     name="c{}p{}".format(cell_no + 1, part_no + 1),
                     material_code=material_code,
                 )
-                
+
                 # Check if this is an LE panel that should be split chordwise
                 le_splits = self.elements.get("le_panel_splits", [])
                 should_split = False
-                
+
                 for le_split in le_splits:
                     if cell_no in le_split.get("cells", []):
                         cut_limit = le_split.get("cut_limit", 0.1)
@@ -2138,7 +2141,7 @@ class ParametricGlider(object):
                         # - cut_back (cut2) is at the LE entry (close to 0 or slightly positive)
                         front_left = cut1.get("left", 0)
                         back_left = cut2.get("left", 0)
-                        
+
                         # Only match extrados (front_left negative) panels
                         # Match if:
                         # 1. front is near -cut_limit
@@ -2146,18 +2149,18 @@ class ParametricGlider(object):
                         is_extrados = front_left < 0
                         front_matches = abs(abs(front_left) - cut_limit) < 0.02
                         back_at_le_entry = back_left > -0.02  # At or past the leading edge
-                        
+
                         if is_extrados and front_matches and back_at_le_entry:
                             should_split = True
                             break
-                
+
                 if should_split:
                     # Split into 2 panels at y=0.5 using y_start/y_end
                     # Lookup colors by panel name if available
                     materials_by_name = self.elements.get("materials_by_name", {})
                     name_L = "c{}p{}_L".format(cell_no + 1, part_no + 1)
                     name_R = "c{}p{}_R".format(cell_no + 1, part_no + 1)
-                    
+
                     # Panel L: from rib1 (y=0) to mid (y=0.5)
                     panel_left = Panel(
                         cut1,
@@ -2167,7 +2170,7 @@ class ParametricGlider(object):
                         y_start=0.0,
                         y_end=0.5,
                     )
-                    
+
                     # Panel R: from mid (y=0.5) to rib2 (y=1)
                     panel_right = Panel(
                         cut1,
@@ -2177,7 +2180,7 @@ class ParametricGlider(object):
                         y_start=0.5,
                         y_end=1.0,
                     )
-                    
+
                     panel_lst.append(panel_left)
                     panel_lst.append(panel_right)
                 else:

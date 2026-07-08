@@ -7,7 +7,55 @@ and projected onto panel cuts.
 
 from __future__ import division
 import numpy as np
+from pivy import coin
 from pivy.graphics import Line, Marker
+
+
+# Manual point placement (clicking near an edge in the Design Tool) snaps the
+# click onto the leading/trailing edge when it lands at, or up to this many
+# chord-lengths beyond, the edge - so a cut point can be placed right on the
+# edge. Clicks farther out than this are ignored.  (Bezier/curve projection
+# uses a separate edge-transition rule, see get_rib_intersections.)
+EDGE_SNAP_CHORD_FACTOR = 1.0
+
+
+# Coin's built-in markers top out at 9x9 pixels, which makes the Bezier
+# control-point handles hard to see and grab on the plan view.  We register a
+# larger custom filled-circle marker once and reuse its index for every handle.
+_BIG_MARKER_INDEX = None
+
+
+def get_big_marker_index(diameter=15):
+    """Register (once) a large filled-circle marker and return its index."""
+    global _BIG_MARKER_INDEX
+    if _BIG_MARKER_INDEX is not None:
+        return _BIG_MARKER_INDEX
+
+    size = diameter
+    center = (size - 1) / 2.0
+    radius = size / 2.0
+    row_bytes = (size + 7) // 8
+    data = bytearray()
+    for row in range(size):
+        for byte_idx in range(row_bytes):
+            bits = 0
+            for bit in range(8):
+                col = byte_idx * 8 + bit
+                if col >= size:
+                    continue
+                dx = col - center
+                dy = row - center
+                if dx * dx + dy * dy <= radius * radius:
+                    bits |= 1 << (7 - bit)  # MSB = leftmost column
+            data.append(bits)
+
+    index = coin.SoMarkerSet.getNumDefinedMarkers()
+    # isLSBFirst=False so the MSB is the leftmost column (matches packing above).
+    coin.SoMarkerSet.addMarker(
+        index, coin.SbVec2s(size, size), bytes(data), False, True
+    )
+    _BIG_MARKER_INDEX = index
+    return index
 
 
 class DesignPath:
@@ -59,8 +107,9 @@ class DesignPath:
         # Create control point markers
         for i, pt in enumerate(self.control_points):
             marker = Marker([[pt[0], pt[1], -0.005]], dynamic=True)
-            # Use larger marker type: CIRCLE_FILLED_9_9 = 12 (bigger than CROSS)
-            marker.marker.markerIndex = 12
+            # Use a large custom filled-circle marker so the handles are easy
+            # to see and grab (Coin's built-in markers max out at 9x9 pixels).
+            marker.marker.markerIndex = get_big_marker_index()
             marker._path = self
             marker._point_index = i
             marker.on_drag.append(lambda m=marker: self._on_marker_drag(m))
@@ -143,11 +192,12 @@ class DesignPath:
             List of (rib_nr, y_position) tuples where rib_nr is the list index
         """
         curve_points = self.get_curve_points(num_samples=200)
-        intersections = []
-        
-        # We must iterate along the curve to preserve the sequence of cuts 
-        # for folded paths (polylines that zigzag across cells).
-        last_rib = -1
+
+        # Collect every rib crossing along the curve as
+        # (list_idx, y, inside, min_y, max_y), where ``inside`` is True when the
+        # crossing lies within the rib's leading/trailing-edge bounds.  Edge
+        # snapping and dropping of fully-outside ribs is decided afterwards.
+        raw = []
         for i in range(len(curve_points) - 1):
             p1 = curve_points[i]
             p2 = curve_points[i + 1]
@@ -188,12 +238,57 @@ class DesignPath:
                             min_y = float('-inf')
                             max_y = float('inf')
                         
-                        if min_y <= y_intersect <= max_y:
-                            if last_rib != list_idx:
-                                intersections.append((list_idx, y_intersect))
-                                last_rib = list_idx
+                        inside = min_y <= y_intersect <= max_y
+
+                        # Skip a crossing on the same rib as the previous one so
+                        # a single edge crossing isn't recorded twice.  The true
+                        # y is kept for now (out-of-bounds crossings carry the
+                        # curve's real chord position); the edge snapping happens
+                        # in the post-processing pass below.
+                        if not raw or raw[-1][0] != list_idx:
+                            raw.append((list_idx, y_intersect, inside, min_y, max_y))
                     except (IndexError, TypeError):
                         pass
+
+        # Post-process: keep in-bounds crossings; where the curve crosses the
+        # leading/trailing edge between two ribs, snap the cut onto the edge at
+        # whichever of the two straddling ribs is NEAREST the crossing (so it
+        # sticks as close as possible without always jumping to the next cell).
+        # Ribs the curve passes fully outside of are dropped.
+        n = len(raw)
+        snap = {}   # raw index -> edge y-value to snap that rib onto
+        drop = set()
+        for i in range(n):
+            list_idx, y, inside, lo, hi = raw[i]
+            if inside:
+                continue
+            prev_inside = i > 0 and raw[i - 1][2]
+            next_inside = i < n - 1 and raw[i + 1][2]
+            if not (prev_inside or next_inside):
+                drop.add(i)  # fully outside the profile
+                continue
+            beyond_lo = y < lo
+            edge = lo if beyond_lo else hi
+            if prev_inside and next_inside:
+                snap[i] = edge  # notch: dip to the edge and back at this rib
+                continue
+            # One-sided edge crossing: compare this (outside) rib and its inside
+            # neighbour and snap whichever sits closer to the edge.
+            j = i - 1 if prev_inside else i + 1
+            _, jy, _, jlo, jhi = raw[j]
+            jedge = jlo if beyond_lo else jhi
+            if abs(y - edge) <= abs(jy - jedge):
+                snap[i] = edge          # outside rib nearer: keep it, on the edge
+            else:
+                snap[j] = jedge         # inside rib nearer: snap it onto the edge
+                drop.add(i)             # and drop the outside rib
+
+        intersections = []
+        for i in range(n):
+            if i in drop:
+                continue
+            list_idx = raw[i][0]
+            intersections.append((list_idx, snap[i] if i in snap else raw[i][1]))
 
         return intersections
     
