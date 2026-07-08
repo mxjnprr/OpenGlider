@@ -1049,8 +1049,8 @@ class AttachmentReinforcement:
         
         # Outer edge: follows profile with surface offset
         outer_points = []
-        for pt, norm in zip(points, normals):
-            outer_pt = pt - norm * self.surface_offset
+        for pt, normal in zip(points, normals):
+            outer_pt = pt - normal * self.surface_offset
             outer_points.append(outer_pt)
         
         # Calculate angular range from arc_center to outer edge endpoints
@@ -1112,8 +1112,8 @@ class AttachmentReinforcement:
         
         # Calculate angular range (same as half-moon)
         outer_points = []
-        for pt, norm in zip(points, normals):
-            outer_pt = pt - norm * self.surface_offset
+        for pt, normal in zip(points, normals):
+            outer_pt = pt - normal * self.surface_offset
             outer_points.append(outer_pt)
         
         start_vec = outer_points[0] - arc_center

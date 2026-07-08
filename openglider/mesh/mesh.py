@@ -177,7 +177,7 @@ class Mesh:
         dmin = 10**-10
         lower, upper = self.bounding_box
         num_subspaces = num_subspaces or 5
-        space = np.linspcae(lower, upper, num_subspaces)
+        space = np.linspace(lower, upper, num_subspaces)
         x0, y0, z0 = space[0]
         subspaces = []
         for i, x1 in enumerate(space.T[0, 1:]):
