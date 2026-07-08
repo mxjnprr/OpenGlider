@@ -644,6 +644,32 @@ class RodSleeve(object):
 
         return inner_points, outer_points
     
+    def get_seam_length(self, rib, glider=None):
+        """
+        Length along the seam contour, i.e. the inner edge sewn to the panel,
+        measured from termination to termination (leading/trailing edge escape
+        curves included). Returned in meters.
+        """
+        inner_points, _ = self.get_full_sleeve_points(rib, glider=glider)
+        if len(inner_points) < 2:
+            return 0.0
+        return PolyLine2D(inner_points).get_length()
+
+    def get_center_length(self, rib, glider=None):
+        """
+        Length along the centreline of the sleeve (the middle of the channel),
+        measured from termination to termination. Returned in meters.
+        """
+        inner_points, outer_points = self.get_full_sleeve_points(rib, glider=glider)
+        num = min(len(inner_points), len(outer_points))
+        if num < 2:
+            return 0.0
+        center = [
+            (np.array(inner_points[i]) + np.array(outer_points[i])) / 2
+            for i in range(num)
+        ]
+        return PolyLine2D(center).get_length()
+
     def get_leading_edge_termination(self, rib, glider=None):
         """
         Get the leading edge termination curve.

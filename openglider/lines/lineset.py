@@ -607,6 +607,74 @@ class LineSet(object):
 
         return length_table
 
+    def get_table_grouped_by_riser(self):
+        """
+        Human-readable line table, grouped by main riser (A/B/C/D...).
+
+        Each riser gets its own section; every line is listed on one row with
+        its hierarchy (what it connects to below and above) and its lengths,
+        sorted by name. This replaces the hard-to-read horizontal tree layout.
+        """
+        table = Table()
+        table.name = "suspentes"
+
+        headers = [
+            "Suspente",
+            "Type",
+            "Couleur",
+            "Étage",
+            "Reliée en bas à",
+            "Se divise en / Point haut",
+            "L. étirée [mm]",
+            "L. corrigée [mm]",
+        ]
+
+        def count_below(line):
+            lowers = self.get_lower_connected_lines(line.lower_node)
+            if not lowers:
+                return 0
+            return 1 + max(count_below(lower) for lower in lowers)
+
+        row = 0
+        risers = sorted(self.lower_attachment_points, key=lambda n: n.name or "")
+        for riser in risers:
+            lines = self.get_upper_lines(riser)
+            if not lines:
+                continue
+
+            table[row, 0] = "RISER {}".format(riser.name or "?")
+            row += 1
+            for col, header in enumerate(headers):
+                table[row, col] = header
+            row += 1
+
+            for line in sorted(lines, key=lambda l: l.name or ""):
+                lowers = self.get_lower_connected_lines(line.lower_node)
+                if lowers:
+                    below = ", ".join(lower.name or "?" for lower in lowers)
+                else:
+                    below = riser.name or "?"
+
+                uppers = self.get_upper_connected_lines(line.upper_node)
+                if uppers:
+                    above = ", ".join(upper.name or "?" for upper in uppers)
+                else:
+                    above = line.upper_node.name or "?"
+
+                table[row, 0] = line.name or "?"
+                table[row, 1] = line.type.name
+                table[row, 2] = line.color or ""
+                table[row, 3] = count_below(line) + 1
+                table[row, 4] = below
+                table[row, 5] = above
+                table[row, 6] = round(line.get_stretched_length() * 1000)
+                table[row, 7] = round(self.get_line_length(line) * 1000)
+                row += 1
+
+            row += 1  # blank separator row between risers
+
+        return table
+
     def get_force_table(self):
         def get_line_force(line):
             percentage = ""

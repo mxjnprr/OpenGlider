@@ -11,7 +11,7 @@ def get_glider_data(project: GliderProject):
     glider = project.glider_3d
     # specsheet = get_specs(glider)
     glider.lineset.recalc(iterations=30)
-    linesheet = glider.lineset.get_table()
+    linesheet = glider.lineset.get_table_grouped_by_riser()
     linesheet2 = glider.lineset.get_table_2()
 
     # linesheet = glider.lineset.get_table_2()
