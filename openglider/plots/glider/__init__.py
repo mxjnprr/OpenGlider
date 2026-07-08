@@ -401,43 +401,65 @@ class PlotMaker(object):
                         unique_name = f"{rib.name}_{surface_label}{sleeve_idx+1}"
                         
                         if flat is not None and hasattr(flat, 'data') and len(flat.data) > 0:
+                            from openglider.vector import PolyLine2D
+
                             sleeve_part = PlotPart(
                                 name=unique_name,
                                 material_code=f"{sleeve.surface}_sleeve"
                             )
-                            sleeve_part.layers["cuts"].append(flat)
-                            
-                            # Text perpendicular to the left extremity
-                            # RodSleeve polygon = inner + outer[-1] + reversed(outer) + inner[0]
-                            pts = np.array(flat.data)
-                            n = len(pts)
-                            
-                            p_start = pts[0]
-                            p_next = pts[min(2, n-1)]
-                            tangent = p_next - p_start
-                            tlen = np.linalg.norm(tangent)
-                            if tlen > 1e-10:
-                                tangent = tangent / tlen
+
+                            # Cut line = seam allowance around the sleeve; the
+                            # sleeve outline itself becomes the stitch line.
+                            seam = sleeve.get_seam_allowance(
+                                rib, glider=self.glider_3d,
+                                allowance=getattr(self.config, 'allowance_rod_sleeve', 0.01),
+                            )
+                            if seam is not None and len(seam.data) > 0:
+                                sleeve_part.layers["cuts"].append(seam)
+                                sleeve_part.layers["marks"].append(flat)
                             else:
-                                tangent = np.array([0, 1])
-                            
-                            # At extremity, tangent crosses the crescent width
-                            centroid = np.mean(pts[:-1], axis=0)
-                            if np.dot(tangent, centroid - p_start) < 0:
-                                tangent = -tangent
-                            
-                            # Center between the two curves at the extremity
-                            p_mid = (pts[0] + pts[-2]) / 2
-                            
-                            p1 = p_mid + tangent * 0.001
-                            p2 = p1 + tangent * 0.02
-                            
+                                sleeve_part.layers["cuts"].append(flat)
+
+                            def _cross(point, size=0.004):
+                                p = np.array(point, dtype=float)
+                                return [
+                                    PolyLine2D([p + [-size, 0.0], p + [size, 0.0]]),
+                                    PolyLine2D([p + [0.0, -size], p + [0.0, size]]),
+                                ]
+
+                            allowance = getattr(self.config, 'allowance_rod_sleeve', 0.01)
+
+                            # Corner reference points on the seam-allowance line
+                            # (match the marks on the rib)
+                            for corner in sleeve.get_corner_points(rib, glider=self.glider_3d, allowance=allowance):
+                                sleeve_part.layers["marks"] += _cross(corner, size=0.005)
+
+                            # Mounting points along the rod
+                            for mp in sleeve.get_mounting_points(rib, glider=self.glider_3d):
+                                sleeve_part.layers["marks"] += _cross(mp, size=0.003)
+
+                            # Label centered along the band so it stays inside
+                            # the piece (the band is narrow but long).
+                            inner_m, outer_m = sleeve.get_sleeve_points(rib, glider=self.glider_3d)
                             use_dashed = getattr(self.config, 'laser_text_mode', False)
                             text_layer = "cuts" if use_dashed else "text"
-                            text_obj = Text(unique_name, p1, p2, size=0.003, valign=0.5,
-                                           dashed=use_dashed,
-                                           dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
-                            sleeve_part.layers[text_layer] += text_obj.get_vectors()
+                            if inner_m and outer_m and len(inner_m) >= 2:
+                                mid = len(inner_m) // 2
+                                center = (np.array(inner_m[mid]) + np.array(outer_m[mid])) / 2.0
+                                a = max(mid - 1, 0)
+                                b = min(mid + 1, len(inner_m) - 1)
+                                band_dir = np.array(inner_m[b]) - np.array(inner_m[a])
+                                dlen = np.linalg.norm(band_dir)
+                                band_dir = band_dir / dlen if dlen > 1e-10 else np.array([1.0, 0.0])
+                                # size: keep letter height within the sleeve width
+                                text_size = min(0.004, sleeve.width * 0.6)
+                                text_len = len(unique_name) * text_size
+                                p1 = center - band_dir * (text_len / 2.0)
+                                p2 = center + band_dir * (text_len / 2.0)
+                                text_obj = Text(unique_name, p1, p2, size=text_size, valign=0.0,
+                                               dashed=use_dashed,
+                                               dot_spacing=getattr(self.config, 'dot_spacing', 0.15))
+                                sleeve_part.layers[text_layer] += text_obj.get_vectors()
                             
                             self.rod_sleeves.append(sleeve_part)
                             

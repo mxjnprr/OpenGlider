@@ -1140,8 +1140,8 @@ class ParametricGlider(object):
                         end_chord=config.get('end_chord', 0.7),
                         le_angle=config.get('start_angle', 350.0),
                         te_angle=config.get('end_angle', 325.0),
-                        le_length=config.get('start_length', 0.1),
-                        te_length=config.get('end_length', 0.075),
+                        le_length=config.get('start_length', 0.08),
+                        te_length=config.get('end_length', 0.06),
                     )
                     rod_sleeves.append(sleeve)
             
@@ -1164,8 +1164,8 @@ class ParametricGlider(object):
                         end_chord=config.get('end_chord', 0.5),
                         le_angle=config.get('start_angle', 100.0),
                         te_angle=config.get('end_angle', 20.0),
-                        le_length=config.get('start_length', 0.1),
-                        te_length=config.get('end_length', 0.09),
+                        le_length=config.get('start_length', 0.08),
+                        te_length=config.get('end_length', 0.06),
                     )
                     rod_sleeves.append(sleeve)
             

@@ -411,10 +411,15 @@ class RodSleeve(object):
         end_chord: End position as chord percentage (1 = trailing edge)
         le_angle: Leading edge escape angle in degrees (0=horizontal right, 90=up, 180=left, 270=down)
         te_angle: Trailing edge escape angle in degrees
-        le_length: Leading edge escape length in meters
-        te_length: Trailing edge escape length in meters
+        le_length: Leading edge escape length as a fraction of the rib chord
+        te_length: Trailing edge escape length as a fraction of the rib chord
+
+    Note:
+        ``le_length`` / ``te_length`` are proportional (chord fractions) rather
+        than absolute lengths, so the terminations scale with the profile size
+        and stay reasonable on small tip ribs.
     """
-    
+
     def __init__(
         self,
         surface='extrados',
@@ -424,8 +429,8 @@ class RodSleeve(object):
         end_chord=0.85,
         le_angle=0.0,        # Leading edge angle (degrees)
         te_angle=315.0,      # Trailing edge angle (degrees) - default for extrados
-        le_length=0.03,      # Leading edge escape length (m)
-        te_length=0.08,      # Trailing edge escape length (m)
+        le_length=0.08,      # Leading edge escape length (fraction of chord)
+        te_length=0.06,      # Trailing edge escape length (fraction of chord)
         material_code=None,
     ):
         self.surface = surface
@@ -661,7 +666,7 @@ class RodSleeve(object):
             start_tangent = None
         
         return self._create_smooth_termination_with_width(
-            inner_start, outer_start, self.le_angle, self.le_length,
+            inner_start, outer_start, self.le_angle, self.le_length * rib.chord,
             start_tangent_vec=start_tangent
         )
     
@@ -687,7 +692,7 @@ class RodSleeve(object):
             start_tangent = None
         
         return self._create_smooth_termination_with_width(
-            inner_start, outer_start, self.te_angle, self.te_length,
+            inner_start, outer_start, self.te_angle, self.te_length * rib.chord,
             start_tangent_vec=start_tangent
         )
     
@@ -747,6 +752,133 @@ class RodSleeve(object):
         """Get 3D representation of the sleeve."""
         flat = self.get_flattened(rib, num_points, glider=glider)
         return [rib.align([p[0], p[1], 0], scale=False) for p in flat.data]
+
+    def get_corner_points(self, rib, glider=None, allowance=0.0):
+        """
+        Return the 4 corner points at the two extremities of the sleeve, used as
+        sewing reference marks on the rib and on the flattened sleeve piece.
+
+        The corners are taken from the full sleeve outline (terminations
+        included), so they sit on the drawn footprint extremities.
+
+        Order: [inner_start, outer_start, inner_end, outer_end]
+        (start = leading / start_chord extremity, end = trailing / end_chord
+        extremity).  Coordinates are in profile space scaled by chord (meters),
+        matching the rib plot and the flattened sleeve.
+
+        If ``allowance`` > 0, each corner is pushed outward by that amount (along
+        the sleeve width and along the sleeve length), so the marks land on the
+        seam-allowance / cut line -- the reference used to position the fabric
+        sleeve before starting the seam.
+        """
+        inner, outer = self.get_full_sleeve_points(rib, glider=glider)
+        if not inner or not outer:
+            return []
+
+        inner = [np.array(p) for p in inner]
+        outer = [np.array(p) for p in outer]
+
+        if not allowance or len(inner) < 2:
+            return [inner[0], outer[0], inner[-1], outer[-1]]
+
+        def _unit(v):
+            n = np.linalg.norm(v)
+            return v / n if n > 1e-10 else np.zeros(2)
+
+        def _expand(pt_inner, pt_outer, length_dir):
+            w = _unit(pt_outer - pt_inner)
+            corner_inner = pt_inner - w * allowance + length_dir * allowance
+            corner_outer = pt_outer + w * allowance + length_dir * allowance
+            return corner_inner, corner_outer
+
+        # lengthwise directions pointing outward from the sleeve body
+        l_start = _unit(inner[0] - inner[1])
+        l_end = _unit(inner[-1] - inner[-2])
+
+        ci_s, co_s = _expand(inner[0], outer[0], l_start)
+        ci_e, co_e = _expand(inner[-1], outer[-1], l_end)
+        return [ci_s, co_s, ci_e, co_e]
+
+    def get_mounting_points(self, rib, glider=None, spacing=0.20):
+        """
+        Return evenly spaced points along the sleeve centerline, used as
+        mounting / stitch reference marks along the rod.
+
+        Points are placed every ``spacing`` meters (default 20 cm) measured
+        along the centerline, starting one interval in from the leading
+        extremity so the marks stay clear of the corner marks.  Returns an
+        empty list if the sleeve is shorter than one interval.
+        """
+        inner, outer = self.get_sleeve_points(rib, glider=glider)
+        if not inner or not outer:
+            return []
+
+        center = [(np.array(i) + np.array(o)) / 2 for i, o in zip(inner, outer)]
+
+        # cumulative arc length along the centerline
+        cum = [0.0]
+        for k in range(1, len(center)):
+            cum.append(cum[-1] + float(np.linalg.norm(center[k] - center[k - 1])))
+        total = cum[-1]
+
+        if spacing <= 0 or total < spacing:
+            return []
+
+        points = []
+        seg = 1
+        d = spacing
+        while d < total - 1e-9:
+            while seg < len(cum) and cum[seg] < d:
+                seg += 1
+            if seg >= len(cum):
+                break
+            seg_len = cum[seg] - cum[seg - 1]
+            t = (d - cum[seg - 1]) / seg_len if seg_len > 1e-12 else 0.0
+            points.append(center[seg - 1] + t * (center[seg] - center[seg - 1]))
+            d += spacing
+        return points
+
+    def get_seam_allowance(self, rib, glider=None, allowance=0.01):
+        """
+        Return a closed polygon offset outward from the full sleeve outline by
+        ``allowance`` meters, representing the cutting line (seam allowance)
+        around the rod sleeve.  The sleeve outline itself stays as the stitch
+        line.  Returns an empty PolyLine2D if the sleeve is empty.
+        """
+        inner, outer = self.get_full_sleeve_points(rib, glider=glider)
+        if not inner or not outer or len(inner) != len(outer):
+            return PolyLine2D([])
+
+        inner = [np.array(p) for p in inner]
+        outer = [np.array(p) for p in outer]
+        n = len(inner)
+
+        exp_inner = []
+        exp_outer = []
+        for i in range(n):
+            # width direction (inner -> outer) at this station
+            w = outer[i] - inner[i]
+            w_len = np.linalg.norm(w)
+            w = w / w_len if w_len > 1e-10 else np.array([0.0, 1.0])
+
+            # lengthwise extension only at the two extremities
+            lengthwise = np.array([0.0, 0.0])
+            if n > 1 and i == 0:
+                d = inner[0] - inner[1]
+                d_len = np.linalg.norm(d)
+                if d_len > 1e-10:
+                    lengthwise = d / d_len
+            elif n > 1 and i == n - 1:
+                d = inner[-1] - inner[-2]
+                d_len = np.linalg.norm(d)
+                if d_len > 1e-10:
+                    lengthwise = d / d_len
+
+            exp_inner.append(inner[i] - w * allowance + lengthwise * allowance)
+            exp_outer.append(outer[i] + w * allowance + lengthwise * allowance)
+
+        polygon = exp_inner + list(reversed(exp_outer)) + [exp_inner[0]]
+        return PolyLine2D(polygon)
 
 
 class AttachmentReinforcement(object):

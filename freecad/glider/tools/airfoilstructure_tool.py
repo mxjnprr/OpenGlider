@@ -74,12 +74,12 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.layout.addRow("Angle", self.startAngleSpinBox)
         
         self.startLengthSpinBox = QtGui.QDoubleSpinBox()
-        self.startLengthSpinBox.setSingleStep(5.0)
-        self.startLengthSpinBox.setDecimals(0)
-        self.startLengthSpinBox.setSuffix(" mm")
-        self.startLengthSpinBox.setRange(10.0, 200.0)
-        self.startLengthSpinBox.setValue(100.0)
-        self.layout.addRow("Length", self.startLengthSpinBox)
+        self.startLengthSpinBox.setSingleStep(1.0)
+        self.startLengthSpinBox.setDecimals(1)
+        self.startLengthSpinBox.setSuffix(" %")
+        self.startLengthSpinBox.setRange(1.0, 50.0)
+        self.startLengthSpinBox.setValue(8.0)
+        self.layout.addRow("Length (% chord)", self.startLengthSpinBox)
         
         # End termination (formerly "Trailing Edge")
         self.layout.addRow(QtGui.QLabel("<b>End Termination</b>"))
@@ -95,12 +95,12 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.layout.addRow("Angle", self.endAngleSpinBox)
         
         self.endLengthSpinBox = QtGui.QDoubleSpinBox()
-        self.endLengthSpinBox.setSingleStep(5.0)
-        self.endLengthSpinBox.setDecimals(0)
-        self.endLengthSpinBox.setSuffix(" mm")
-        self.endLengthSpinBox.setRange(10.0, 200.0)
-        self.endLengthSpinBox.setValue(75.0)
-        self.layout.addRow("Length", self.endLengthSpinBox)
+        self.endLengthSpinBox.setSingleStep(1.0)
+        self.endLengthSpinBox.setDecimals(1)
+        self.endLengthSpinBox.setSuffix(" %")
+        self.endLengthSpinBox.setRange(1.0, 50.0)
+        self.endLengthSpinBox.setValue(6.0)
+        self.layout.addRow("Length (% chord)", self.endLengthSpinBox)
         
         # Excluded ribs field
         self.layout.addRow(QtGui.QLabel("<b>Exclusions</b>"))
@@ -140,9 +140,9 @@ class RodSleeveConfigWidget(QtGui.QWidget):
             'width': self.widthSpinBox.value() / 1000.0,
             'offset': self.offsetSpinBox.value() / 1000.0,
             'start_angle': self.startAngleSpinBox.value(),
-            'start_length': self.startLengthSpinBox.value() / 1000.0,
+            'start_length': self.startLengthSpinBox.value() / 100.0,
             'end_angle': self.endAngleSpinBox.value(),
-            'end_length': self.endLengthSpinBox.value() / 1000.0,
+            'end_length': self.endLengthSpinBox.value() / 100.0,
             'excluded_ribs': self.get_excluded_ribs(),
         }
     
@@ -154,9 +154,9 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.widthSpinBox.setValue(config.get('width', 0.015) * 1000.0)
         self.offsetSpinBox.setValue(config.get('offset', 0.005) * 1000.0)
         self.startAngleSpinBox.setValue(config.get('start_angle', 350.0 if self.surface == 'extrados' else 100.0))
-        self.startLengthSpinBox.setValue(config.get('start_length', 0.1) * 1000.0)
+        self.startLengthSpinBox.setValue(config.get('start_length', 0.08) * 100.0)
         self.endAngleSpinBox.setValue(config.get('end_angle', 325.0 if self.surface == 'extrados' else 20.0))
-        self.endLengthSpinBox.setValue(config.get('end_length', 0.075) * 1000.0)
+        self.endLengthSpinBox.setValue(config.get('end_length', 0.06) * 100.0)
         # Load excluded ribs (convert 0-based to 1-based for display)
         excluded = config.get('excluded_ribs', [])
         if excluded:
@@ -850,8 +850,8 @@ class AirfoilStructureTool(BaseTool):
                         end_chord=config.get('end_chord', 0.7),
                         le_angle=config.get('start_angle', 350.0),
                         te_angle=config.get('end_angle', 325.0),
-                        le_length=config.get('start_length', 0.1),
-                        te_length=config.get('end_length', 0.075),
+                        le_length=config.get('start_length', 0.08),
+                        te_length=config.get('end_length', 0.06),
                     )
                     rod_sleeves.append(sleeve)
             
@@ -874,8 +874,8 @@ class AirfoilStructureTool(BaseTool):
                         end_chord=config.get('end_chord', 0.5),
                         le_angle=config.get('start_angle', 100.0),
                         te_angle=config.get('end_angle', 20.0),
-                        le_length=config.get('start_length', 0.1),
-                        te_length=config.get('end_length', 0.09),
+                        le_length=config.get('start_length', 0.08),
+                        te_length=config.get('end_length', 0.06),
                     )
                     rod_sleeves.append(sleeve)
             

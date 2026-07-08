@@ -135,10 +135,34 @@ class RibPlot(object):
                     # Use diagonal_front for start, diagonal_back for end
                     self.insert_mark(start_x, self.config.marks_diagonal_front)
                     self.insert_mark(end_x, self.config.marks_diagonal_back)
-                    
+
                     # Also add laser marks
                     self.insert_mark(start_x, self.config.marks_laser_diagonal, "L0")
                     self.insert_mark(end_x, self.config.marks_laser_diagonal, "L0")
+
+                    # Draw the sleeve footprint on the rib so it can be sewn at
+                    # the right place (consistent with reinforcement handling).
+                    allowance = getattr(self.config, "allowance_rod_sleeve", 0.01)
+                    footprint = sleeve.get_flattened(self.rib, glider=glider)
+                    if footprint is not None and len(footprint.data) > 0:
+                        self.plotpart.layers["marks"].append(footprint)
+
+                    # Seam allowance (cut line) around the sleeve footprint
+                    seam = sleeve.get_seam_allowance(self.rib, glider=glider, allowance=allowance)
+                    if seam is not None and len(seam.data) > 0:
+                        self.plotpart.layers["marks"].append(seam)
+
+                    # Corner reference points on the seam-allowance (cut) line
+                    # -- including the two at the sleeve end -- so the fabric
+                    # can be positioned exactly before starting the seam.
+                    for corner in sleeve.get_corner_points(self.rib, glider=glider, allowance=allowance):
+                        self.plotpart.layers["marks"] += self._cross_marks(corner, size=0.005)
+                        self.plotpart.layers["L0"] += self._cross_marks(corner, size=0.005)
+
+                    # Mounting points spaced along the rod
+                    for mp in sleeve.get_mounting_points(self.rib, glider=glider):
+                        self.plotpart.layers["marks"] += self._cross_marks(mp, size=0.003)
+                        self.plotpart.layers["L0"] += self._cross_marks(mp, size=0.003)
                 except Exception as e:
                     print(f"Failed to add rod sleeve marks: {e}")
 
@@ -164,6 +188,15 @@ class RibPlot(object):
         # inner = self.inner[ik]
         # outer = self.outer[ik]
         return inner, outer
+
+    @staticmethod
+    def _cross_marks(point, size=0.004):
+        """Return a small '+' cross (two PolyLine2D segments) centered on point."""
+        p = np.array(point, dtype=float)
+        return [
+            PolyLine2D([p + [-size, 0.0], p + [size, 0.0]]),
+            PolyLine2D([p + [0.0, -size], p + [0.0, size]]),
+        ]
 
     def insert_mark(self, position, mark_function, layer="marks"):
         if hasattr(mark_function, "__func__"):
