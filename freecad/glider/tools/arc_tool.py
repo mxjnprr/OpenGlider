@@ -1,3 +1,5 @@
+import os
+
 import FreeCADGui as Gui
 from pivy import coin
 
@@ -15,6 +17,7 @@ from .tools import (
     vector2D,
     ControlPointContainer,
 )
+from .background_image import BackgroundImage
 
 
 class ArcTool(BaseTool):
@@ -44,6 +47,24 @@ class ArcTool(BaseTool):
         self.circle = coin.SoSeparator()
         self.task_separator += self.arc_cpc, self.shape, self.circle
 
+        # Background reference image (front-view plane)
+        self.bg_image = BackgroundImage(
+            self.rm,
+            default_width=2 * self._get_half_span(),
+            on_change=self.refresh_bg_widgets,
+        )
+        self.bg_image.add_to(self.task_separator)
+
+        # Background image widgets
+        self.Qbg_load = QtGui.QPushButton("Load image...", self.base_widget)
+        self.Qbg_clear = QtGui.QPushButton("Clear", self.base_widget)
+        self.Qbg_angle = QtGui.QDoubleSpinBox(self.base_widget)
+        self.Qbg_scale = QtGui.QDoubleSpinBox(self.base_widget)
+        self.Qbg_pos_x = QtGui.QDoubleSpinBox(self.base_widget)
+        self.Qbg_pos_y = QtGui.QDoubleSpinBox(self.base_widget)
+        self.Qbg_opacity = QtGui.QSlider(QtCore.Qt.Horizontal, self.base_widget)
+        self.Qwing_transp = QtGui.QSlider(QtCore.Qt.Horizontal, self.base_widget)
+
         # Arc properties widgets (read-only info)
         self.Qarc_length = QtGui.QDoubleSpinBox(self.base_widget)
         self.Qprojected_span = QtGui.QDoubleSpinBox(self.base_widget)
@@ -56,6 +77,7 @@ class ArcTool(BaseTool):
 
         self.setup_widget()
         self.setup_pivy()
+        self.restore_bg_image()
 
     def setup_widget(self):
         self.Qnum_arc.setMaximum(9)
@@ -110,9 +132,57 @@ class ArcTool(BaseTool):
         self.layout.setWidget(8, text_field, self.Qpoints_table)
         self.layout.setWidget(9, input_field, self.Qapply_points)
 
+        # Separator - Background reference image
+        separator3 = QtGui.QFrame()
+        separator3.setFrameShape(QtGui.QFrame.HLine)
+        separator3.setFrameShadow(QtGui.QFrame.Sunken)
+        self.layout.setWidget(10, text_field, separator3)
+        self.layout.setWidget(10, input_field, QtGui.QLabel("Background Image"))
+
+        bg_buttons = QtGui.QHBoxLayout()
+        bg_buttons.addWidget(self.Qbg_load)
+        bg_buttons.addWidget(self.Qbg_clear)
+        bg_buttons_widget = QtGui.QWidget(self.base_widget)
+        bg_buttons_widget.setLayout(bg_buttons)
+        self.layout.setWidget(11, input_field, bg_buttons_widget)
+
+        self.Qbg_angle.setRange(-360.0, 360.0)
+        self.Qbg_angle.setDecimals(1)
+        self.Qbg_angle.setSuffix(" deg")
+        self.Qbg_scale.setRange(0.001, 1000.0)
+        self.Qbg_scale.setDecimals(3)
+        self.Qbg_scale.setSingleStep(0.05)
+        for spinbox in (self.Qbg_pos_x, self.Qbg_pos_y):
+            spinbox.setRange(-9999.0, 9999.0)
+            spinbox.setDecimals(3)
+            spinbox.setSingleStep(0.05)
+        self.Qbg_opacity.setRange(0, 100)
+        self.Qwing_transp.setRange(0, 100)
+
+        self.layout.setWidget(12, text_field, QtGui.QLabel("Rotation"))
+        self.layout.setWidget(12, input_field, self.Qbg_angle)
+        self.layout.setWidget(13, text_field, QtGui.QLabel("Scale"))
+        self.layout.setWidget(13, input_field, self.Qbg_scale)
+        self.layout.setWidget(14, text_field, QtGui.QLabel("Position X"))
+        self.layout.setWidget(14, input_field, self.Qbg_pos_x)
+        self.layout.setWidget(15, text_field, QtGui.QLabel("Position Y"))
+        self.layout.setWidget(15, input_field, self.Qbg_pos_y)
+        self.layout.setWidget(16, text_field, QtGui.QLabel("Image opacity"))
+        self.layout.setWidget(16, input_field, self.Qbg_opacity)
+        self.layout.setWidget(17, text_field, QtGui.QLabel("Wing transparency"))
+        self.layout.setWidget(17, input_field, self.Qwing_transp)
+
         # Connections
         self.Qnum_arc.valueChanged.connect(self.update_num)
         self.Qapply_points.clicked.connect(self.apply_control_points)
+        self.Qbg_load.clicked.connect(self.load_bg_image)
+        self.Qbg_clear.clicked.connect(self.clear_bg_image)
+        self.Qbg_angle.valueChanged.connect(self.update_bg_from_widgets)
+        self.Qbg_scale.valueChanged.connect(self.update_bg_from_widgets)
+        self.Qbg_pos_x.valueChanged.connect(self.update_bg_from_widgets)
+        self.Qbg_pos_y.valueChanged.connect(self.update_bg_from_widgets)
+        self.Qbg_opacity.valueChanged.connect(self.update_bg_opacity)
+        self.Qwing_transp.valueChanged.connect(self.update_wing_transparency)
 
     def _setup_readonly_spinbox(self, spinbox, suffix, decimals):
         """Configure a spinbox for read-only display"""
@@ -273,8 +343,69 @@ class ArcTool(BaseTool):
         self.update_real_arc()
         self.update_arc_properties()
 
+    # ---------------------------------------------------- background image
+    def restore_bg_image(self):
+        """Load a background image previously saved with the document."""
+        try:
+            self.bg_image.load_from(self.obj)
+        except Exception as e:
+            print("could not restore background image:", e)
+        self.refresh_bg_widgets()
+
+    def load_bg_image(self):
+        filename = QtGui.QFileDialog.getOpenFileName(
+            parent=self.base_widget,
+            caption="load reference image",
+            filter="Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff)",
+        )
+        path = filename[0]
+        if path and os.path.isfile(path):
+            if not self.bg_image.load(path):
+                print("could not load image:", path)
+
+    def clear_bg_image(self):
+        self.bg_image.clear()
+
+    def update_bg_from_widgets(self, *args):
+        self.bg_image.set_position(self.Qbg_pos_x.value(), self.Qbg_pos_y.value())
+        self.bg_image.set_scale(self.Qbg_scale.value())
+        self.bg_image.set_angle(self.Qbg_angle.value())
+
+    def update_bg_opacity(self, *args):
+        self.bg_image.set_opacity(self.Qbg_opacity.value() / 100.0)
+
+    def update_wing_transparency(self, *args):
+        self.obj.ViewObject.Proxy.set_transparency(self.Qwing_transp.value() / 100.0)
+
+    def refresh_bg_widgets(self):
+        """Push the background image state into the panel widgets."""
+        widgets = (
+            self.Qbg_angle,
+            self.Qbg_scale,
+            self.Qbg_pos_x,
+            self.Qbg_pos_y,
+            self.Qbg_opacity,
+        )
+        for w in widgets:
+            w.blockSignals(True)
+        self.Qbg_angle.setValue(self.bg_image.angle)
+        self.Qbg_scale.setValue(self.bg_image.scale)
+        self.Qbg_pos_x.setValue(self.bg_image.pos[0])
+        self.Qbg_pos_y.setValue(self.bg_image.pos[1])
+        self.Qbg_opacity.setValue(int(round(self.bg_image.opacity * 100)))
+        for w in widgets:
+            w.blockSignals(False)
+
+        has_image = self.bg_image.has_image()
+        for w in widgets:
+            w.setEnabled(has_image)
+        self.Qbg_clear.setEnabled(has_image)
+
     def accept(self):
         self.arc_cpc.remove_callbacks()
+        self.bg_image.remove_callbacks()
+        self.bg_image.save_to(self.obj)
+        self.obj.ViewObject.Proxy.set_transparency(0.0)
         super(ArcTool, self).accept()
         self.obj.ViewObject.Proxy.rotate()
         self.update_view_glider()
@@ -282,6 +413,8 @@ class ArcTool(BaseTool):
 
     def reject(self):
         self.arc_cpc.remove_callbacks()
+        self.bg_image.remove_callbacks()
+        self.obj.ViewObject.Proxy.set_transparency(0.0)
         self.obj.ViewObject.Proxy.rotate()
         Gui.activeDocument().activeView().viewFront()
         super(ArcTool, self).reject()

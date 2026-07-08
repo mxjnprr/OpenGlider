@@ -445,6 +445,30 @@ class OGGliderVP(OGBaseVP):
             sbrot.setValue(coin.SbVec3f(0, 1, 0), coin.SbVec3f(-1, 0, 0))
         self.rot.rotation.setValue(sbrot)
 
+    def set_transparency(self, value):
+        """Fade the whole displayed glider.
+
+        ``value`` is in the 0..1 range (0 = opaque, 1 = fully transparent).
+        A transparency-only override material is injected at the top of
+        ``vis_glider`` so all hull/rib materials are forced transparent while
+        keeping their own colors (only the transparency field is overridden).
+        Used by the Arc tool to see a background reference image through the wing.
+        """
+        if not hasattr(self, "transparency_material") or self.transparency_material is None:
+            mat = coin.SoMaterial()
+            mat.setName("bg_transparency")
+            # override transparency only, leave every other material field alone
+            mat.diffuseColor.setIgnored(True)
+            mat.ambientColor.setIgnored(True)
+            mat.specularColor.setIgnored(True)
+            mat.emissiveColor.setIgnored(True)
+            mat.shininess.setIgnored(True)
+            self.transparency_material = mat
+            # insert right after the pick_style (index 0) so it precedes hull/ribs
+            self.vis_glider.insertChild(mat, 1)
+        self.transparency_material.transparency.setValue(value)
+        self.transparency_material.setOverride(value > 0.0)
+
     def updateData(self, prop="all", *args):
         self._updateData(self.view_obj, prop)
 
