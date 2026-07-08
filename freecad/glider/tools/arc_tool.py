@@ -1,5 +1,6 @@
 import os
 
+import FreeCAD as App
 import FreeCADGui as Gui
 from pivy import coin
 from pivy.graphics import Line, Point
@@ -401,19 +402,34 @@ class ArcTool(BaseTool):
         self.Qbg_clear.setEnabled(has_image)
 
     def accept(self):
-        self.arc_cpc.remove_callbacks()
-        self.bg_image.remove_callbacks()
-        self.bg_image.save_to(self.obj)
-        self.obj.ViewObject.Proxy.set_transparency(0.0)
-        super().accept()
+        # The scene teardown (super().accept() removes the task_separator that
+        # holds the background image + its drag handles) MUST run, otherwise the
+        # image and handles stay on screen after the tool is closed. Every step
+        # before it can throw - unregistering handles left in a mid-drag state
+        # (pivy toggles register/unregister during a grab), or persisting the
+        # image (App::PropertyFileIncluded re-import on a slow/shared drive) -
+        # so guard them all and tear the scene down in the finally.
+        try:
+            self.arc_cpc.remove_callbacks()
+            self.bg_image.remove_callbacks()
+            self.bg_image.save_to(self.obj)
+            self.obj.ViewObject.Proxy.set_transparency(0.0)
+        except Exception:
+            App.Console.PrintError("ArcTool: error while closing (accept)\n")
+        finally:
+            super().accept()
         self.obj.ViewObject.Proxy.rotate()
         self.update_view_glider()
         Gui.activeDocument().activeView().viewFront()
 
     def reject(self):
-        self.arc_cpc.remove_callbacks()
-        self.bg_image.remove_callbacks()
-        self.obj.ViewObject.Proxy.set_transparency(0.0)
-        self.obj.ViewObject.Proxy.rotate()
-        Gui.activeDocument().activeView().viewFront()
-        super().reject()
+        try:
+            self.arc_cpc.remove_callbacks()
+            self.bg_image.remove_callbacks()
+            self.obj.ViewObject.Proxy.set_transparency(0.0)
+            self.obj.ViewObject.Proxy.rotate()
+            Gui.activeDocument().activeView().viewFront()
+        except Exception:
+            App.Console.PrintError("ArcTool: error while closing (reject)\n")
+        finally:
+            super().reject()

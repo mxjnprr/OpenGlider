@@ -46,6 +46,12 @@ class BackgroundImage:
 
         # editable state
         self.path = ""
+        # True when the embedded file needs (re)writing on save: set by load()
+        # (new external source) and clear(), reset by load_from() (already in
+        # the document) and after a successful save. Avoids re-importing the
+        # App::PropertyFileIncluded on every accept - needless file I/O that
+        # fails intermittently on slow/removable/shared drives.
+        self._dirty = False
         self.pos = [0.0, 0.0]
         self.scale = 1.0
         self.angle = 0.0  # degrees
@@ -110,7 +116,13 @@ class BackgroundImage:
         separator += self.handles
 
     def remove_callbacks(self):
-        self.handles.unregister()
+        # pivy toggles the handles' register/unregister state during a grab, so
+        # unregister() can be called with stale callback ids (double unregister)
+        # and raise. Swallow it: the whole scene subtree is torn down anyway.
+        try:
+            self.handles.unregister()
+        except Exception:
+            pass
 
     def set_handles_visible(self, visible):
         # an empty coordinate list makes the markers disappear
@@ -126,6 +138,7 @@ class BackgroundImage:
         if image.isNull():
             return False
         self.path = path
+        self._dirty = True  # new external source -> must be (re)embedded on save
         w, h = image.width(), image.height()
         aspect = (h / w) if w else 1.0
         self._hw = self.default_width / 2.0
@@ -139,6 +152,7 @@ class BackgroundImage:
 
     def clear(self):
         self.path = ""
+        self._dirty = True  # must clear the embedded file on save
         self.texture.filename = ""
         self.coords.point.setNum(0)
         self.face_set.numVertices.setValue(0)
@@ -235,7 +249,13 @@ class BackgroundImage:
 
     def save_to(self, obj):
         self._ensure_props(obj)
-        obj.BGImageFile = self.path or ""
+        # Only (re)embed the image file when the source actually changed. The
+        # image is already stored in the document from a previous save, so
+        # re-importing it every accept is needless file I/O that fails
+        # intermittently when the source lives on a slow/removable/shared drive.
+        if self._dirty:
+            obj.BGImageFile = self.path or ""
+            self._dirty = False
         obj.BGImagePosX = float(self.pos[0])
         obj.BGImagePosY = float(self.pos[1])
         obj.BGImageScale = float(self.scale)
@@ -258,6 +278,8 @@ class BackgroundImage:
         if "BGImageOpacity" in obj.PropertiesList and obj.BGImageOpacity:
             self.opacity = obj.BGImageOpacity
         loaded = self.load(path)
+        # already embedded in the document -> don't re-import it on the next save
+        self._dirty = False
         if loaded and obj.BGImageAspect:
             # restore exact aspect/width the image was saved with
             self._hw = (obj.BGImageWidth or self.default_width) / 2.0
