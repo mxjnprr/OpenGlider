@@ -18,6 +18,23 @@ dependencies = ["svgwrite", "numpy", "scipy", "ezdxf",
 [project.urls]
 source = "https://github.com/booya-at/OpenGlider"
 
+[tool.ruff]
+# Version Python cible et exclusions
+target-version = "py38"
+extend-exclude = ["docs", "_bmad", "_bmad-output", "_bmad-custom-backup-temp"]
+
+[tool.ruff.lint]
+# Socle "vrais bugs" uniquement — pas de bruit stylistique pour démarrer.
+#  E9/F  = erreurs de syntaxe & pyflakes (imports/vars non définis, f-strings cassées…)
+#  B     = flake8-bugbear (pièges courants : mutable default, except trop large…)
+#  I     = tri des imports (remplace isort)
+#  UP    = pyupgrade (modernisation syntaxe)
+select = ["E9", "F", "B", "I", "UP"]
+
+# On tolère les imports "inutilisés" dans les __init__.py (ré-exports volontaires).
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
 [tool.setuptools]
 packages = ["openglider",
             "openglider.airfoil",

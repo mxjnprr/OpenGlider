@@ -21,9 +21,10 @@ lxml = "*"
 pyexcel-ods3 = "*"
 matplotlib = "*"
 parabem = "*"
-pylint = "*"
+ruff = "*"
 freecad = ">=1.0.0,<1.1.0"
 
 [tasks]
 test = "python testall.py"
-lint = "pylint $(git ls-files '*.py')"
+lint = "ruff check ."
+format = "ruff format ."

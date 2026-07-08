@@ -100,7 +100,6 @@ class Rib(CachedObject):
             "reinforcements": self.reinforcements,
             "rod_sleeves": self.rod_sleeves,
             "material_code": self.material_code,
-            "name": self.name,
         }
 
     def align_all(self, data):

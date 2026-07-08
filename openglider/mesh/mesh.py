@@ -249,9 +249,9 @@ class Mesh(object):
         boundaries_new = {}
         polys = {}
 
-        for poly_name, polygons in polygons.items():
+        for poly_name, poly_group in polygons.items():
             new_poly_group = []
-            for poly in polygons:
+            for poly in poly_group:
                 poly_vertices = [vertices[i] for i in poly]
                 poly_attributes = getattr(poly, "attributes", {})
                 new_poly = Polygon(poly_vertices, attributes=poly_attributes)
@@ -312,9 +312,9 @@ class Mesh(object):
         for vertex in vertices:
             out += "v {:.6f} {:.6f} {:.6f}\n".format(*vertex)
 
-        for polygon_group_name, polygons in polygons.items():
+        for polygon_group_name, poly_group in polygons.items():
             out += "o {}\n".format(polygon_group_name)
-            for obj in polygons:
+            for obj in poly_group:
                 if len(obj) == 2:
                     # line
                     code = "l"
