@@ -173,7 +173,14 @@ class Cell(CachedObject):
 
         p0 = self.panels[0]
         for p in self.panels[1:]:
-            if p.cut_front.get("type") != skip and p.cut_front == p0.cut_back:
+            # PolygonPanel (crossing region) has no cut_front/cut_back and cannot
+            # be merged into a strip — pass such panels through unchanged.
+            if (
+                isinstance(p, Panel)
+                and isinstance(p0, Panel)
+                and p.cut_front.get("type") != skip
+                and p.cut_front == p0.cut_back
+            ):
                 p0 = Panel(p0.cut_front, p.cut_back, material_code=p0.material_code)
             else:
                 panels.append(p0)
@@ -668,6 +675,8 @@ class Cell(CachedObject):
             return [max(0, x) for x in data]
 
         for panel in panels:
+            if not isinstance(panel, Panel):
+                continue  # PolygonPanel (crossing region) opts out of 3d shaping
             amount_front, amount_back = panel.integrate_3d_shaping(
                 self, self.sigma_3d_cut, inner
             )
@@ -677,6 +686,8 @@ class Cell(CachedObject):
 
         cut_3d_types = ["cut_3d"]
         for panel in panels:
+            if not isinstance(panel, Panel):
+                continue
             if panel.cut_front.get("type") in cut_3d_types:
                 panel.cut_front["amount_3d"] = get_amount(panel.cut_front)
             else:

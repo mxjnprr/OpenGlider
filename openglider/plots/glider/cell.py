@@ -1356,7 +1356,15 @@ class CellPlotMaker:
         if panels is None:
             panels = self.cell.panels
 
+        from openglider.glider.cell.polygon_panel import PolygonPanel
+
         for panel in panels:
+            # Crossing-region panels flatten via the isometric developer (two
+            # rails), not the strip PanelPlot which reads cut_front/cut_back.
+            if isinstance(panel, PolygonPanel):
+                cell_panels.append(self._flatten_polygon_panel(panel))
+                continue
+
             # Check if this is a split panel with non-default y range
             y_start = getattr(panel, 'y_start', 0.0)
             y_end = getattr(panel, 'y_end', 1.0)
@@ -1383,6 +1391,26 @@ class CellPlotMaker:
             cell_panels.append(dwg)
 
         return cell_panels
+
+    def _flatten_polygon_panel(self, panel):
+        """Flatten a crossing-region PolygonPanel into a PlotPart via the
+        isometric two-rail developer, with a uniform seam allowance."""
+        import numpy as np
+
+        from openglider.vector.polyline import PolyLine2D
+
+        flat_lo, flat_hi = panel.flatten_rails(self.cell)
+        allowance = self.config.allowance_general
+        outer_lo = flat_lo.copy().add_stuff(-allowance)
+        outer_hi = flat_hi.copy().add_stuff(allowance)
+
+        sewing = list(np.array(flat_lo)) + list(np.array(flat_hi))[::-1]
+        cut = list(np.array(outer_lo)) + list(np.array(outer_hi))[::-1]
+
+        plotpart = PlotPart(material_code=panel.material_code, name=panel.name)
+        plotpart.layers["cuts"] += [PolyLine2D(cut + [cut[0]])]
+        plotpart.layers["marks"] += [PolyLine2D(sewing + [sewing[0]])]
+        return plotpart
 
     def get_panels_lower(self):
         panels = [p for p in self.cell.panels if p.is_lower()]

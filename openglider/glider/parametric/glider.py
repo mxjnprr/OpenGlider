@@ -2080,6 +2080,54 @@ class ParametricGlider:
             if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
                 cuts.append({"type": "parallel", "left": 1, "right": 1})
 
+            # Crossing cuts: the strip decomposition below (ZipCmp of sorted
+            # cuts) cannot tile a cell where two cuts cross at an interior point.
+            # Detect it and build region PolygonPanels instead. No crossing -> the
+            # ordinary strip path runs unchanged (R6). See
+            # docs/crossing-cuts-design.md.
+            from openglider.glider.cell.cut_arrangement import (
+                Cut,
+                build_regions,
+                find_crossings,
+            )
+
+            _cut_objs = [
+                Cut(c["left"], c["right"], c.get("type", "orthogonal"), i)
+                for i, c in enumerate(cuts)
+            ]
+            _crossings = find_crossings(_cut_objs)
+            if _crossings:
+                from openglider.glider.cell.polygon_panel import PolygonPanel
+
+                regions = build_regions(cuts)  # sorted deterministically by centroid
+                # cell-global spanwise samples shared by every region -> shared
+                # cut edges coincide (watertight mesh + matching flattened seams)
+                mesh_ys = sorted(
+                    set([round(i / 24.0, 9) for i in range(25)] + list(_crossings))
+                )
+                materials_by_name = self.elements.get("materials_by_name", {})
+                part_no = 0
+                for region in regions:
+                    if region.is_entry():
+                        continue
+                    name = f"c{cell_no + 1}p{part_no + 1}"
+                    material_code = materials_by_name.get(name)
+                    if material_code is None:
+                        try:
+                            material_code = self.elements["materials"][cell_no][part_no]
+                        except (KeyError, IndexError):
+                            material_code = "unknown"
+                    panel_lst.append(
+                        PolygonPanel(
+                            region,
+                            material_code=material_code,
+                            name=name,
+                            mesh_ys=mesh_ys,
+                        )
+                    )
+                    part_no += 1
+                continue  # cell done via regions; skip the strip path
+
             # Sort cuts by their average chord position (left+right)/2
             # This handles polylines that fold back and might have
             # cut1.left < cut2.left but cut1.right > cut2.right
