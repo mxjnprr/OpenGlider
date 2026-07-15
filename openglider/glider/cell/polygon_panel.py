@@ -48,11 +48,29 @@ class PolygonPanel:
         return self.mean_x() > 0
 
     def mirror(self):
-        for s in self.region.substrips:
-            _, f, b, _, _ = s
-            f.left, f.right = -f.left, -f.right
-            b.left, b.right = -b.left, -b.right
-        self.region.boundary = [(y, -x) for (y, x) in self.region.boundary]
+        """Spanwise mirror, matching ``Panel.mirror`` semantics (used by
+        ``Cell.mirror`` when building the mirrored wing). ``Panel.mirror`` swaps
+        each cut's left/right (rib1<->rib2, chord VALUES unchanged) — NOT a chord
+        negation. So we swap left/right on (deep-copied, since cuts are shared
+        between regions) cuts and reflect the parametric span y -> 1-y. After
+        this, ``chord_interval(y)`` equals the original ``chord_interval(1-y)``,
+        which matches ``cell.midrib`` after Cell.mirror swaps rib1/rib2.
+        """
+        from openglider.glider.cell.cut_arrangement import Cut, Region
+
+        cutmap = {}
+
+        def mir(c):
+            if id(c) not in cutmap:
+                cutmap[id(c)] = Cut(c.right, c.left, c.type, c.id)  # swap L/R
+            return cutmap[id(c)]
+
+        new_subs = [
+            (seg, mir(f), mir(b), 1.0 - y_hi, 1.0 - y_lo)
+            for (seg, f, b, y_lo, y_hi) in self.region.substrips
+        ]
+        new_boundary = [(1.0 - y, chord) for (y, chord) in self.region.boundary]
+        self.region = Region(new_boundary, new_subs)
 
     def __json__(self):
         return {

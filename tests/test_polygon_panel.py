@@ -201,6 +201,37 @@ def test_nose_wrapping_region_watertight_and_dense():
     assert nm == 0, f"{nm} non-manifold edges in nose-wrapping crossing cell"
 
 
+def test_mirror_is_spanwise_reflection():
+    # PolygonPanel.mirror must match Panel.mirror (swap left/right = spanwise),
+    # NOT negate the chord — otherwise the mirrored wing renders left/right
+    # flipped.
+    from openglider.glider.cell.cut_arrangement import build_regions
+
+    regions = [r for r in build_regions([
+        {"left": -1, "right": -1, "type": "parallel"}, *CROSS_CUTS,
+        {"left": 1, "right": 1, "type": "parallel"}]) if not r.is_entry()]
+    p = PolygonPanel(regions[0], "red", "r0", crossings=[0.411])
+    orig = p.region  # mirror() builds a new region, leaving this intact
+    p.mirror()
+    err = 0.0
+    for y in (0.1, 0.3, 0.5, 0.7, 0.9):
+        m = p.region.chord_interval(y)
+        o = orig.chord_interval(1 - y)
+        err = max(err, abs(m[0] - o[0]), abs(m[1] - o[1]))
+    assert err < 1e-9, f"mirror is not a clean spanwise reflection (err={err})"
+
+
+def test_copy_complete_mirrored_crossing_cell_watertight():
+    # the full (both-wings) glider mirrors one half; the mirrored crossing cell
+    # must stay watertight and correctly oriented.
+    full = _glider_with_crossing().copy_complete()
+    xcells = [c for c in full.cells if any(isinstance(p, PolygonPanel) for p in c.panels)]
+    assert len(xcells) >= 2, "expected the crossing on both wings"
+    for cell in xcells:
+        nm, ntris = _nonmanifold(cell)
+        assert ntris > 0 and nm == 0
+
+
 def test_plotmaker_runs_with_crossing():
     from openglider.plots import PlotMaker
 
