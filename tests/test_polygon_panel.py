@@ -98,6 +98,67 @@ def test_crossing_cell_mesh_watertight():
     assert nm == 0, f"{nm} non-manifold (overlap/crack) edges in crossing cell"
 
 
+def _tjunctions(cell, numribs):
+    """Count T-junctions (a vertex lying strictly inside another triangle's
+    boundary edge) across the crossing cell's region meshes — the crack that a
+    mere non-manifold check misses."""
+    pos = {}
+    verts = []
+    faces = []
+
+    def key(p):
+        return (round(float(p[0]), 6), round(float(p[1]), 6), round(float(p[2]), 6))
+
+    for p in cell.panels:
+        m = p.get_mesh(cell, numribs, with_numpy=True)
+        v, groups, _ = m.get_indexed()
+        v = [np.array([x.x, x.y, x.z]) for x in v]
+        for _, fs in groups.items():
+            for f in fs:
+                idx = list(f)
+                for k in range(1, len(idx) - 1):
+                    tri = []
+                    for q in (idx[0], idx[k], idx[k + 1]):
+                        kk = key(v[q])
+                        if kk not in pos:
+                            pos[kk] = len(verts)
+                            verts.append(np.array(kk))
+                        tri.append(pos[kk])
+                    if len(set(tri)) == 3:
+                        faces.append(tri)
+    edge = defaultdict(int)
+    for f in faces:
+        for a, b in [(f[0], f[1]), (f[1], f[2]), (f[2], f[0])]:
+            edge[frozenset((a, b))] += 1
+    verts = np.array(verts)
+    tj = 0
+    for e, c in edge.items():
+        if c != 1:
+            continue
+        a, b = tuple(e)
+        ab = verts[b] - verts[a]
+        L2 = float(ab.dot(ab))
+        if L2 < 1e-16:
+            continue
+        for vi in range(len(verts)):
+            if vi == a or vi == b:
+                continue
+            t = float((verts[vi] - verts[a]).dot(ab) / L2)
+            if 1e-4 < t < 1 - 1e-4 and np.linalg.norm(verts[a] + t * ab - verts[vi]) < 1e-5:
+                tj += 1
+                break
+    return tj
+
+
+def test_crossing_cell_no_tjunctions_across_midribs():
+    # shared cut edges must weld at ANY midrib density: region y-sampling comes
+    # from a cell-global grid, so different-span regions still align.
+    g3 = _glider_with_crossing()
+    cell = g3.cells[CELL]
+    for nr in (0, 4, 8):
+        assert _tjunctions(cell, nr) == 0, f"T-junction cracks at midribs={nr}"
+
+
 def test_crossing_cell_flatten_clean():
     cell = _glider_with_crossing().cells[CELL]
     for p in cell.panels:

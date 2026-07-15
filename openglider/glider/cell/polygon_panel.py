@@ -64,16 +64,19 @@ class PolygonPanel:
     def _ys(self, numribs):
         """Spanwise sample values for this region.
 
-        ``numribs+1`` evenly spaced stations (matching the strip
-        ``Panel.get_mesh`` spanwise density, so a crossing cell renders with the
-        same flatness/smoothness as its neighbours at any midrib setting) unioned
-        with every cell crossing and the region's own kink y-values that fall in
-        the region's span (needed so shared cut edges coincide and the apex is a
-        vertex). All regions use the same formula → shared edges stay consistent.
+        Built from a **cell-global** grid ``linspace(0, 1, numribs+2)`` clipped
+        to the region's span (NOT a region-local linspace — that would give
+        different y-values to regions of different span and crack their shared
+        cut edges with T-junctions). Unioned with every cell crossing and the
+        region's own kink y-values. Because every region samples the *same*
+        global grid, a shared cut edge gets identical vertices on both sides.
+        Density follows ``numribs`` so a crossing cell matches its strip
+        neighbours' flatness at midribs=0 and smooths with them as it rises.
         """
         y0, y1 = self.region.y_range
         n = max(int(numribs) + 1, 1)
-        base = list(np.linspace(y0, y1, n + 1))
+        global_grid = [i / n for i in range(n + 1)]  # linspace(0, 1, n+1), GLOBAL
+        base = [y for y in global_grid if y0 - 1e-9 <= y <= y1 + 1e-9]
         extra = [y for y in self.crossings if y0 + 1e-9 < y < y1 - 1e-9]
         extra += self.region.segment_ys()
         ys = sorted(set(round(float(y), 9) for y in base) | set(round(float(y), 9) for y in extra))
