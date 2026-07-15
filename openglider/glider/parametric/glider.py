@@ -2106,17 +2106,27 @@ class ParametricGlider:
                     set([round(i / 24.0, 9) for i in range(25)] + list(_crossings))
                 )
                 materials_by_name = self.elements.get("materials_by_name", {})
+                try:
+                    cell_materials = list(self.elements["materials"][cell_no])
+                except (KeyError, IndexError, TypeError):
+                    cell_materials = []
                 part_no = 0
                 for region in regions:
                     if region.is_entry():
                         continue
                     name = f"c{cell_no + 1}p{part_no + 1}"
+                    # Region colouring: prefer an explicit per-name colour (set by
+                    # a region-aware colour tool); otherwise inherit the colour of
+                    # whatever panel sat at this region's chord position, so the
+                    # user's existing palette shows through instead of grey.
                     material_code = materials_by_name.get(name)
+                    if material_code is None and cell_materials:
+                        chord_centroid = region.centroid()[1]  # in [-1, +1]
+                        idx = int((chord_centroid + 1.0) / 2.0 * len(cell_materials))
+                        idx = max(0, min(idx, len(cell_materials) - 1))
+                        material_code = cell_materials[idx]
                     if material_code is None:
-                        try:
-                            material_code = self.elements["materials"][cell_no][part_no]
-                        except (KeyError, IndexError):
-                            material_code = "unknown"
+                        material_code = "unknown"
                     panel_lst.append(
                         PolygonPanel(
                             region,
