@@ -150,27 +150,38 @@ class ColorTool(BaseTool):
         x_values = self.parametric_glider.shape.rib_x_values
         if self.parametric_glider.shape.has_center_cell:
             x_values = [-x_values[0]] + x_values
+        from openglider.glider.cell.polygon_panel import PolygonPanel
+
         for i, cell in enumerate(self.panels):
             for j, panel in enumerate(cell):
-                # Get panel y_start/y_end for split panels
-                y_start = getattr(panel, 'y_start', 0.0)
-                y_end = getattr(panel, 'y_end', 1.0)
-                
-                # Interpolate X positions based on y range
-                x_left = x_values[i] + y_start * (x_values[i + 1] - x_values[i])
-                x_right = x_values[i] + y_end * (x_values[i + 1] - x_values[i])
-                
-                # Interpolate cut positions based on y range
-                front_left = panel.cut_front["left"] + y_start * (panel.cut_front["right"] - panel.cut_front["left"])
-                front_right = panel.cut_front["left"] + y_end * (panel.cut_front["right"] - panel.cut_front["left"])
-                back_left = panel.cut_back["left"] + y_start * (panel.cut_back["right"] - panel.cut_back["left"])
-                back_right = panel.cut_back["left"] + y_end * (panel.cut_back["right"] - panel.cut_back["left"])
-                
-                p1 = [x_left, front_left, 0.0]
-                p2 = [x_left, back_left, 0.0]
-                p3 = [x_right, back_right, 0.0]
-                p4 = [x_right, front_right, 0.0]
-                vis_panel = ColorPolygon([p1, p2, p3, p4][::-1], True)
+                if isinstance(panel, PolygonPanel):
+                    # Crossing-region panel: build its planform polygon from the
+                    # region boundary (y, chord) -> (x_span, chord).
+                    pts = [
+                        [x_values[i] + y * (x_values[i + 1] - x_values[i]), chord, 0.0]
+                        for (y, chord) in panel.region.boundary
+                    ]
+                    vis_panel = ColorPolygon(pts, True)
+                else:
+                    # Get panel y_start/y_end for split panels
+                    y_start = getattr(panel, 'y_start', 0.0)
+                    y_end = getattr(panel, 'y_end', 1.0)
+
+                    # Interpolate X positions based on y range
+                    x_left = x_values[i] + y_start * (x_values[i + 1] - x_values[i])
+                    x_right = x_values[i] + y_end * (x_values[i + 1] - x_values[i])
+
+                    # Interpolate cut positions based on y range
+                    front_left = panel.cut_front["left"] + y_start * (panel.cut_front["right"] - panel.cut_front["left"])
+                    front_right = panel.cut_front["left"] + y_end * (panel.cut_front["right"] - panel.cut_front["left"])
+                    back_left = panel.cut_back["left"] + y_start * (panel.cut_back["right"] - panel.cut_back["left"])
+                    back_right = panel.cut_back["left"] + y_end * (panel.cut_back["right"] - panel.cut_back["left"])
+
+                    p1 = [x_left, front_left, 0.0]
+                    p2 = [x_left, back_left, 0.0]
+                    p3 = [x_right, back_right, 0.0]
+                    p4 = [x_right, front_right, 0.0]
+                    vis_panel = ColorPolygon([p1, p2, p3, p4][::-1], True)
                 panel.vis_panel = vis_panel
                 if panel.material_code:
                     vis_panel.set_color(hex_to_rgb(panel.material_code))
