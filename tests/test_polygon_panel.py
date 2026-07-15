@@ -107,6 +107,39 @@ def test_crossing_cell_flatten_clean():
         assert _self_intersections(contour) == 0, f"{p.name} flatten self-intersects"
 
 
+def test_nose_wrapping_region_watertight_and_dense():
+    # a cell with NO entry cut: the region between the aft cut and the intrados
+    # TE wraps around the nose (extrados -> LE -> intrados). It must be sampled
+    # at the profile's native resolution (not a fixed few points) and stay
+    # watertight, otherwise the mesh folds through itself.
+    from openglider.glider.cell.cut_arrangement import build_regions
+
+    g2d = openglider.load(DEMOKITE)
+    cell_cuts = [
+        {"left": -1.0, "right": -1.0, "type": "parallel"},
+        *CROSS_CUTS,
+        {"left": 1.0, "right": 1.0, "type": "parallel"},
+    ]
+    g2d.elements["cuts"] = [dict(c, cells=[CELL]) for c in cell_cuts]
+    cell = g2d.get_glider_3d().cells[CELL]
+    regions = [r for r in build_regions(cell_cuts) if not r.is_entry()]
+    mesh_ys = sorted(set([round(i / 24.0, 9) for i in range(25)] + [0.411]))
+    panels = [PolygonPanel(r, "ff8800", f"r{i}", mesh_ys=mesh_ys)
+              for i, r in enumerate(regions)]
+    # widest region must be densely sampled (native profile res, not ~6/row)
+    widest = max(panels, key=lambda p: p.region.chord_interval(0.5)[1] - p.region.chord_interval(0.5)[0])
+    span = widest.region.chord_interval(0.5)[1] - widest.region.chord_interval(0.5)[0]
+    assert span > 1.0, "test setup: expected a nose-wrapping region"
+    assert len(widest.get_mesh(cell, 0, with_numpy=True).vertices) > 1000, (
+        "nose-wrap region under-sampled (mesh would fold)"
+    )
+
+    # combined watertightness of all regions
+    cell.panels = panels
+    nm, _ = _nonmanifold(cell)
+    assert nm == 0, f"{nm} non-manifold edges in nose-wrapping crossing cell"
+
+
 def test_plotmaker_runs_with_crossing():
     from openglider.plots import PlotMaker
 

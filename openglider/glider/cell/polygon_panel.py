@@ -77,8 +77,14 @@ class PolygonPanel:
 
     # -------------------------------------------------------------------- 3D
     def get_mesh(self, cell, numribs=0, with_numpy=True):
+        # Parametric domain is (y, ik) where ik is the profile arc index. The
+        # chord direction is sampled at the profile's NATIVE resolution between
+        # the region's lo/hi cut (via ``get_positions``) exactly like
+        # ``Panel.get_mesh`` — a fixed number of chord points would under-sample
+        # a wide region (e.g. one that wraps the nose in a cell with no entry
+        # cut) and fold the mesh onto itself.
         xvalues = cell.rib1.base_profile_2d.x_values
-        nx = self.chord_points
+        nxv = len(xvalues)
         ys = self._ys()
 
         pts2d = []
@@ -88,19 +94,19 @@ class PolygonPanel:
         for y in ys:
             lo, hi = self.region.chord_interval(y)
             midrib = cell.midrib(y, with_numpy=with_numpy)
-            if hi - lo < _WIDTH_EPS:
+            ik_lo = get_x_value(xvalues, lo)
+            ik_hi = get_x_value(xvalues, hi)
+            if abs(ik_hi - ik_lo) < 1e-6:
                 # degenerate (apex) row → a single shared point
-                chord = 0.5 * (lo + hi)
-                pts2d.append([y, chord])
-                pts3d.append(np.array(midrib[get_x_value(xvalues, chord)]))
+                pts2d.append([y, ik_lo])
+                pts3d.append(np.array(midrib[ik_lo]))
                 rows.append([count])
                 count += 1
                 continue
             row = []
-            for xt in np.linspace(0.0, 1.0, nx):
-                chord = lo + xt * (hi - lo)
-                pts2d.append([y, chord])
-                pts3d.append(np.array(midrib[get_x_value(xvalues, chord)]))
+            for ik in midrib.get_positions(ik_lo, ik_hi):
+                pts2d.append([y, ik])
+                pts3d.append(np.array(midrib[ik]))
                 row.append(count)
                 count += 1
             rows.append(row)
@@ -125,12 +131,12 @@ class PolygonPanel:
             return Mesh.from_indexed(np.array(pts3d), {group: tris},
                                      boundaries={group: edge})
 
-        # lift ALL mesh points (incl. any Steiner) back to 3D
+        # lift ALL mesh points (incl. any Steiner) back to 3D via (y, ik)
         mesh_pts_3d = []
         for pt2d in mesh.points:
             y = float(np.clip(pt2d[0], ys[0], ys[-1]))
-            chord = float(pt2d[1])
-            mesh_pts_3d.append(np.array(cell.midrib(y, with_numpy=with_numpy)[get_x_value(xvalues, chord)]))
+            ik = float(np.clip(pt2d[1], 0.0, nxv - 1))
+            mesh_pts_3d.append(np.array(cell.midrib(y, with_numpy=with_numpy)[ik]))
         return Mesh.from_indexed(np.array(mesh_pts_3d),
                                  {group: list(mesh.elements)})
 
