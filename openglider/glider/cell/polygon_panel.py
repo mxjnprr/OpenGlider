@@ -22,7 +22,6 @@ import numpy as np
 
 from openglider.airfoil import get_x_value
 from openglider.mesh import Mesh, triangulate
-from openglider.vector.projection import flatten_list
 
 _WIDTH_EPS = 1e-6
 
@@ -188,24 +187,72 @@ class PolygonPanel:
         return out
 
     # ------------------------------------------------------------------ 2D
-    def flatten_rails(self, cell, with_numpy=True):
-        """Develop the region into two 2D rails via the isometric developer.
-        Returns ``(flat_lo, flat_hi)`` as ``PolyLine2D``."""
-        xvalues = cell.rib1.base_profile_2d.x_values
-        ys = self._ys(30)  # flatten quality is independent of the 3d view's midribs
-        rail_lo = []
-        rail_hi = []
-        for y in ys:
-            lo, hi = self.region.chord_interval(y)
-            midrib = cell.midrib(y, with_numpy=with_numpy)
-            rail_lo.append(np.array(midrib[get_x_value(xvalues, lo)]))
-            rail_hi.append(np.array(midrib[get_x_value(xvalues, hi)]))
-        return flatten_list(rail_lo, rail_hi)
+    def _flatten_boundaries(self, cell, numribs=14):
+        """Develop the region using the cell's isometric ``inner`` development
+        (which carries the profile ARC), returning
+        ``(lo_rail, hi_rail, bottom_arc, top_arc)`` as lists of 2D points.
 
-    def get_flattened(self, cell, with_numpy=True):
-        """2D contour (``PolyLine2D``) of the developed region — no seam
-        allowance yet (that wiring is a later integration step)."""
+        The lo/hi rails are the region's two chord boundaries (the cuts); the
+        bottom/top arcs are the developed profile arc across the region at its
+        first/last spanwise station. Using the cell-global ``inner`` lines (same
+        for every region) makes a shared cut edge develop to the SAME length in
+        both neighbours, and the width lo->hi is the true profile arc (not a
+        straight chord — the fix for nose-wrapping regions).
+        """
+        inner = cell.get_flattened_cell(numribs)["inner"]
+        n = len(inner)
+        xvalues = cell.rib1.base_profile_2d.x_values
+        y0, y1 = self.region.y_range
+
+        idxs = [i for i in range(n) if y0 - 1e-9 <= i / (n - 1) <= y1 + 1e-9]
+        if len(idxs) < 2:
+            idxs = sorted({
+                max(0, min(n - 1, int(round(y0 * (n - 1))))),
+                max(0, min(n - 1, int(round(y1 * (n - 1))))),
+            })
+            if len(idxs) < 2:
+                idxs = [idxs[0], min(n - 1, idxs[0] + 1)]
+
+        lo_rail, hi_rail = [], []
+        iks = []
+        for i in idxs:
+            y = min(max(i / (n - 1), y0), y1)
+            lo, hi = self.region.chord_interval(y)
+            ik_lo = get_x_value(xvalues, lo)
+            ik_hi = get_x_value(xvalues, hi)
+            iks.append((i, ik_lo, ik_hi))
+            lo_rail.append(np.array(inner[i][ik_lo]))
+            hi_rail.append(np.array(inner[i][ik_hi]))
+
+        (i0, ik_lo0, ik_hi0) = iks[0]
+        (i1, ik_lo1, ik_hi1) = iks[-1]
+        bottom_arc = [np.array(p) for p in inner[i0].get(ik_lo0, ik_hi0)]
+        top_arc = [np.array(p) for p in inner[i1].get(ik_lo1, ik_hi1)]
+        return lo_rail, hi_rail, bottom_arc, top_arc
+
+    def get_flattened(self, cell, numribs=14, with_numpy=True):
+        """Arc-correct 2D sewing contour (``PolyLine2D``) of the developed
+        region."""
         from openglider.vector.polyline import PolyLine2D
-        flat_lo, flat_hi = self.flatten_rails(cell, with_numpy=with_numpy)
-        contour = list(np.array(flat_lo)) + list(np.array(flat_hi))[::-1]
-        return PolyLine2D(contour)
+        lo_rail, hi_rail, bottom_arc, top_arc = self._flatten_boundaries(cell, numribs)
+        # closed loop: up the lo rail, across the top arc, down the hi rail,
+        # back across the bottom arc.
+        contour = (
+            list(lo_rail)
+            + list(top_arc)
+            + list(hi_rail[::-1])
+            + list(bottom_arc[::-1])
+        )
+        return PolyLine2D(_dedup(contour))
+
+
+def _dedup(points, tol=1e-9):
+    """Drop consecutive (and closing) duplicate points from a 2D loop."""
+    out = []
+    for p in points:
+        p = np.asarray(p, float)
+        if not out or np.linalg.norm(out[-1] - p) > tol:
+            out.append(p)
+    while len(out) > 1 and np.linalg.norm(out[0] - out[-1]) < tol:
+        out.pop()
+    return out

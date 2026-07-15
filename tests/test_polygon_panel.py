@@ -232,6 +232,34 @@ def test_copy_complete_mirrored_crossing_cell_watertight():
         assert ntris > 0 and nm == 0
 
 
+def test_nose_wrapping_region_flatten_uses_profile_arc_width():
+    # a nose-wrapping region's developed width must be the profile ARC length,
+    # not the straight chord distance (the strip 2-rail flatten underestimated it).
+    from openglider.airfoil import get_x_value
+
+    g2d = openglider.load(DEMOKITE)
+    cell_cuts = [
+        {"left": -1.0, "right": -1.0, "type": "parallel"},
+        *CROSS_CUTS,
+        {"left": 1.0, "right": 1.0, "type": "parallel"},
+    ]
+    g2d.elements["cuts"] = [dict(c, cells=[CELL]) for c in cell_cuts]
+    cell = g2d.get_glider_3d().cells[CELL]
+    polys = [p for p in cell.panels if isinstance(p, PolygonPanel)]
+    wrap = max(polys, key=lambda p: p.region.chord_interval(0.5)[1] - p.region.chord_interval(0.5)[0])
+    lo, hi = wrap.region.chord_interval(0.5)
+    xv = cell.rib1.base_profile_2d.x_values
+    mid = cell.midrib(0.5, with_numpy=True)
+    arc = np.array([np.array(x) for x in mid.get(get_x_value(xv, lo), get_x_value(xv, hi))])
+    true_arc = sum(np.linalg.norm(arc[i + 1] - arc[i]) for i in range(len(arc) - 1))
+    straight = np.linalg.norm(np.array(mid[get_x_value(xv, hi)]) - np.array(mid[get_x_value(xv, lo)]))
+    lo_rail, hi_rail, _, _ = wrap._flatten_boundaries(cell, 14)
+    m = len(lo_rail) // 2
+    dev = np.linalg.norm(np.array(hi_rail[m]) - np.array(lo_rail[m]))
+    assert true_arc > 1.5 * straight, "test setup: expected a strongly wrapping region"
+    assert abs(dev - true_arc) < 0.15 * true_arc, f"developed width {dev} != arc {true_arc}"
+
+
 def test_plotmaker_runs_with_crossing():
     from openglider.plots import PlotMaker
 
