@@ -2100,11 +2100,9 @@ class ParametricGlider:
                 from openglider.glider.cell.polygon_panel import PolygonPanel
 
                 regions = build_regions(cuts)  # sorted deterministically by centroid
-                # cell-global spanwise samples shared by every region -> shared
-                # cut edges coincide (watertight mesh + matching flattened seams)
-                mesh_ys = sorted(
-                    set([round(i / 24.0, 9) for i in range(25)] + list(_crossings))
-                )
+                # every region samples through the cell crossings so shared cut
+                # edges coincide (watertight mesh + matching flattened seams)
+                crossings = list(_crossings)
                 materials_by_name = self.elements.get("materials_by_name", {})
                 try:
                     cell_materials = list(self.elements["materials"][cell_no])
@@ -2132,7 +2130,7 @@ class ParametricGlider:
                             region,
                             material_code=material_code,
                             name=name,
-                            mesh_ys=mesh_ys,
+                            crossings=crossings,
                         )
                     )
                     part_no += 1

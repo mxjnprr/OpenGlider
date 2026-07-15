@@ -28,14 +28,17 @@ _WIDTH_EPS = 1e-6
 
 
 class PolygonPanel:
-    def __init__(self, region, material_code="", name="unnamed", mesh_ys=None,
-                 chord_points=6):
+    def __init__(self, region, material_code="", name="unnamed", crossings=None,
+                 mesh_ys=None):
         self.region = region
         self.material_code = material_code or ""
         self.name = name
-        # cell-global spanwise sample values (shared by all regions of the cell)
-        self.mesh_ys = list(mesh_ys) if mesh_ys is not None else None
-        self.chord_points = chord_points
+        # the cell's crossing y-values (0<y<1). Every region samples through
+        # these so shared cut edges coincide across regions (watertight mesh +
+        # matching flattened seams). ``mesh_ys`` kept as a back-compat alias.
+        if crossings is None and mesh_ys is not None:
+            crossings = [y for y in mesh_ys if 0.0 < y < 1.0]
+        self.crossings = list(crossings) if crossings else []
 
     # ------------------------------------------------------------------ helpers
     def mean_x(self):
@@ -58,17 +61,22 @@ class PolygonPanel:
             "name": self.name,
         }
 
-    def _ys(self):
-        """Spanwise sample values for this region: the cell-global set clipped
-        to the region's span, unioned with the region's own kink y-values."""
+    def _ys(self, numribs):
+        """Spanwise sample values for this region.
+
+        ``numribs+1`` evenly spaced stations (matching the strip
+        ``Panel.get_mesh`` spanwise density, so a crossing cell renders with the
+        same flatness/smoothness as its neighbours at any midrib setting) unioned
+        with every cell crossing and the region's own kink y-values that fall in
+        the region's span (needed so shared cut edges coincide and the apex is a
+        vertex). All regions use the same formula → shared edges stay consistent.
+        """
         y0, y1 = self.region.y_range
-        seg = self.region.segment_ys()
-        if self.mesh_ys is not None:
-            base = [y for y in self.mesh_ys if y0 - 1e-9 <= y <= y1 + 1e-9]
-        else:
-            base = list(np.linspace(y0, y1, 12))
-        ys = sorted(set(round(float(y), 9) for y in base) | set(seg))
-        # guarantee the endpoints are present
+        n = max(int(numribs) + 1, 1)
+        base = list(np.linspace(y0, y1, n + 1))
+        extra = [y for y in self.crossings if y0 + 1e-9 < y < y1 - 1e-9]
+        extra += self.region.segment_ys()
+        ys = sorted(set(round(float(y), 9) for y in base) | set(round(float(y), 9) for y in extra))
         if abs(ys[0] - y0) > 1e-9:
             ys.insert(0, round(float(y0), 9))
         if abs(ys[-1] - y1) > 1e-9:
@@ -85,7 +93,7 @@ class PolygonPanel:
         # cut) and fold the mesh onto itself.
         xvalues = cell.rib1.base_profile_2d.x_values
         nxv = len(xvalues)
-        ys = self._ys()
+        ys = self._ys(numribs)
 
         pts2d = []
         pts3d = []
@@ -163,7 +171,7 @@ class PolygonPanel:
         """Develop the region into two 2D rails via the isometric developer.
         Returns ``(flat_lo, flat_hi)`` as ``PolyLine2D``."""
         xvalues = cell.rib1.base_profile_2d.x_values
-        ys = self._ys()
+        ys = self._ys(30)  # flatten quality is independent of the 3d view's midribs
         rail_lo = []
         rail_hi = []
         for y in ys:
