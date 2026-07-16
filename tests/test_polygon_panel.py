@@ -159,6 +159,51 @@ def test_crossing_cell_no_tjunctions_across_midribs():
         assert _tjunctions(cell, nr) == 0, f"T-junction cracks at midribs={nr}"
 
 
+def _max_dihedral(cell, numribs):
+    """Largest angle (deg) between the 3D normals of two triangles sharing an
+    edge, across the crossing cell's region meshes. A raw-(y,ik) triangulation
+    tiles a region with anisotropic zigzag slivers whose lifted normals flip
+    (dihedral ~145deg); coin3d then shades the crossing as a creased/dark fold.
+    Normalising the triangulation param box keeps this below the crease angle."""
+    worst = 0.0
+    for p in cell.panels:
+        if not isinstance(p, PolygonPanel):
+            continue
+        m = p.get_mesh(cell, numribs, with_numpy=True)
+        v, groups, _ = m.get_indexed()
+        v = [np.array([x.x, x.y, x.z]) for x in v]
+        faces = []
+        for _, fs in groups.items():
+            for f in fs:
+                idx = list(f)
+                for k in range(1, len(idx) - 1):
+                    faces.append((idx[0], idx[k], idx[k + 1]))
+        fn = []
+        for a, b, c in faces:
+            n = np.cross(v[b] - v[a], v[c] - v[a])
+            ln = np.linalg.norm(n)
+            fn.append(n / ln if ln > 1e-12 else np.zeros(3))
+        e2f = defaultdict(list)
+        for fi, (a, b, c) in enumerate(faces):
+            for e in (frozenset((a, b)), frozenset((b, c)), frozenset((c, a))):
+                e2f[e].append(fi)
+        for e, fl in e2f.items():
+            if len(fl) == 2:
+                d = float(np.clip(fn[fl[0]].dot(fn[fl[1]]), -1.0, 1.0))
+                worst = max(worst, np.degrees(np.arccos(d)))
+    return worst
+
+
+def test_crossing_cell_mesh_no_normal_flip():
+    # region meshes must not contain sliver-induced normal flips: coin3d's
+    # creaseAngle is 60deg (freecad .../tools/glider.py:74), so any shared edge
+    # above that renders as a hard crease -> the reported "fold" at the crossing.
+    cell = _glider_with_crossing().cells[CELL]
+    for nr in (0, 6, 10):
+        worst = _max_dihedral(cell, nr)
+        assert worst < 60.0, f"normal flip {worst:.0f}deg at midribs={nr} (renders as fold)"
+
+
 def test_crossing_cell_flatten_clean():
     cell = _glider_with_crossing().cells[CELL]
     for p in cell.panels:

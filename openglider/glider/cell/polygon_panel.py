@@ -142,7 +142,23 @@ class PolygonPanel:
         edge = self._outline(rows)
         group = "panel_" + self.material_code
 
-        tri = triangulate.Triangulation(pts2d, [edge + [edge[0]]])
+        # Triangulate in a NORMALISED parameter box, not raw (y, ik). y spans
+        # [0,1] but ik spans [0, nxv-1] (~150), so raw-space Delaunay is wildly
+        # anisotropic and tiles the region with zigzag slivers; lifted onto the
+        # curved surface their normals flip between neighbours (dihedral up to
+        # ~145°), so coin3d shades the crossing as a creased/dark fold. Scaling
+        # each axis to its own extent (as DiagonalRib.get_mesh does with a unit
+        # [0,1]x[0,1] box) yields well-shaped triangles → smooth normals. The
+        # region's boundary vertices are preserved (``Y`` keeps them, no Steiner),
+        # so shared cut edges still weld across regions (watertight unchanged).
+        pts2d_arr = np.asarray(pts2d, float)
+        y_lo_n, y_hi_n = pts2d_arr[:, 0].min(), pts2d_arr[:, 0].max()
+        ik_lo_n, ik_hi_n = pts2d_arr[:, 1].min(), pts2d_arr[:, 1].max()
+        sy = 1.0 / max(y_hi_n - y_lo_n, _WIDTH_EPS)
+        sik = 1.0 / max(ik_hi_n - ik_lo_n, _WIDTH_EPS)
+        norm_pts = [[(p[0] - y_lo_n) * sy, (p[1] - ik_lo_n) * sik] for p in pts2d]
+
+        tri = triangulate.Triangulation(norm_pts, [edge + [edge[0]]])
         mesh = None
         for opts in ("QzpY", "Qzp", "Qz"):
             try:
@@ -159,11 +175,12 @@ class PolygonPanel:
             return Mesh.from_indexed(np.array(pts3d), {group: tris},
                                      boundaries={group: edge})
 
-        # lift ALL mesh points (incl. any Steiner) back to 3D via (y, ik)
+        # lift ALL mesh points (incl. any Steiner) back to 3D — invert the
+        # normalisation to recover the true (y, ik) before mapping to the surface.
         mesh_pts_3d = []
         for pt2d in mesh.points:
-            y = float(np.clip(pt2d[0], ys[0], ys[-1]))
-            ik = float(np.clip(pt2d[1], 0.0, nxv - 1))
+            y = float(np.clip(pt2d[0] / sy + y_lo_n, ys[0], ys[-1]))
+            ik = float(np.clip(pt2d[1] / sik + ik_lo_n, 0.0, nxv - 1))
             mesh_pts_3d.append(np.array(cell.midrib(y, with_numpy=with_numpy)[ik]))
         return Mesh.from_indexed(np.array(mesh_pts_3d),
                                  {group: list(mesh.elements)})
