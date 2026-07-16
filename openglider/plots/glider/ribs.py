@@ -57,8 +57,17 @@ class RibPlot:
             if cell.rib1 == self.rib:
                 # panel-cuts
                 for panel in cell.panels:
-                    panel_cuts.add(panel.cut_front["left"])
-                    panel_cuts.add(panel.cut_back["left"])
+                    if hasattr(panel, "cut_front"):
+                        panel_cuts.add(panel.cut_front["left"])
+                        panel_cuts.add(panel.cut_back["left"])
+                    else:
+                        # crossing-region PolygonPanel: chord bounds at rib1 (y=0)
+                        try:
+                            lo, hi = panel.region.chord_interval(0.0)
+                            panel_cuts.add(lo)
+                            panel_cuts.add(hi)
+                        except Exception:
+                            pass
 
                 # diagonals
                 for diagonal in cell.diagonals + cell.straps:
@@ -66,8 +75,17 @@ class RibPlot:
 
             elif cell.rib2 == self.rib:
                 for panel in cell.panels:
-                    panel_cuts.add(panel.cut_front["right"])
-                    panel_cuts.add(panel.cut_back["right"])
+                    if hasattr(panel, "cut_front"):
+                        panel_cuts.add(panel.cut_front["right"])
+                        panel_cuts.add(panel.cut_back["right"])
+                    else:
+                        # crossing-region PolygonPanel: chord bounds at rib2 (y=1)
+                        try:
+                            lo, hi = panel.region.chord_interval(1.0)
+                            panel_cuts.add(lo)
+                            panel_cuts.add(hi)
+                        except Exception:
+                            pass
 
                 for diagonal in cell.diagonals + cell.straps:
                     self.insert_drib_mark(diagonal, True)

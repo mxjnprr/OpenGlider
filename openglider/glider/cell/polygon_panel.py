@@ -231,27 +231,46 @@ class PolygonPanel:
                 idxs = [idxs[0], min(n - 1, idxs[0] + 1)]
 
         lo_rail, hi_rail = [], []
+        lo_types, hi_types = [], []
+        station_ys = []
         iks = []
         for i in idxs:
             y = min(max(i / (n - 1), y0), y1)
+            station_ys.append(y)
             lo, hi = self.region.chord_interval(y)
             ik_lo = get_x_value(xvalues, lo)
             ik_hi = get_x_value(xvalues, hi)
             iks.append((i, ik_lo, ik_hi))
             lo_rail.append(np.array(inner[i][ik_lo]))
             hi_rail.append(np.array(inner[i][ik_hi]))
+            # cut TYPE bounding the lo / hi chord at this station, so the plot
+            # can apply the correct per-cut seam allowance on each rail.
+            _, f, b, _, _ = self.region._substrip_at(y)
+            fa, ba = f.at(y), b.at(y)
+            lo_cut, hi_cut = (f, b) if fa <= ba else (b, f)
+            lo_types.append(lo_cut.type)
+            hi_types.append(hi_cut.type)
 
         (i0, ik_lo0, ik_hi0) = iks[0]
         (i1, ik_lo1, ik_hi1) = iks[-1]
         bottom_arc = [np.array(p) for p in inner[i0].get(ik_lo0, ik_hi0)]
         top_arc = [np.array(p) for p in inner[i1].get(ik_lo1, ik_hi1)]
-        return lo_rail, hi_rail, bottom_arc, top_arc
+        meta = {
+            "lo_types": lo_types,
+            "hi_types": hi_types,
+            "station_ys": station_ys,  # spanwise y aligned with lo_rail/hi_rail
+            # the spanwise ends are rib seams only when they reach rib1 / rib2;
+            # an interior crossing (apex) end carries no seam allowance.
+            "touches_rib1": abs(y0) < 1e-6,
+            "touches_rib2": abs(y1 - 1.0) < 1e-6,
+        }
+        return lo_rail, hi_rail, bottom_arc, top_arc, meta
 
     def get_flattened(self, cell, numribs=14, with_numpy=True):
         """Arc-correct 2D sewing contour (``PolyLine2D``) of the developed
         region."""
         from openglider.vector.polyline import PolyLine2D
-        lo_rail, hi_rail, bottom_arc, top_arc = self._flatten_boundaries(cell, numribs)
+        lo_rail, hi_rail, bottom_arc, top_arc, _ = self._flatten_boundaries(cell, numribs)
         # closed loop: up the lo rail, across the top arc, down the hi rail,
         # back across the bottom arc.
         contour = (

@@ -2044,201 +2044,263 @@ class ParametricGlider:
         new_data = [[x, y * factor] for x, y in base_profile.data]
         return Profile2D(new_data, name="thin_profile")
 
-    def get_panels(self, glider_3d=None):
+    @property
+    def is_asymmetric(self):
+        """True when any panel-cut or panel-colour data differs between the
+        left and right wing.  When False, get_glider_3d()/copy_complete()
+        behave exactly as before (a pure spanwise mirror of the half-glider)."""
+        for cut in self.elements.get("cuts", []):
+            if cut.get("side") in ("left", "right"):
+                return True
+        if self.elements.get("materials_left_by_name"):
+            return True
+        if self.elements.get("materials_right_by_name"):
+            return True
+        return False
+
+    def _cuts_for_cell(self, cell_no, side):
+        """Cut dicts that apply to one half-cell for a given wing.
+
+        side:
+          None    -> symmetric base: only untagged ("both") cuts
+          "right" -> untagged cuts + cuts tagged "right"
+          "left"  -> untagged cuts + cuts tagged "left"
+
+        Returned dicts are copies with the "cells"/"side" keys removed, ready
+        to feed _build_cell_panels().
+        """
+        out = []
+        for cut in self.elements.get("cuts", []):
+            if cell_no not in cut.get("cells", []):
+                continue
+            cut_side = cut.get("side")
+            if cut_side in (None, "both") or (side is not None and cut_side == side):
+                c = cut.copy()
+                c.pop("cells", None)
+                c.pop("side", None)
+                out.append(c)
+        return out
+
+    def _materials_by_name_for_side(self, side):
+        """Per-name colour lookup for a wing: base palette overlaid with the
+        side-specific overrides used for asymmetric decoupe."""
+        materials = dict(self.elements.get("materials_by_name", {}))
+        if side == "left":
+            materials.update(self.elements.get("materials_left_by_name", {}))
+        else:  # "right" or None -> base, plus any right-only overrides
+            materials.update(self.elements.get("materials_right_by_name", {}))
+        return materials
+
+    def _build_cell_panels(self, cell_no, cuts, materials_by_name, cell_materials):
+        """Build the Panel/PolygonPanel objects for a single half-cell from an
+        already-resolved list of cut dicts (each without the "cells" key).
+
+        Factored out of get_panels() so the left and right wings can be built
+        from different cut sets / colour maps for asymmetric decoupe while
+        sharing one strip/crossing decomposition.
+        """
+        panel_lst = []
+        cuts = [cut.copy() for cut in cuts]
+
+        # add trailing edge (2x)
+        # The implicit trailing-edge seam is only skipped when a cut already
+        # lies *fully* on the trailing edge (left == right == ±1).  A cut
+        # that merely touches ±1 at one end (e.g. a design curve snapped
+        # onto the trailing edge at one rib) still needs the trailing edge
+        # as the other boundary, otherwise the panel between them vanishes.
+        if not any(c["left"] == -1 and c["right"] == -1 for c in cuts):
+            cuts.append({"type": "parallel", "left": -1, "right": -1})
+        if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
+            cuts.append({"type": "parallel", "left": 1, "right": 1})
+
+        # Crossing cuts: the strip decomposition below (ZipCmp of sorted
+        # cuts) cannot tile a cell where two cuts cross at an interior point.
+        # Detect it and build region PolygonPanels instead. No crossing -> the
+        # ordinary strip path runs unchanged (R6). See
+        # docs/crossing-cuts-design.md.
+        from openglider.glider.cell.cut_arrangement import (
+            Cut,
+            build_regions,
+            find_crossings,
+        )
+
+        _cut_objs = [
+            Cut(c["left"], c["right"], c.get("type", "orthogonal"), i)
+            for i, c in enumerate(cuts)
+        ]
+        _crossings = find_crossings(_cut_objs)
+        if _crossings:
+            from openglider.glider.cell.polygon_panel import PolygonPanel
+
+            regions = build_regions(cuts)  # sorted deterministically by centroid
+            # every region samples through the cell crossings so shared cut
+            # edges coincide (watertight mesh + matching flattened seams)
+            crossings = list(_crossings)
+            part_no = 0
+            for region in regions:
+                if region.is_entry():
+                    continue
+                name = f"c{cell_no + 1}p{part_no + 1}"
+                # Region colouring: prefer an explicit per-name colour (set by
+                # a region-aware colour tool); otherwise inherit the colour of
+                # whatever panel sat at this region's chord position, so the
+                # user's existing palette shows through instead of grey.
+                material_code = materials_by_name.get(name)
+                if material_code is None and cell_materials:
+                    chord_centroid = region.centroid()[1]  # in [-1, +1]
+                    idx = int((chord_centroid + 1.0) / 2.0 * len(cell_materials))
+                    idx = max(0, min(idx, len(cell_materials) - 1))
+                    material_code = cell_materials[idx]
+                if material_code is None:
+                    material_code = "unknown"
+                panel_lst.append(
+                    PolygonPanel(
+                        region,
+                        material_code=material_code,
+                        name=name,
+                        crossings=crossings,
+                    )
+                )
+                part_no += 1
+            return panel_lst
+
+        # Sort cuts by their average chord position (left+right)/2
+        # This handles polylines that fold back and might have
+        # cut1.left < cut2.left but cut1.right > cut2.right
+        cuts.sort(key=lambda cut: (cut["left"] + cut["right"]) / 2.0)
+
+        for cut1, cut2 in ZipCmp(cuts):
+            part_no = len(panel_lst)
+
+            if cut1["right"] > cut2["right"] and cut1["left"] > cut2["left"]:
+                error_str = "Invalid cut: C{} {:.02f}/{:.02f}/{} + {:.02f}/{:.02f}/{}".format(
+                    cell_no + 1,
+                    cut1["left"],
+                    cut1["right"],
+                    cut1["type"],
+                    cut2["left"],
+                    cut2["right"],
+                    cut2["type"],
+                )
+                raise ValueError(error_str)
+
+            # If cuts cross (left smaller but right larger), swap them
+            # so the panel can be rendered without errors, or at least try
+            # to not crash the entire application
+            if cut1["right"] > cut2["right"]:
+                # We don't raise ValueError anymore for intersecting lines
+                # as complex polylines might cross each other intentionally
+                pass
+
+            if (
+                cut1["type"] == cut2["type"] == "folded"
+                or cut1["type"] == cut2["type"] == "singleskin"
+            ):
+                # entry
+                continue
+
+            name = f"c{cell_no + 1}p{part_no + 1}"
+            try:
+                material_code = cell_materials[part_no]
+            except (KeyError, IndexError):
+                material_code = "unknown"
+            # An explicit per-name colour (from the colour tool, incl. per-side
+            # overrides) wins over the positional palette.
+            material_code = materials_by_name.get(name, material_code)
+
+            panel = Panel(
+                cut1,
+                cut2,
+                name=name,
+                material_code=material_code,
+            )
+
+            # Check if this is an LE panel that should be split chordwise
+            le_splits = self.elements.get("le_panel_splits", [])
+            should_split = False
+
+            for le_split in le_splits:
+                if cell_no in le_split.get("cells", []):
+                    cut_limit = le_split.get("cut_limit", 0.1)
+                    # The LE panel is the one where:
+                    # - cut_front (cut1) is at -cut_limit (our cut_3d on extrados)
+                    # - cut_back (cut2) is at the LE entry (close to 0 or slightly positive)
+                    front_left = cut1.get("left", 0)
+                    back_left = cut2.get("left", 0)
+
+                    # Only match extrados (front_left negative) panels
+                    # Match if:
+                    # 1. front is near -cut_limit
+                    # 2. back is at LE entry (close to 0 or positive, i.e. > -0.02)
+                    is_extrados = front_left < 0
+                    front_matches = abs(abs(front_left) - cut_limit) < 0.02
+                    back_at_le_entry = back_left > -0.02  # At or past the leading edge
+
+                    if is_extrados and front_matches and back_at_le_entry:
+                        should_split = True
+                        break
+
+            if should_split:
+                # Split into 2 panels at y=0.5 using y_start/y_end
+                # Lookup colors by panel name if available
+                name_L = f"c{cell_no + 1}p{part_no + 1}_L"
+                name_R = f"c{cell_no + 1}p{part_no + 1}_R"
+
+                # Panel L: from rib1 (y=0) to mid (y=0.5)
+                panel_left = Panel(
+                    cut1,
+                    cut2,
+                    name=name_L,
+                    material_code=materials_by_name.get(name_L, material_code),
+                    y_start=0.0,
+                    y_end=0.5,
+                )
+
+                # Panel R: from mid (y=0.5) to rib2 (y=1)
+                panel_right = Panel(
+                    cut1,
+                    cut2,
+                    name=name_R,
+                    material_code=materials_by_name.get(name_R, material_code),
+                    y_start=0.5,
+                    y_end=1.0,
+                )
+
+                panel_lst.append(panel_left)
+                panel_lst.append(panel_right)
+            else:
+                panel_lst.append(panel)
+
+        return panel_lst
+
+    def get_panels(self, glider_3d=None, side=None):
         """
         Create Panels Objects and apply on gliders cells if provided, otherwise create a list of panels
         :param glider_3d: (optional)
+        :param side: None (symmetric base), "left" or "right" -- selects the
+            side-specific cuts/colours used for asymmetric decoupe.
         :return: list of "cells"
         """
-
-        def is_greater(cut_1, cut_2):
-            if cut_1["left"] >= cut_2["left"] and cut_1["right"] >= cut_2["left"]:
-                return True
-            return False
-
         if glider_3d is None:
             cells = [[] for _ in range(self.shape.half_cell_num)]
         else:
             cells = [cell.panels for cell in glider_3d.cells]
             for cell in cells:
-                cell = []
+                cell.clear()
+
+        materials_by_name = self._materials_by_name_for_side(side)
 
         for cell_no, panel_lst in enumerate(cells):
-            _cuts = self.elements.get("cuts", [])
-            cuts = [cut.copy() for cut in _cuts if cell_no in cut["cells"]]
-            for cut in cuts:
-                cut.pop("cells")
-
-            # add trailing edge (2x)
-            # The implicit trailing-edge seam is only skipped when a cut already
-            # lies *fully* on the trailing edge (left == right == ±1).  A cut
-            # that merely touches ±1 at one end (e.g. a design curve snapped
-            # onto the trailing edge at one rib) still needs the trailing edge
-            # as the other boundary, otherwise the panel between them vanishes.
-            if not any(c["left"] == -1 and c["right"] == -1 for c in cuts):
-                cuts.append({"type": "parallel", "left": -1, "right": -1})
-            if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
-                cuts.append({"type": "parallel", "left": 1, "right": 1})
-
-            # Crossing cuts: the strip decomposition below (ZipCmp of sorted
-            # cuts) cannot tile a cell where two cuts cross at an interior point.
-            # Detect it and build region PolygonPanels instead. No crossing -> the
-            # ordinary strip path runs unchanged (R6). See
-            # docs/crossing-cuts-design.md.
-            from openglider.glider.cell.cut_arrangement import (
-                Cut,
-                build_regions,
-                find_crossings,
-            )
-
-            _cut_objs = [
-                Cut(c["left"], c["right"], c.get("type", "orthogonal"), i)
-                for i, c in enumerate(cuts)
-            ]
-            _crossings = find_crossings(_cut_objs)
-            if _crossings:
-                from openglider.glider.cell.polygon_panel import PolygonPanel
-
-                regions = build_regions(cuts)  # sorted deterministically by centroid
-                # every region samples through the cell crossings so shared cut
-                # edges coincide (watertight mesh + matching flattened seams)
-                crossings = list(_crossings)
-                materials_by_name = self.elements.get("materials_by_name", {})
-                try:
-                    cell_materials = list(self.elements["materials"][cell_no])
-                except (KeyError, IndexError, TypeError):
-                    cell_materials = []
-                part_no = 0
-                for region in regions:
-                    if region.is_entry():
-                        continue
-                    name = f"c{cell_no + 1}p{part_no + 1}"
-                    # Region colouring: prefer an explicit per-name colour (set by
-                    # a region-aware colour tool); otherwise inherit the colour of
-                    # whatever panel sat at this region's chord position, so the
-                    # user's existing palette shows through instead of grey.
-                    material_code = materials_by_name.get(name)
-                    if material_code is None and cell_materials:
-                        chord_centroid = region.centroid()[1]  # in [-1, +1]
-                        idx = int((chord_centroid + 1.0) / 2.0 * len(cell_materials))
-                        idx = max(0, min(idx, len(cell_materials) - 1))
-                        material_code = cell_materials[idx]
-                    if material_code is None:
-                        material_code = "unknown"
-                    panel_lst.append(
-                        PolygonPanel(
-                            region,
-                            material_code=material_code,
-                            name=name,
-                            crossings=crossings,
-                        )
-                    )
-                    part_no += 1
-                continue  # cell done via regions; skip the strip path
-
-            # Sort cuts by their average chord position (left+right)/2
-            # This handles polylines that fold back and might have
-            # cut1.left < cut2.left but cut1.right > cut2.right
-            cuts.sort(key=lambda cut: (cut["left"] + cut["right"]) / 2.0)
-
-            for cut1, cut2 in ZipCmp(cuts):
-                part_no = len(panel_lst)
-
-                if cut1["right"] > cut2["right"] and cut1["left"] > cut2["left"]:
-                    error_str = "Invalid cut: C{} {:.02f}/{:.02f}/{} + {:.02f}/{:.02f}/{}".format(
-                        cell_no + 1,
-                        cut1["left"],
-                        cut1["right"],
-                        cut1["type"],
-                        cut2["left"],
-                        cut2["right"],
-                        cut2["type"],
-                    )
-                    raise ValueError(error_str)
-
-                # If cuts cross (left smaller but right larger), swap them
-                # so the panel can be rendered without errors, or at least try
-                # to not crash the entire application
-                if cut1["right"] > cut2["right"]:
-                    # We don't raise ValueError anymore for intersecting lines
-                    # as complex polylines might cross each other intentionally
-                    pass
-
-                if (
-                    cut1["type"] == cut2["type"] == "folded"
-                    or cut1["type"] == cut2["type"] == "singleskin"
-                ):
-                    # entry
-                    continue
-
-                try:
-                    material_code = self.elements["materials"][cell_no][part_no]
-                except (KeyError, IndexError):
-                    material_code = "unknown"
-
-                panel = Panel(
-                    cut1,
-                    cut2,
-                    name=f"c{cell_no + 1}p{part_no + 1}",
-                    material_code=material_code,
+            cuts = self._cuts_for_cell(cell_no, side)
+            try:
+                cell_materials = list(self.elements["materials"][cell_no])
+            except (KeyError, IndexError, TypeError):
+                cell_materials = []
+            panel_lst.extend(
+                self._build_cell_panels(
+                    cell_no, cuts, materials_by_name, cell_materials
                 )
-
-                # Check if this is an LE panel that should be split chordwise
-                le_splits = self.elements.get("le_panel_splits", [])
-                should_split = False
-
-                for le_split in le_splits:
-                    if cell_no in le_split.get("cells", []):
-                        cut_limit = le_split.get("cut_limit", 0.1)
-                        # The LE panel is the one where:
-                        # - cut_front (cut1) is at -cut_limit (our cut_3d on extrados)
-                        # - cut_back (cut2) is at the LE entry (close to 0 or slightly positive)
-                        front_left = cut1.get("left", 0)
-                        back_left = cut2.get("left", 0)
-
-                        # Only match extrados (front_left negative) panels
-                        # Match if:
-                        # 1. front is near -cut_limit
-                        # 2. back is at LE entry (close to 0 or positive, i.e. > -0.02)
-                        is_extrados = front_left < 0
-                        front_matches = abs(abs(front_left) - cut_limit) < 0.02
-                        back_at_le_entry = back_left > -0.02  # At or past the leading edge
-
-                        if is_extrados and front_matches and back_at_le_entry:
-                            should_split = True
-                            break
-
-                if should_split:
-                    # Split into 2 panels at y=0.5 using y_start/y_end
-                    # Lookup colors by panel name if available
-                    materials_by_name = self.elements.get("materials_by_name", {})
-                    name_L = f"c{cell_no + 1}p{part_no + 1}_L"
-                    name_R = f"c{cell_no + 1}p{part_no + 1}_R"
-
-                    # Panel L: from rib1 (y=0) to mid (y=0.5)
-                    panel_left = Panel(
-                        cut1,
-                        cut2,
-                        name=name_L,
-                        material_code=materials_by_name.get(name_L, material_code),
-                        y_start=0.0,
-                        y_end=0.5,
-                    )
-
-                    # Panel R: from mid (y=0.5) to rib2 (y=1)
-                    panel_right = Panel(
-                        cut1,
-                        cut2,
-                        name=name_R,
-                        material_code=materials_by_name.get(name_R, material_code),
-                        y_start=0.5,
-                        y_end=1.0,
-                    )
-
-                    panel_lst.append(panel_left)
-                    panel_lst.append(panel_right)
-                else:
-                    panel_lst.append(panel)
+            )
 
         return cells
 
@@ -2466,7 +2528,25 @@ class ParametricGlider:
             pass
 
         # CELL-ELEMENTS
-        self.get_panels(glider)
+        # Panels are stored on the half-glider (which becomes the *right* wing
+        # after copy_complete()).  For asymmetric decoupe we also pre-build the
+        # *left* wing's panels here and stash them on the glider; copy_complete()
+        # swaps them onto the mirrored half.  Symmetric gliders are unaffected.
+        asymmetric = self.is_asymmetric
+        self.get_panels(glider, side="right" if asymmetric else None)
+        if asymmetric:
+            left_materials = self._materials_by_name_for_side("left")
+            left_panels = {}
+            for cell_no in range(self.shape.half_cell_num):
+                cuts = self._cuts_for_cell(cell_no, "left")
+                try:
+                    cell_materials = list(self.elements["materials"][cell_no])
+                except (KeyError, IndexError, TypeError):
+                    cell_materials = []
+                left_panels[cell_no] = self._build_cell_panels(
+                    cell_no, cuts, left_materials, cell_materials
+                )
+            glider._asym_left_panels = left_panels
         self.apply_diagonals(glider)
 
         for minirib in self.elements.get("miniribs", []):

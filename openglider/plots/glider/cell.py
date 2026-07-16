@@ -1394,27 +1394,124 @@ class CellPlotMaker:
 
     def _flatten_polygon_panel(self, panel):
         """Flatten a crossing-region PolygonPanel into a PlotPart, developed via
-        the cell's isometric ``inner`` lines (profile-arc correct width), with a
-        seam allowance offset on the two cut-side rails."""
+        the cell's isometric ``inner`` lines (profile-arc correct width).
+
+        Seam allowance is applied per boundary, matching the strip-panel rules:
+        each cut-side rail uses the allowance of ITS cut type (design / trailing
+        edge / entry), and a spanwise end that reaches a rib uses the general
+        (rib) allowance; an interior crossing (apex) end gets none.
+        """
         import numpy as np
 
         from openglider.vector.polyline import PolyLine2D
 
-        lo_rail, hi_rail, bottom_arc, top_arc = panel._flatten_boundaries(
-            self.cell, self.config.midribs + 2
-        )
-        allowance = self.config.allowance_general
-        outer_lo = list(np.array(PolyLine2D([np.array(p) for p in lo_rail]).copy().add_stuff(-allowance)))
-        outer_hi = list(np.array(PolyLine2D([np.array(p) for p in hi_rail]).copy().add_stuff(allowance)))
-
         from openglider.glider.cell.polygon_panel import _dedup
 
+        lo_rail, hi_rail, bottom_arc, top_arc, meta = panel._flatten_boundaries(
+            self.cell, self.config.midribs + 2
+        )
+
+        # per-cut-type seam allowance (same table as the strip PanelPlot)
+        cut_allowances = {
+            "folded": self.config.allowance_entry_open,
+            "parallel": self.config.allowance_trailing_edge,
+            "orthogonal": self.config.allowance_design,
+            "singleskin": self.config.allowance_entry_open,
+            "cut_3d": self.config.allowance_design,
+        }
+        general = self.config.allowance_general
+
+        # Panel centroid in the DEVELOPED plane. Every boundary point is offset
+        # by its per-cut allowance AWAY from this centroid, so the seam
+        # allowance always lands OUTSIDE the piece (never cuts into it),
+        # regardless of each rail's point ordering / curvature.
+        allpts = [np.asarray(p, float)
+                  for p in list(lo_rail) + list(hi_rail)
+                  + list(bottom_arc) + list(top_arc)]
+        centroid = np.mean(allpts, axis=0)
+
+        def _rep_amount(types):
+            # representative allowance for a rail: the type is uniform per rail
+            # in practice; use the mid-station type (fall back to general).
+            if not types:
+                return general
+            return cut_allowances.get(types[len(types) // 2], general)
+
+        def _offset_boundary(pts, amount):
+            # Offset one boundary uniformly with the tested add_stuff (handles
+            # miters/bevels), choosing the sign so the whole boundary moves
+            # OUTWARD (its centroid ends up farther from the panel centroid).
+            # A whole boundary lies on one side of the panel, so this per-
+            # boundary test is unambiguous (unlike a per-vertex one).
+            d = _dedup(pts)
+            if len(d) < 2 or amount == 0:
+                return [np.asarray(p, float) for p in d]
+            pl = PolyLine2D([np.array(p) for p in d])
+            plus = [np.asarray(p, float) for p in np.array(pl.copy().add_stuff(amount))]
+            minus = [np.asarray(p, float) for p in np.array(pl.copy().add_stuff(-amount))]
+            d_plus = np.linalg.norm(np.mean(plus, axis=0) - centroid)
+            d_minus = np.linalg.norm(np.mean(minus, axis=0) - centroid)
+            return plus if d_plus >= d_minus else minus
+
+        # Offset each boundary outward by its allowance, then concatenate ONLY
+        # the boundaries that carry a seam (allowance > 0 and not collapsed).
+        # An interior crossing (apex) end has no seam: skipping its degenerate
+        # point makes the two rails join directly, so the allowance never dips
+        # back onto the sewing line there (no apex incursion) and no fragile
+        # miter/clip is needed.
+        raw = [
+            (list(lo_rail), _rep_amount(meta["lo_types"])),
+            (list(top_arc), general if meta["touches_rib2"] else 0.0),
+            (list(hi_rail)[::-1], _rep_amount(meta["hi_types"])),
+            (list(bottom_arc)[::-1], general if meta["touches_rib1"] else 0.0),
+        ]
+        cut = []
+        for pts, amt in raw:
+            if amt <= 0:
+                continue
+            off = _offset_boundary(pts, amt)
+            if len(off) >= 2:
+                cut.extend(off)
+        cut = _dedup(cut)
+
         sewing = _dedup(list(lo_rail) + list(top_arc) + list(hi_rail[::-1]) + list(bottom_arc[::-1]))
-        cut = _dedup(list(outer_lo) + list(top_arc) + list(outer_hi[::-1]) + list(bottom_arc[::-1]))
 
         plotpart = PlotPart(material_code=panel.material_code, name=panel.name)
         plotpart.layers["cuts"] += [PolyLine2D(list(cut) + [cut[0]])]
         plotpart.layers["marks"] += [PolyLine2D(list(sewing) + [sewing[0]])]
+
+        # ---- seam reference marks (repères de couture) ----------------------
+        # Ticks where the cell's crossings cross each cut rail. Neighbouring
+        # regions share the cut edge and develop it from the same inner grid,
+        # so a tick at the same y lands at the same point on both pieces -> the
+        # two panels align when sewn. Plus a connector line at each rib end.
+        ys = meta.get("station_ys", [])
+
+        def _rail_at(rail, y):
+            for k in range(len(ys) - 1):
+                if ys[k] <= y <= ys[k + 1]:
+                    span = ys[k + 1] - ys[k]
+                    t = 0.0 if span < 1e-12 else (y - ys[k]) / span
+                    a = np.asarray(rail[k], float)
+                    b = np.asarray(rail[k + 1], float)
+                    return a + t * (b - a), (b - a)
+            return None, None
+
+        tick = 0.01  # 10 mm reference tick
+        if ys:
+            for y in getattr(panel, "crossings", []):
+                if not (ys[0] < y < ys[-1]):
+                    continue
+                for rail in (lo_rail, hi_rail):
+                    pt, tan = _rail_at(rail, y)
+                    if pt is None:
+                        continue
+                    ln = float(np.hypot(tan[0], tan[1]))
+                    if ln < 1e-9:
+                        continue
+                    perp = np.array([-tan[1], tan[0]]) / ln
+                    plotpart.layers["marks"].append(
+                        PolyLine2D([pt - perp * tick * 0.5, pt + perp * tick * 0.5]))
         return plotpart
 
     def get_panels_lower(self):

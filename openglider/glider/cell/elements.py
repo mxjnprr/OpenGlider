@@ -959,11 +959,14 @@ class Panel:
     def mirror(self):
         """
         mirrors the cuts of the panel
+
+        Only the left/right chord positions are swapped; every other key
+        (notably "type", which the plot/allowance code requires) is preserved.
         """
         front = self.cut_front
-        self.cut_front = {"right": front["left"], "left": front["right"]}
+        self.cut_front = {**front, "right": front["left"], "left": front["right"]}
         back = self.cut_back
-        self.cut_back = {"right": back["left"], "left": back["right"]}
+        self.cut_back = {**back, "right": back["left"], "left": back["right"]}
 
     def snap(self, cell):
         """
