@@ -298,7 +298,7 @@ def test_nose_wrapping_region_flatten_uses_profile_arc_width():
     arc = np.array([np.array(x) for x in mid.get(get_x_value(xv, lo), get_x_value(xv, hi))])
     true_arc = sum(np.linalg.norm(arc[i + 1] - arc[i]) for i in range(len(arc) - 1))
     straight = np.linalg.norm(np.array(mid[get_x_value(xv, hi)]) - np.array(mid[get_x_value(xv, lo)]))
-    lo_rail, hi_rail, _, _ = wrap._flatten_boundaries(cell, 14)
+    lo_rail, hi_rail, _, _, _ = wrap._flatten_boundaries(cell, 14)
     m = len(lo_rail) // 2
     dev = np.linalg.norm(np.array(hi_rail[m]) - np.array(lo_rail[m]))
     assert true_arc > 1.5 * straight, "test setup: expected a strongly wrapping region"

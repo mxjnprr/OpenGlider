@@ -41,16 +41,23 @@ class DesignTool(BaseTool):
     def __init__(self, obj):
         super().__init__(obj)
         self.side = "upper"
-
+        # Fallback wing for cut lines whose points carry no side (half-wing
+        # mode).  In full-span mode each cut's wing is derived from its planform
+        # side instead.  See ParametricGlider.is_asymmetric.
+        self.wing = "both"
+        # Full-span (asymmetric) editing: open in full-span automatically when
+        # the glider already carries asymmetric decoupe data.
+        self.full_span = self.parametric_glider.is_asymmetric
 
         # Initialize shape properties (will be set by update_shape_display)
         self.front = None
         self.back = None
         self.ribs = None
         self.x_values = None
+        self._rib_meta = None  # per-canvas-rib (rib_nr_arg, side) in full-span
         self._shape_lines = []  # Track shape lines for redraw
-        
-        CutLine.cuts_to_lines(self.parametric_glider, symmetric_only=True)
+
+        CutLine.cuts_to_lines(self.parametric_glider, full_span=self.full_span)
 
         self._add_mode = False
         
@@ -194,6 +201,178 @@ class DesignTool(BaseTool):
         self.Qselect_connected.clicked.connect(self.select_connected)
         self.Qdelete_selected.clicked.connect(self.delete_selected_cuts)
 
+        # Copy a cut onto the other skin (extrados <-> intrados) at the same
+        # chord %. Keeps the originals and adds a mirror-surface copy: copies
+        # the selected design path (+ its cuts) if a path is selected, else the
+        # selected cut lines/points.
+        self.Qflip_surface = QtGui.QPushButton("⧉ Copy to other skin (extrados/intrados)")
+        self.Qflip_surface.setToolTip(
+            "Duplicate the selected design path (or selected cuts) onto the "
+            "other skin at the same chord %. Originals are kept; the copy lands "
+            "on the other surface (toggle the side view to see it).")
+        self.tool_layout.setWidget(9, text_field, QtGui.QLabel("copy to skin"))
+        self.tool_layout.setWidget(9, input_field, self.Qflip_surface)
+        self.Qflip_surface.clicked.connect(self.copy_selection_to_other_surface)
+
+        # Full-span (asymmetric decoupe) toggle: when checked the canvas shows
+        # BOTH half-wings glued at the centre so cut paths can be drawn across
+        # the whole span; each cut's wing is derived from its planform side.
+        self.Qfull_span = QtGui.QCheckBox("Asymmetric (full span)")
+        self.Qfull_span.setToolTip(
+            "Show both wings and draw cut paths across the whole span. "
+            "Left/right cuts that stay identical are saved as symmetric.")
+        self.Qfull_span.setChecked(self.full_span)
+        self.tool_layout.setWidget(8, text_field, QtGui.QLabel("decoupe mode"))
+        self.tool_layout.setWidget(8, input_field, self.Qfull_span)
+        self.Qfull_span.stateChanged.connect(self.toggle_full_span)
+
+    def toggle_full_span(self):
+        """Switch between half-wing and full-span editing, rebuilding the
+        canvas and reloading the cuts for the new mode."""
+        new_state = bool(self.Qfull_span.isChecked())
+        if new_state == self.full_span:
+            return
+        self.full_span = new_state
+        self._rebuild_canvas()
+
+    def _rebuild_canvas(self):
+        """Tear down the cut/shape visuals and rebuild them for the current
+        mode (half-wing or full-span).  Cuts are re-read from the parametric
+        glider, so any unsaved edits made before toggling are dropped."""
+        # remove current cut interaction separator
+        self.event_separator.select_object(None)
+        self.event_separator.unregister()
+        self.task_separator.removeChild(self.event_separator)
+
+        # remove current shape lines
+        for line in getattr(self, "_shape_lines", []):
+            try:
+                self.shape.removeChild(line)
+            except Exception:
+                pass
+        self._shape_lines = []
+
+        # rebuild planform + reload cuts for the new mode
+        self.update_shape_display()
+        self.draw_shape()
+        CutLine.cuts_to_lines(self.parametric_glider, full_span=self.full_span)
+
+        # repopulate the interaction separator for the visible surface side
+        self.event_separator = InteractionSeparator(self.rm)
+        self.event_separator.selection_changed = self.selection_changed
+        if self.side == "upper":
+            self.event_separator += list(CutLine.upper_point_set)
+            self.event_separator += CutLine.upper_line_list
+        else:
+            self.event_separator += list(CutLine.lower_point_set)
+            self.event_separator += CutLine.lower_line_list
+        self.task_separator += [self.event_separator]
+        self.event_separator.register()
+        self._refresh_path_visuals()
+
+    # ==================== Surface transfer (extrados <-> intrados) ============
+
+    def copy_selection_to_other_surface(self):
+        """Duplicate the selection onto the other skin at the same chord %.
+
+        Originals are kept.  If a design path is selected, the path is cloned to
+        the other surface together with its cuts; otherwise the selected cut
+        lines (and the lines of selected points) are copied.  The copies land on
+        the other surface (negated rib_pos), so they appear when that side is
+        shown.
+        """
+        if self._selected_path is not None:
+            self._copy_path_to_other_surface(self._selected_path)
+            return
+        lines = []
+        for el in self.event_separator.selected_objects:
+            if isinstance(el, CutLine):
+                lines.append(el)
+            elif isinstance(el, CutPoint):
+                lines.extend(el.lines)
+        lines = list(dict.fromkeys(lines))  # de-dup, keep order
+        if not lines:
+            return
+        self._duplicate_lines_to_other_surface(lines, new_path_id=None)
+
+    def _copy_path_to_other_surface(self, path):
+        other = "lower" if path.side == "upper" else "upper"
+        data = path.to_dict()
+        new_id = f"path_{self._path_counter}"
+        self._path_counter += 1
+        data["id"] = new_id
+        data["side"] = other
+        new_path = DesignPath.from_dict(data)
+        new_path._applied = True  # its cuts are created below
+        self.design_paths.append(new_path)
+
+        lines = [
+            ln for ln in CutLine.upper_line_list + CutLine.lower_line_list
+            if getattr(ln, "_path_id", None) == path.path_id
+        ]
+        self._duplicate_lines_to_other_surface(lines, new_path_id=new_id)
+
+    def _copy_point_flipped(self, p):
+        """A new CutPoint at the same span/chord position but on the other skin
+        (negated rib_pos)."""
+        has_center = self.parametric_glider.shape.has_center_cell
+        return CutPoint(
+            p.rib_nr + has_center, -p.rib_pos, self.parametric_glider,
+            x_value=p.x_value, min_y=p.min, max_y=p.max,
+            signed_rib=getattr(p, "signed_rib", None),
+            wing=getattr(p, "wing", "both"),
+        )
+
+    def _duplicate_lines_to_other_surface(self, lines, new_path_id):
+        for ln in lines:
+            np1 = self._copy_point_flipped(ln.point1)
+            np2 = self._copy_point_flipped(ln.point2)
+            new_line = CutLine(np1, np2, ln.cut_type,
+                               wing=getattr(ln, "_wing", "both"))
+            if new_path_id is not None:
+                new_line._path_id = new_path_id
+            elif hasattr(ln, "_path_id"):
+                new_line._path_id = ln._path_id
+            new_line.replace_points_by_set()
+            new_line.update_Line()
+            new_line.setup_visuals()
+        self._repartition_and_reload()
+
+    def _repartition_and_reload(self):
+        """Re-sort every cut line into the upper/lower sets by its (possibly
+        just-flipped) surface, then rebuild the interaction separator for the
+        currently visible side."""
+        all_lines = CutLine.upper_line_list + CutLine.lower_line_list
+        CutLine.upper_line_list = []
+        CutLine.lower_line_list = []
+        CutLine.upper_point_set = set()
+        CutLine.lower_point_set = set()
+        for ln in all_lines:
+            if ln.is_upper:
+                CutLine.upper_line_list.append(ln)
+                CutLine.upper_point_set.add(ln.point1)
+                CutLine.upper_point_set.add(ln.point2)
+            else:
+                CutLine.lower_line_list.append(ln)
+                CutLine.lower_point_set.add(ln.point1)
+                CutLine.lower_point_set.add(ln.point2)
+
+        # rebuild the event separator for the current side (no side toggle)
+        self.event_separator.select_object(None)
+        self.event_separator.unregister()
+        self.task_separator.removeChild(self.event_separator)
+        self.event_separator = InteractionSeparator(self.rm)
+        self.event_separator.selection_changed = self.selection_changed
+        if self.side == "upper":
+            self.event_separator += list(CutLine.upper_point_set)
+            self.event_separator += CutLine.upper_line_list
+        else:
+            self.event_separator += list(CutLine.lower_point_set)
+            self.event_separator += CutLine.lower_line_list
+        self.task_separator += [self.event_separator]
+        self.event_separator.register()
+        self._refresh_path_visuals()
+
     def setup_pivy(self):
         """set up the scene"""
         self.shape = coin.SoSeparator()
@@ -220,35 +399,52 @@ class DesignTool(BaseTool):
         )
 
     def update_shape_display(self):
-        """Update shape properties - always uses half shape (symmetric mode)"""
+        """Rebuild the planform canvas.
+
+        Half-wing mode: right half + synthetic centre rib at x=0 (legacy).
+        Full-span mode: both real half-wings mirrored about x=0 (no synthetic
+        centre rib); ``self._rib_meta[list_idx]`` carries the signed rib index
+        so cut points know which physical wing/cell they belong to.
+        """
         _shape = self.parametric_glider.shape.get_half_shape()
         has_center = self.parametric_glider.shape.has_center_cell
-        
-        front_pts = list(_shape.front)
-        back_pts = list(_shape.back)
-        
-        # For odd cell count gliders, add the center rib at x=0
-        # The center rib is the first half-shape rib mirrored to x=0
-        if has_center:
-            # Get center rib by mirroring the first half-shape rib to x=0
-            first_front = _shape.front[0]
-            first_back = _shape.back[0]
-            # Center rib has x=0, same y coordinates as the first rib
-            center_front = [0, first_front[1]]
-            center_back = [0, first_back[1]]
-            # Insert center rib at the beginning
-            front_pts = [center_front] + front_pts
-            back_pts = [center_back] + back_pts
-        
+
+        if getattr(self, "full_span", False):
+            # Real half ribs (positive x), then their mirror (negative x).
+            half_front = list(_shape.front)   # [x0..x_tip]
+            half_back = list(_shape.back)
+            n = len(half_front)
+            front_pts, back_pts, meta = [], [], []
+            # left wing: -x_tip .. -x0  (signed rib -n .. -1)
+            for i in range(n - 1, -1, -1):
+                front_pts.append([-half_front[i][0], half_front[i][1]])
+                back_pts.append([-half_back[i][0], half_back[i][1]])
+                meta.append(-(i + 1))
+            # right wing: x0 .. x_tip  (signed rib +1 .. +n)
+            for i in range(n):
+                front_pts.append([half_front[i][0], half_front[i][1]])
+                back_pts.append([half_back[i][0], half_back[i][1]])
+                meta.append(i + 1)
+            self._rib_meta = meta
+        else:
+            front_pts = list(_shape.front)
+            back_pts = list(_shape.back)
+            # For odd cell count gliders, add the center rib at x=0
+            if has_center:
+                first_front = _shape.front[0]
+                first_back = _shape.back[0]
+                front_pts = [[0, first_front[1]]] + front_pts
+                back_pts = [[0, first_back[1]]] + back_pts
+            self._rib_meta = None
+
         self.front = vector3D(front_pts, z=-0.01)
         self.back = vector3D(back_pts, z=-0.01)
         self.ribs = list(zip(self.front, self.back))
-        
+
         # Store rib bounds for use in other methods
-        # front_pts and back_pts contain (x, y) for each rib, including center if has_center
         self._rib_front_pts = front_pts
         self._rib_back_pts = back_pts
-        
+
         # Extract x_values from front coordinates
         self.x_values = [pt[0] for pt in front_pts]
     
@@ -614,7 +810,8 @@ class DesignTool(BaseTool):
                         CutLine.lower_point_set.add(cp1)
                         CutLine.lower_point_set.add(cp2)
                     
-                    cut_line = CutLine(cp1, cp2, path.cut_type)
+                    cut_line = CutLine(cp1, cp2, path.cut_type, wing=self.wing)
+                    cut_line._path_id = path.path_id  # link cut -> path (surface flip)
                     cut_line.replace_points_by_set()
                     cut_line.update_Line()
                     cut_line.setup_visuals()
@@ -665,10 +862,21 @@ class DesignTool(BaseTool):
             if abs(rib_pos) < 1e-4:
                 rib_pos = -1e-4 if upper else 1e-4
         
+        # Full-span mode: tag the point with its signed rib / wing (derived
+        # from the planform side) so cut lines resolve to the right cell+wing.
+        if getattr(self, "full_span", False) and self._rib_meta is not None:
+            signed = self._rib_meta[list_idx]
+            wing = "left" if signed < 0 else "right"
+            return CutPoint(
+                abs(signed) + has_center, rib_pos, self.parametric_glider,
+                x_value=x_value, min_y=front_y, max_y=back_y,
+                signed_rib=signed, wing=wing,
+            )
+
         # CutPoint expects rib_nr to be: list_idx + has_center_cell (then subtracts has_center_cell)
         # After subtraction, rib_nr becomes list_idx, which is correct
         rib_nr_for_cutpoint = list_idx + has_center
-        
+
         # Pass x_value, min_y, max_y explicitly to handle center rib correctly
         return CutPoint(
             rib_nr_for_cutpoint, rib_pos, self.parametric_glider,
@@ -710,12 +918,12 @@ class DesignTool(BaseTool):
                     CutLine.lower_point_set.add(cp1)
                     CutLine.lower_point_set.add(cp2)
                 
-                cut_line = CutLine(cp1, cp2, cut_type)
+                cut_line = CutLine(cp1, cp2, cut_type, wing=self.wing)
                 cut_line.replace_points_by_set()
                 cut_line.update_Line()
                 cut_line.setup_visuals()
                 self.event_separator += [cp1, cp2, cut_line]
-        
+
         self.event_separator.color_selected()
 
     def select_connected(self):
@@ -1236,12 +1444,17 @@ class DesignTool(BaseTool):
 
 
 class CutPoint(Marker):
-    def __init__(self, rib_nr, rib_pos, parametric_glider=None, x_value=None, min_y=None, max_y=None):
+    def __init__(self, rib_nr, rib_pos, parametric_glider=None, x_value=None,
+                 min_y=None, max_y=None, signed_rib=None, wing="both"):
         super().__init__([[0, 0, 0]], True)
         self.marker.markerIndex = coin.SoMarkerSet.CROSS_7_7
         self.parametric_glider = parametric_glider
         self.rib_nr = rib_nr - parametric_glider.shape.has_center_cell
         self.rib_pos = rib_pos
+        # Full-span (asymmetric) canvas: signed rib index (>0 right, <0 left)
+        # and the physical wing.  None in half-wing mode.
+        self.signed_rib = signed_rib
+        self.wing = wing
         self.lines = []
         
         # Flag to indicate if bounds were explicitly provided (for center rib)
@@ -1332,6 +1545,11 @@ class CutPoint(Marker):
 
     def __eq__(self, other):
         if isinstance(other, CutPoint):
+            # In full-span mode a left and a right point can share rib_nr and
+            # rib_pos; the signed rib keeps them distinct so replace_by_set()
+            # never welds a left point onto its right mirror.
+            if getattr(self, "signed_rib", None) != getattr(other, "signed_rib", None):
+                return False
             if self.rib_nr == other.rib_nr:
                 if round(self.rib_pos, 3) == round(other.rib_pos, 3):
                     return True
@@ -1389,13 +1607,16 @@ class CutLine(Line):
     upper_line_list = []
     lower_line_list = []
 
-    def __init__(self, point1, point2, cut_type):
+    def __init__(self, point1, point2, cut_type, wing="both"):
         super().__init__([point1.get_2D(), point2.get_2D()], dynamic=True)
         self.drawstyle.lineWidth = 1.5
         self.point1 = point1
         self.point2 = point2
         self.parametric_glider = self.point1.parametric_glider
         self.cut_type = cut_type
+        # Fallback wing (half-wing mode). In full-span mode the wing is derived
+        # from the endpoints' signed ribs via the ``wing`` property below.
+        self._wing = wing
         if self.is_upper:
             CutLine.upper_point_set.add(point1)
             CutLine.upper_point_set.add(point2)
@@ -1456,45 +1677,66 @@ class CutLine(Line):
         self.data.point.setValues(0, len(p), p)
 
     @classmethod
-    def cuts_to_lines(cls, parametric_glider, symmetric_only=True):
-        """Convert cut dictionary to visual CutLine objects.
+    def _fs_cutpoint(cls, parametric_glider, signed_rib, rib_pos):
+        """Build a CutPoint at a signed rib (mirrored to -x on the left wing)."""
+        has_center = parametric_glider.shape.has_center_cell
+        k = abs(signed_rib)
+        # rib_nr arg chosen so _get_shape_point returns shape[k-1] (= x_{k-1}).
+        arg = (k + has_center) if has_center else (k - 1)
+        ref = CutPoint(arg, rib_pos, parametric_glider)   # positive-side coords
+        x, mn, mx = ref.x_value, ref.min, ref.max
+        wing = "right"
+        if signed_rib < 0:
+            x = -x
+            wing = "left"
+        return CutPoint(arg, rib_pos, parametric_glider, x_value=x,
+                        min_y=mn, max_y=mx, signed_rib=signed_rib, wing=wing)
 
-        Index convention
-        ----------------
-        * The dict keys ``cells`` store *cell_no* values as used by
-          ``get_panels``, i.e. 0-based with 0 = center cell for odd
-          cell-count wings (``has_center_cell = True``).
-        * Internally, ``CutPoint.rib_nr`` stores *list_idx* values where
-          ``list_idx = 0`` is the center rib.  ``CutPoint.__init__`` already
-          subtracts ``has_center_cell`` from the raw ``rib_nr`` argument, so
-          we must add it back here:
-              CutPoint(cell_nr + has_center, ...) → .rib_nr = cell_nr
+    @classmethod
+    def cuts_to_lines(cls, parametric_glider, full_span=False):
+        """Convert stored cuts into visual CutLine objects.
 
-        Args:
-            parametric_glider: The parametric glider with cuts data
-            symmetric_only: If True, only load positive cell indices (half wing).
-                           If False, load all cell indices including negative (full wing).
+        Half-wing mode (default): only the right/centre half is shown; a cut's
+        ``cells`` are 0-based with 0 = centre cell for odd gliders.
+        Full-span mode: both wings are drawn.  A symmetric ("both") cut is
+        exploded onto both wings so it can be edited independently; a
+        side-tagged cut is drawn only on its wing.  See
+        openglider.glider.parametric.asymmetric.
         """
+        from openglider.glider.parametric.asymmetric import (
+            expand_cut_placements,
+            signed_ribs_for,
+        )
+
         CutLine.upper_point_set = set()
         CutLine.lower_point_set = set()
         CutLine.upper_line_list = []
         CutLine.lower_line_list = []
         has_center = parametric_glider.shape.has_center_cell
         for cut in parametric_glider.elements.get("cuts", []):
+            if full_span:
+                for cell, side in expand_cut_placements(cut, has_center):
+                    inner_s, outer_s = signed_ribs_for(cell, side, has_center)
+                    try:
+                        CutLine(
+                            cls._fs_cutpoint(parametric_glider, inner_s, cut["left"]),
+                            cls._fs_cutpoint(parametric_glider, outer_s, cut["right"]),
+                            cut["type"],
+                        )
+                    except (TypeError, IndexError) as e:
+                        print(f"Design Tool: skipping cut cell {cell}/{side}: {e}")
+                continue
             for cell_nr in cut["cells"]:
-                # Filter based on symmetric mode
-                if symmetric_only and cell_nr < 0:
-                    continue  # Skip negative (left wing) cells in symmetric mode
-                # Add has_center so that CutPoint.__init__ (which subtracts
-                # has_center) yields the correct rib_nr == cell_nr.
+                if cell_nr < 0:
+                    continue  # legacy negative index: half-wing mode ignores it
                 try:
                     CutLine(
                         CutPoint(cell_nr + has_center, cut["left"], parametric_glider),
                         CutPoint(cell_nr + 1 + has_center, cut["right"], parametric_glider),
                         cut["type"],
+                        wing=cut.get("side", "both"),
                     )
                 except (TypeError, IndexError) as e:
-                    # Skip if cell_nr is out of range
                     print(f"Design Tool: skipping cut cell {cell_nr}: {e}")
         for l in cls.upper_line_list:
             l.replace_points_by_set()
@@ -1503,16 +1745,48 @@ class CutLine(Line):
             l.replace_points_by_set()
             l.setup_visuals()
 
+    def _fs_endpoints(self):
+        """Full-span endpoints resolved from signed ribs.
+
+        Returns (inner_point, outer_point, cell_nr, wing) or None in half-wing
+        mode.  "inner" is always the centre-side rib so that get_dict()'s
+        "left" is the centre-side chord position (matching the engine, which
+        mirrors the left wing).  The single cross-centre line (a left and a
+        right rib) is the centre cell: cell 0, always symmetric.
+        """
+        r1 = getattr(self.point1, "signed_rib", None)
+        r2 = getattr(self.point2, "signed_rib", None)
+        if r1 is None or r2 is None:
+            return None
+        from openglider.glider.parametric.asymmetric import resolve_signed_pair
+
+        has_center = self.parametric_glider.shape.has_center_cell
+        inner_is_r1, cell, wing = resolve_signed_pair(r1, r2, has_center)
+        inner, outer = (self.point1, self.point2) if inner_is_r1 else (
+            self.point2, self.point1)
+        return inner, outer, cell, wing
+
+    @property
+    def wing(self):
+        fs = self._fs_endpoints()
+        if fs is not None:
+            return fs[3]
+        return getattr(self, "_wing", "both")
+
+    @wing.setter
+    def wing(self, value):
+        self._wing = value
+
     @property
     def cell_nr(self):
         """Cell index as stored in the cuts dict (matches get_panels cell_no).
-        
-        Convention: cell_nr == inner_point.rib_nr.
-        - For even cell count: rib 0 is the innermost half-wing rib.
-        - For odd cell count:  rib 0 is the center rib, cell 0 is the center
-          cell (between ribs 0 and 1).
-        This is consistent with what get_panels uses.
+
+        Half-wing mode: cell_nr == inner_point.rib_nr (0 = centre cell for odd
+        cell counts).  Full-span mode: derived from the signed ribs.
         """
+        fs = self._fs_endpoints()
+        if fs is not None:
+            return fs[2]
         return self.get_point(inner=True).rib_nr
 
     def get_point(self, inner=True):
@@ -1522,30 +1796,37 @@ class CutLine(Line):
             return self.point2
 
     def get_dict(self):
-        inner = self.get_point(inner=True)
-        outer = self.get_point(inner=False)
+        fs = self._fs_endpoints()
+        if fs is not None:
+            inner, outer, cell, wing = fs
+        else:
+            inner = self.get_point(inner=True)
+            outer = self.get_point(inner=False)
+            cell = self.cell_nr
+            wing = getattr(self, "_wing", "both")
+        # "side" always carried here so finalize_cut_lines() never merges cuts
+        # from different wings; the neutral "both" marker is stripped there so
+        # symmetric files stay byte-for-byte unchanged.
         return {
-            "cells": [self.cell_nr],
+            "cells": [cell],
             "left": inner.rib_pos,
             "right": outer.rib_pos,
             "type": self.cut_type,
+            "side": wing,
         }
 
     @classmethod
     def get_cut_dict(cls):
-        cuts = [line.get_dict() for line in cls.upper_line_list + cls.lower_line_list]
-        cuts = sorted(cuts, key=lambda x: x["right"])
-        if not cuts:
-            return []
-        sorted_cuts = [cuts[0]]
-        for cut in cuts[1:]:
-            for key in ["type", "left", "right"]:
-                if cut[key] != sorted_cuts[-1][key]:
-                    sorted_cuts.append(cut)
-                    break
-            else:
-                sorted_cuts[-1]["cells"].append(cut["cells"][0])
-        return sorted_cuts
+        # Delegate merge/collapse/strip to the headless-tested helper so the
+        # same rules apply in symmetric and full-span (asymmetric) modes:
+        #  - a left+right pair with identical geometry collapses to symmetric,
+        #  - contiguous cells merge, and the neutral "both" marker is stripped.
+        from openglider.glider.parametric.asymmetric import finalize_cut_lines
+
+        line_dicts = [
+            line.get_dict() for line in cls.upper_line_list + cls.lower_line_list
+        ]
+        return finalize_cut_lines(line_dicts)
 
     def check_dependency(self):
         if (not self._delete) and (self.point1._delete or self.point2._delete):

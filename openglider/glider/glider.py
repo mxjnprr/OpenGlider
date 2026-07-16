@@ -286,6 +286,23 @@ class Glider:
         other = self.copy()
         other2 = self.copy()
         other2.mirror()
+
+        # Asymmetric decoupe: the mirror above gave the left wing a spanwise
+        # copy of the right-wing panels.  If get_glider_3d() stashed a left-side
+        # panel variant (different cuts/colours), swap it onto the mirrored
+        # cells now and mirror each panel into the wing frame exactly as the
+        # symmetric panels were.  No-op for symmetric gliders.
+        left_panels = getattr(self, "_asym_left_panels", None)
+        if left_panels:
+            n_half = len(self.cells)
+            for k, cell in enumerate(other2.cells):
+                half_cell_no = (n_half - 1) - k
+                variant = left_panels.get(half_cell_no)
+                if variant is not None:
+                    cell.panels = [copy.deepcopy(p) for p in variant]
+                    for panel in cell.panels:
+                        panel.mirror()
+
         other2.cells[-1].rib2 = other.cells[0].rib1
         other2.cells = other2.cells + other.cells
 

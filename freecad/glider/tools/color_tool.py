@@ -120,7 +120,12 @@ class ColorTool(BaseTool):
     def __init__(self, obj):
         super().__init__(obj)
 
-        self.panels = self.parametric_glider.get_panels()
+        # Build both wings so the tool can paint them independently (asymmetric
+        # decoupe).  For a symmetric glider the two lists are identical, so the
+        # save logic below keeps it symmetric.
+        self.right_panels = self.parametric_glider.get_panels(side="right")
+        self.left_panels = self.parametric_glider.get_panels(side="left")
+        self.panels = self.right_panels  # kept for backwards-compat references
 
         # panel.materialcode
         # panel.cut_back
@@ -150,44 +155,71 @@ class ColorTool(BaseTool):
         x_values = self.parametric_glider.shape.rib_x_values
         if self.parametric_glider.shape.has_center_cell:
             x_values = [-x_values[0]] + x_values
-        from openglider.glider.cell.polygon_panel import PolygonPanel
 
-        for i, cell in enumerate(self.panels):
-            for j, panel in enumerate(cell):
-                if isinstance(panel, PolygonPanel):
-                    # Crossing-region panel: build its planform polygon from the
-                    # region boundary (y, chord) -> (x_span, chord).
-                    pts = [
-                        [x_values[i] + y * (x_values[i + 1] - x_values[i]), chord, 0.0]
-                        for (y, chord) in panel.region.boundary
-                    ]
-                    vis_panel = ColorPolygon(pts, True)
-                else:
-                    # Get panel y_start/y_end for split panels
-                    y_start = getattr(panel, 'y_start', 0.0)
-                    y_end = getattr(panel, 'y_end', 1.0)
+        has_center = self.parametric_glider.shape.has_center_cell
 
-                    # Interpolate X positions based on y range
-                    x_left = x_values[i] + y_start * (x_values[i + 1] - x_values[i])
-                    x_right = x_values[i] + y_end * (x_values[i + 1] - x_values[i])
+        # Right wing on the +x side (index 0 is the centre cell for
+        # centre-cell gliders and is only drawn here).
+        for i, cell in enumerate(self.right_panels):
+            self._add_wing_cell(cell, i, x_values, sign=1)
 
-                    # Interpolate cut positions based on y range
-                    front_left = panel.cut_front["left"] + y_start * (panel.cut_front["right"] - panel.cut_front["left"])
-                    front_right = panel.cut_front["left"] + y_end * (panel.cut_front["right"] - panel.cut_front["left"])
-                    back_left = panel.cut_back["left"] + y_start * (panel.cut_back["right"] - panel.cut_back["left"])
-                    back_right = panel.cut_back["left"] + y_end * (panel.cut_back["right"] - panel.cut_back["left"])
-
-                    p1 = [x_left, front_left, 0.0]
-                    p2 = [x_left, back_left, 0.0]
-                    p3 = [x_right, back_right, 0.0]
-                    p4 = [x_right, front_right, 0.0]
-                    vis_panel = ColorPolygon([p1, p2, p3, p4][::-1], True)
-                panel.vis_panel = vis_panel
-                if panel.material_code:
-                    vis_panel.set_color(hex_to_rgb(panel.material_code))
-                self.selector += [vis_panel]
+        # Left wing mirrored on the -x side.  Skip the centre cell (index 0),
+        # which is single and already drawn from the right list.
+        start = 1 if has_center else 0
+        for i in range(start, len(self.left_panels)):
+            self._add_wing_cell(self.left_panels[i], i, x_values, sign=-1)
 
         self.selector.register()
+
+    def _add_wing_cell(self, panel_list, i, x_values, sign):
+        """Add the ColorPolygon visuals for one cell's panels, placed on the
+        +x (sign=1, right) or -x (sign=-1, left) side of the planform."""
+        from openglider.glider.cell.polygon_panel import PolygonPanel
+
+        x0 = x_values[i]
+        x1 = x_values[i + 1]
+        # Mirroring the left wing (sign=-1) negates x, which flips the polygon
+        # winding. Coin then shows the (unlit) back face -> the panels render
+        # black. Reversing the vertex order on the mirrored side keeps them
+        # front-facing, exactly like the right wing.
+        for panel in panel_list:
+            if isinstance(panel, PolygonPanel):
+                # Crossing-region panel: build its planform polygon from the
+                # region boundary (y, chord) -> (x_span, chord).
+                pts = [
+                    [sign * (x0 + y * (x1 - x0)), chord, 0.0]
+                    for (y, chord) in panel.region.boundary
+                ]
+                if sign < 0:
+                    pts = pts[::-1]
+                vis_panel = ColorPolygon(pts, True)
+            else:
+                # Get panel y_start/y_end for split panels
+                y_start = getattr(panel, 'y_start', 0.0)
+                y_end = getattr(panel, 'y_end', 1.0)
+
+                # Interpolate X positions based on y range
+                x_left = sign * (x0 + y_start * (x1 - x0))
+                x_right = sign * (x0 + y_end * (x1 - x0))
+
+                # Interpolate cut positions based on y range
+                front_left = panel.cut_front["left"] + y_start * (panel.cut_front["right"] - panel.cut_front["left"])
+                front_right = panel.cut_front["left"] + y_end * (panel.cut_front["right"] - panel.cut_front["left"])
+                back_left = panel.cut_back["left"] + y_start * (panel.cut_back["right"] - panel.cut_back["left"])
+                back_right = panel.cut_back["left"] + y_end * (panel.cut_back["right"] - panel.cut_back["left"])
+
+                p1 = [x_left, front_left, 0.0]
+                p2 = [x_left, back_left, 0.0]
+                p3 = [x_right, back_right, 0.0]
+                p4 = [x_right, front_right, 0.0]
+                quad = [p1, p2, p3, p4]
+                # right wing uses reversed order; mirror flips it back
+                quad = quad[::-1] if sign > 0 else quad
+                vis_panel = ColorPolygon(quad, True)
+            panel.vis_panel = vis_panel
+            if panel.material_code:
+                vis_panel.set_color(hex_to_rgb(panel.material_code))
+            self.selector += [vis_panel]
 
     def set_color(self):
         color = self.color_dialog.currentColor().getRgbF()[:-1]
@@ -228,22 +260,51 @@ class ColorTool(BaseTool):
 
     def accept(self):
         self.selector.unregister()
-        colors = []
-        colors_by_name = {}  # New: store by panel name for split panels
-        
-        for cell in self.panels:
-            cell_colors = []
-            for panel in cell:
-                # Get the color and save it directly to the panel
-                color_code = rgb_to_hex(panel.vis_panel.std_col, "skytex32_")
-                panel.material_code = color_code
-                cell_colors.append(color_code)
-                # Also store by panel name for split panels
-                colors_by_name[panel.name] = color_code
-            colors.append(cell_colors)
 
-        self.parametric_glider.elements["materials"] = colors
-        self.parametric_glider.elements["materials_by_name"] = colors_by_name
+        def collect(panel_lists):
+            """Read the painted colours back off each panel's visual.  Panels
+            that were never drawn (e.g. the left-wing centre cell) have no
+            vis_panel and are skipped."""
+            by_name = {}
+            positional = []
+            for cell in panel_lists:
+                cell_colors = []
+                for panel in cell:
+                    vis = getattr(panel, "vis_panel", None)
+                    if vis is None:
+                        continue
+                    color_code = rgb_to_hex(vis.std_col, "skytex32_")
+                    panel.material_code = color_code
+                    cell_colors.append(color_code)
+                    by_name[panel.name] = color_code
+                positional.append(cell_colors)
+            return by_name, positional
+
+        right_by_name, positional = collect(self.right_panels)
+        left_by_name, _ = collect(self.left_panels)
+
+        elements = self.parametric_glider.elements
+        # The right wing is the base (positional list + by-name map), matching
+        # the legacy symmetric format.
+        elements["materials"] = positional
+        elements["materials_by_name"] = right_by_name
+
+        # Persist a left override only where it genuinely differs from the right
+        # wing, so a symmetric paint job leaves the glider symmetric
+        # (is_asymmetric stays False).
+        left_overrides = {
+            name: col
+            for name, col in left_by_name.items()
+            if col != right_by_name.get(name)
+        }
+        if left_overrides:
+            elements["materials_left_by_name"] = left_overrides
+        else:
+            elements.pop("materials_left_by_name", None)
+        # Right-only overrides are folded into the base map; keep the dedicated
+        # key clear to avoid double bookkeeping.
+        elements.pop("materials_right_by_name", None)
+
         super().accept()
         self.update_view_glider()
 
