@@ -406,12 +406,22 @@ class RodSleeve:
         surface: 'extrados' or 'intrados'
         width: Sleeve width in meters (perpendicular to surface)
         offset: Offset from the surface in meters
-        start_chord: Start position as chord percentage (0 = leading edge)
-        end_chord: End position as chord percentage (1 = trailing edge)
-        le_angle: Leading edge escape angle in degrees (0=horizontal right, 90=up, 180=left, 270=down)
-        te_angle: Trailing edge escape angle in degrees
-        le_length: Leading edge escape length as a fraction of the rib chord
-        te_length: Trailing edge escape length as a fraction of the rib chord
+        start_chord: Start position as chord percentage (0 = leading edge).
+            May be NEGATIVE: the sleeve then crosses the leading edge and runs
+            onto the opposite surface (e.g. an extrados sleeve descending onto
+            the intrados), following the real profile contour. Useful for shark
+            noses where the rod must wrap past the nose.
+        end_chord: End position as chord percentage (1 = trailing edge).
+        le_curl: Leading edge termination curl in degrees. The termination
+            continues the sleeve tangent and rotates by this much *toward the
+            profile*, tightening the curvature (radius-decreasing arc) instead
+            of escaping straight. 0 = straight tangent continuation, no curl.
+        te_curl: Trailing edge termination curl in degrees (same meaning).
+        le_length: Leading edge termination length as a fraction of the rib chord.
+        te_length: Trailing edge termination length as a fraction of the rib chord.
+        le_angle / te_angle: DEPRECATED absolute escape angles, kept only so old
+            saved gliders still load. No longer used by the geometry; ``le_curl``
+            / ``te_curl`` replace them.
 
     Note:
         ``le_length`` / ``te_length`` are proportional (chord fractions) rather
@@ -426,10 +436,12 @@ class RodSleeve:
         offset=0.005,
         start_chord=0.0,
         end_chord=0.85,
-        le_angle=0.0,        # Leading edge angle (degrees)
-        te_angle=315.0,      # Trailing edge angle (degrees) - default for extrados
-        le_length=0.08,      # Leading edge escape length (fraction of chord)
-        te_length=0.06,      # Trailing edge escape length (fraction of chord)
+        le_curl=60.0,        # Leading edge curl (degrees), tightens toward profile
+        te_curl=60.0,        # Trailing edge curl (degrees)
+        le_length=0.08,      # Leading edge termination length (fraction of chord)
+        te_length=0.06,      # Trailing edge termination length (fraction of chord)
+        le_angle=None,       # DEPRECATED absolute escape angle (kept for old files)
+        te_angle=None,       # DEPRECATED absolute escape angle (kept for old files)
         material_code=None,
     ):
         self.surface = surface
@@ -437,12 +449,15 @@ class RodSleeve:
         self.offset = offset
         self.start_chord = start_chord
         self.end_chord = end_chord
-        self.le_angle = le_angle
-        self.te_angle = te_angle
+        self.le_curl = le_curl
+        self.te_curl = te_curl
         self.le_length = le_length
         self.te_length = te_length
+        # Deprecated, retained so round-tripping an old glider does not lose data.
+        self.le_angle = le_angle
+        self.te_angle = te_angle
         self.material_code = material_code or ""
-    
+
     def __json__(self):
         return {
             "surface": self.surface,
@@ -450,8 +465,8 @@ class RodSleeve:
             "offset": self.offset,
             "start_chord": self.start_chord,
             "end_chord": self.end_chord,
-            "le_angle": self.le_angle,
-            "te_angle": self.te_angle,
+            "le_curl": self.le_curl,
+            "te_curl": self.te_curl,
             "le_length": self.le_length,
             "te_length": self.te_length,
             "material_code": self.material_code,
@@ -598,7 +613,84 @@ class RodSleeve:
             outer_curve.append(outer_pt)
         
         return inner_curve, outer_curve
-    
+
+    def _create_curl_termination(self, inner_start, outer_start, start_tangent,
+                                 curl_deg, length, num_points=16):
+        """
+        Create a termination that *continues* the sleeve curvature and tightens
+        it, keeping the rod pre-stressed in a curve (no S-shaped escape).
+
+        The centreline leaves the sleeve extremity tangentially (``start_tangent``,
+        pointing away from the sleeve body) and turns by ``curl_deg`` degrees
+        *toward the profile* over an arc length of ``length``. A constant turn
+        rate makes a circular arc of radius ``length / radians(curl_deg)``; the
+        larger ``curl_deg``, the tighter it closes. ``curl_deg == 0`` gives a
+        straight tangent continuation.
+
+        Returns (inner_curve, outer_curve) at constant width, oriented like the
+        old termination helper: index 0 sits at the sleeve junction.
+        """
+        inner_start = np.array(inner_start, dtype=float)
+        outer_start = np.array(outer_start, dtype=float)
+        center_start = (inner_start + outer_start) / 2
+        width = float(np.linalg.norm(outer_start - inner_start))
+
+        # width direction, inner -> outer (kept for consistent offset side)
+        width_vec = outer_start - inner_start
+        width_len = np.linalg.norm(width_vec)
+        width_dir = width_vec / width_len if width_len > 1e-10 else np.array([0.0, 1.0])
+
+        t0 = np.array(start_tangent, dtype=float)
+        t0_len = np.linalg.norm(t0)
+        if t0_len < 1e-10:
+            # fall back to the tangent implied by the width direction
+            t0 = np.array([width_dir[1], -width_dir[0]])
+        else:
+            t0 = t0 / t0_len
+
+        # Turn the termination toward the profile body so the rod stays curved
+        # (hook points inward, not flaring off the airfoil). Empirically the
+        # surface side is +width_dir here, so bend the tangent toward it.
+        toward_profile = width_dir
+        cross = t0[0] * toward_profile[1] - t0[1] * toward_profile[0]
+        turn_sign = 1.0 if cross >= 0 else -1.0
+        curl_rad = np.deg2rad(curl_deg) * turn_sign
+
+        n = max(2, num_points)
+        step = length / (n - 1)
+
+        # Arc-length integration of the centreline (midpoint rule on the angle).
+        centers = [center_start.copy()]
+        for i in range(1, n):
+            ang = curl_rad * ((i - 0.5) / (n - 1))
+            c, s = np.cos(ang), np.sin(ang)
+            direction = np.array([c * t0[0] - s * t0[1], s * t0[0] + c * t0[1]])
+            centers.append(centers[-1] + direction * step)
+
+        inner_curve = []
+        outer_curve = []
+        prev_normal = width_dir
+        half_width = width / 2
+        for i in range(n):
+            if i == 0:
+                tangent = centers[1] - centers[0]
+            elif i == n - 1:
+                tangent = centers[-1] - centers[-2]
+            else:
+                tangent = centers[i + 1] - centers[i - 1]
+            tl = np.linalg.norm(tangent)
+            tangent = tangent / tl if tl > 1e-10 else t0
+
+            normal = np.array([-tangent[1], tangent[0]])
+            if np.dot(normal, prev_normal) < 0:
+                normal = -normal
+            prev_normal = normal
+
+            inner_curve.append(centers[i] - normal * half_width)
+            outer_curve.append(centers[i] + normal * half_width)
+
+        return inner_curve, outer_curve
+
     def get_sleeve_points(self, rib, num_points=50, glider=None):
         """
         Get the sleeve outline points for visualization.
@@ -632,8 +724,17 @@ class RodSleeve:
         inner_points = []
         outer_points = []
 
+        # Track the previous normal so the offset direction stays on the same
+        # (outer) side of the contour even when the sleeve crosses the leading
+        # edge onto the opposite surface -- there the raw per-point normal would
+        # otherwise flip and pinch the pocket.
+        prev_normal = None
         for i, point in enumerate(profile_segment):
             normal = self._calculate_normal(profile_segment, i, self.surface)
+
+            if prev_normal is not None and np.dot(normal, prev_normal) < 0:
+                normal = -normal
+            prev_normal = normal
 
             inner_pt = point + normal * offset_norm
             outer_pt = point + normal * (offset_norm + width_norm)
@@ -690,11 +791,13 @@ class RodSleeve:
         else:
             start_tangent = None
         
-        return self._create_smooth_termination_with_width(
-            inner_start, outer_start, self.le_angle, self.le_length * rib.chord,
-            start_tangent_vec=start_tangent
+        if start_tangent is None:
+            return [], []
+        return self._create_curl_termination(
+            inner_start, outer_start, start_tangent,
+            self.le_curl, self.le_length * rib.chord
         )
-    
+
     def get_trailing_edge_termination(self, rib, glider=None):
         """
         Get the trailing edge termination curve.
@@ -716,11 +819,13 @@ class RodSleeve:
         else:
             start_tangent = None
         
-        return self._create_smooth_termination_with_width(
-            inner_start, outer_start, self.te_angle, self.te_length * rib.chord,
-            start_tangent_vec=start_tangent
+        if start_tangent is None:
+            return [], []
+        return self._create_curl_termination(
+            inner_start, outer_start, start_tangent,
+            self.te_curl, self.te_length * rib.chord
         )
-    
+
     def get_full_sleeve_points(self, rib, glider=None):
         """
         Get the complete sleeve with leading and trailing edge terminations.

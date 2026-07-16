@@ -1137,8 +1137,8 @@ class ParametricGlider:
                         offset=config.get('offset', 0.005),
                         start_chord=config.get('start_chord', 0.0),
                         end_chord=config.get('end_chord', 0.7),
-                        le_angle=config.get('start_angle', 350.0),
-                        te_angle=config.get('end_angle', 325.0),
+                        le_curl=config.get('start_curl', 60.0),
+                        te_curl=config.get('end_curl', 60.0),
                         le_length=config.get('start_length', 0.08),
                         te_length=config.get('end_length', 0.06),
                     )
@@ -1161,8 +1161,8 @@ class ParametricGlider:
                         offset=config.get('offset', 0.005),
                         start_chord=config.get('start_chord', 0.06),
                         end_chord=config.get('end_chord', 0.5),
-                        le_angle=config.get('start_angle', 100.0),
-                        te_angle=config.get('end_angle', 20.0),
+                        le_curl=config.get('start_curl', 60.0),
+                        te_curl=config.get('end_curl', 60.0),
                         le_length=config.get('start_length', 0.08),
                         te_length=config.get('end_length', 0.06),
                     )

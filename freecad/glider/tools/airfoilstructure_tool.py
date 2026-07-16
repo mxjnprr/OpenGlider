@@ -32,8 +32,15 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.startSpinBox.setSingleStep(1.0)
         self.startSpinBox.setDecimals(1)
         self.startSpinBox.setSuffix(" %")
-        self.startSpinBox.setRange(0.0, 100.0)
+        # Negative = the sleeve crosses the leading edge and runs onto the
+        # opposite surface (e.g. extrados rod descending onto the intrados).
+        self.startSpinBox.setRange(-40.0, 100.0)
         self.startSpinBox.setValue(0.0)
+        self.startSpinBox.setToolTip(
+            "Start position along the chord.\n"
+            "Negative values cross the leading edge onto the opposite surface "
+            "(rod wraps past the nose, follows the real profile contour)."
+        )
         self.layout.addRow("Start (% chord)", self.startSpinBox)
         
         self.endSpinBox = QtGui.QDoubleSpinBox()
@@ -63,18 +70,18 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         
         # Start termination (formerly "Leading Edge")
         self.layout.addRow(QtGui.QLabel("<b>Start Termination</b>"))
-        self.startAngleSpinBox = QtGui.QDoubleSpinBox()
-        self.startAngleSpinBox.setSingleStep(5.0)
-        self.startAngleSpinBox.setDecimals(0)
-        self.startAngleSpinBox.setSuffix(" °")
-        self.startAngleSpinBox.setRange(0.0, 360.0)
-        # Default angles differ by surface
-        if surface == 'extrados':
-            self.startAngleSpinBox.setValue(350.0)
-        else:
-            self.startAngleSpinBox.setValue(100.0)
-        self.layout.addRow("Angle", self.startAngleSpinBox)
-        
+        self.startCurlSpinBox = QtGui.QDoubleSpinBox()
+        self.startCurlSpinBox.setSingleStep(5.0)
+        self.startCurlSpinBox.setDecimals(0)
+        self.startCurlSpinBox.setSuffix(" °")
+        self.startCurlSpinBox.setRange(0.0, 180.0)
+        self.startCurlSpinBox.setValue(60.0)
+        self.startCurlSpinBox.setToolTip(
+            "Curl: how much the termination tightens the curvature toward the "
+            "profile (keeps the rod pre-stressed). 0 = straight continuation."
+        )
+        self.layout.addRow("Curl", self.startCurlSpinBox)
+
         self.startLengthSpinBox = QtGui.QDoubleSpinBox()
         self.startLengthSpinBox.setSingleStep(1.0)
         self.startLengthSpinBox.setDecimals(1)
@@ -85,17 +92,18 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         
         # End termination (formerly "Trailing Edge")
         self.layout.addRow(QtGui.QLabel("<b>End Termination</b>"))
-        self.endAngleSpinBox = QtGui.QDoubleSpinBox()
-        self.endAngleSpinBox.setSingleStep(5.0)
-        self.endAngleSpinBox.setDecimals(0)
-        self.endAngleSpinBox.setSuffix(" °")
-        self.endAngleSpinBox.setRange(0.0, 360.0)
-        if surface == 'extrados':
-            self.endAngleSpinBox.setValue(325.0)
-        else:
-            self.endAngleSpinBox.setValue(20.0)
-        self.layout.addRow("Angle", self.endAngleSpinBox)
-        
+        self.endCurlSpinBox = QtGui.QDoubleSpinBox()
+        self.endCurlSpinBox.setSingleStep(5.0)
+        self.endCurlSpinBox.setDecimals(0)
+        self.endCurlSpinBox.setSuffix(" °")
+        self.endCurlSpinBox.setRange(0.0, 180.0)
+        self.endCurlSpinBox.setValue(60.0)
+        self.endCurlSpinBox.setToolTip(
+            "Curl: how much the termination tightens the curvature toward the "
+            "profile (keeps the rod pre-stressed). 0 = straight continuation."
+        )
+        self.layout.addRow("Curl", self.endCurlSpinBox)
+
         self.endLengthSpinBox = QtGui.QDoubleSpinBox()
         self.endLengthSpinBox.setSingleStep(1.0)
         self.endLengthSpinBox.setDecimals(1)
@@ -115,9 +123,9 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.endSpinBox.valueChanged.connect(self.emit_changed)
         self.widthSpinBox.valueChanged.connect(self.emit_changed)
         self.offsetSpinBox.valueChanged.connect(self.emit_changed)
-        self.startAngleSpinBox.valueChanged.connect(self.emit_changed)
+        self.startCurlSpinBox.valueChanged.connect(self.emit_changed)
         self.startLengthSpinBox.valueChanged.connect(self.emit_changed)
-        self.endAngleSpinBox.valueChanged.connect(self.emit_changed)
+        self.endCurlSpinBox.valueChanged.connect(self.emit_changed)
         self.endLengthSpinBox.valueChanged.connect(self.emit_changed)
         self.excludedRibsEdit.textChanged.connect(self.emit_changed)
     
@@ -141,9 +149,9 @@ class RodSleeveConfigWidget(QtGui.QWidget):
             'end_chord': self.endSpinBox.value() / 100.0,
             'width': self.widthSpinBox.value() / 1000.0,
             'offset': self.offsetSpinBox.value() / 1000.0,
-            'start_angle': self.startAngleSpinBox.value(),
+            'start_curl': self.startCurlSpinBox.value(),
             'start_length': self.startLengthSpinBox.value() / 100.0,
-            'end_angle': self.endAngleSpinBox.value(),
+            'end_curl': self.endCurlSpinBox.value(),
             'end_length': self.endLengthSpinBox.value() / 100.0,
             'excluded_ribs': self.get_excluded_ribs(),
         }
@@ -155,9 +163,9 @@ class RodSleeveConfigWidget(QtGui.QWidget):
         self.endSpinBox.setValue(config.get('end_chord', 0.7) * 100.0)
         self.widthSpinBox.setValue(config.get('width', 0.015) * 1000.0)
         self.offsetSpinBox.setValue(config.get('offset', 0.005) * 1000.0)
-        self.startAngleSpinBox.setValue(config.get('start_angle', 350.0 if self.surface == 'extrados' else 100.0))
+        self.startCurlSpinBox.setValue(config.get('start_curl', 60.0))
         self.startLengthSpinBox.setValue(config.get('start_length', 0.08) * 100.0)
-        self.endAngleSpinBox.setValue(config.get('end_angle', 325.0 if self.surface == 'extrados' else 20.0))
+        self.endCurlSpinBox.setValue(config.get('end_curl', 60.0))
         self.endLengthSpinBox.setValue(config.get('end_length', 0.06) * 100.0)
         # Load excluded ribs (convert 0-based to 1-based for display)
         excluded = config.get('excluded_ribs', [])
@@ -175,8 +183,8 @@ class RodSleeveConfigWidget(QtGui.QWidget):
             offset=values['offset'],
             start_chord=values['start_chord'],
             end_chord=values['end_chord'],
-            le_angle=values['start_angle'],
-            te_angle=values['end_angle'],
+            le_curl=values['start_curl'],
+            te_curl=values['end_curl'],
             le_length=values['start_length'],
             te_length=values['end_length'],
         )
@@ -664,9 +672,9 @@ class AirfoilStructureTool(BaseTool):
                 'end_chord': getattr(pg, f'extrados_sleeve_end{suffix}', 0.71),
                 'width': getattr(pg, f'extrados_sleeve_width{suffix}', 0.015),
                 'offset': getattr(pg, f'extrados_sleeve_offset{suffix}', 0.005),
-                'start_angle': getattr(pg, f'extrados_sleeve_le_angle{suffix}', 350.0),
+                'start_curl': getattr(pg, f'extrados_sleeve_le_curl{suffix}', 60.0),
                 'start_length': getattr(pg, f'extrados_sleeve_le_length{suffix}', 0.125),
-                'end_angle': getattr(pg, f'extrados_sleeve_te_angle{suffix}', 325.0),
+                'end_curl': getattr(pg, f'extrados_sleeve_te_curl{suffix}', 60.0),
                 'end_length': getattr(pg, f'extrados_sleeve_te_length{suffix}', 0.075),
             }
             extrados_configs = [old_config]
@@ -686,9 +694,9 @@ class AirfoilStructureTool(BaseTool):
                 'end_chord': getattr(pg, f'intrados_sleeve_end{suffix}', 0.50),
                 'width': getattr(pg, f'intrados_sleeve_width{suffix}', 0.015),
                 'offset': getattr(pg, f'intrados_sleeve_offset{suffix}', 0.005),
-                'start_angle': getattr(pg, f'intrados_sleeve_le_angle{suffix}', 100.0),
+                'start_curl': getattr(pg, f'intrados_sleeve_le_curl{suffix}', 60.0),
                 'start_length': getattr(pg, f'intrados_sleeve_le_length{suffix}', 0.100),
-                'end_angle': getattr(pg, f'intrados_sleeve_te_angle{suffix}', 20.0),
+                'end_curl': getattr(pg, f'intrados_sleeve_te_curl{suffix}', 60.0),
                 'end_length': getattr(pg, f'intrados_sleeve_te_length{suffix}', 0.090),
             }
             intrados_configs = [old_config]
@@ -850,8 +858,8 @@ class AirfoilStructureTool(BaseTool):
                         offset=config.get('offset', 0.005),
                         start_chord=config.get('start_chord', 0.0),
                         end_chord=config.get('end_chord', 0.7),
-                        le_angle=config.get('start_angle', 350.0),
-                        te_angle=config.get('end_angle', 325.0),
+                        le_curl=config.get('start_curl', 60.0),
+                        te_curl=config.get('end_curl', 60.0),
                         le_length=config.get('start_length', 0.08),
                         te_length=config.get('end_length', 0.06),
                     )
@@ -874,8 +882,8 @@ class AirfoilStructureTool(BaseTool):
                         offset=config.get('offset', 0.005),
                         start_chord=config.get('start_chord', 0.06),
                         end_chord=config.get('end_chord', 0.5),
-                        le_angle=config.get('start_angle', 100.0),
-                        te_angle=config.get('end_angle', 20.0),
+                        le_curl=config.get('start_curl', 60.0),
+                        te_curl=config.get('end_curl', 60.0),
                         le_length=config.get('start_length', 0.08),
                         te_length=config.get('end_length', 0.06),
                     )
