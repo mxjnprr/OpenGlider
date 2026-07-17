@@ -153,10 +153,42 @@ class Rib(CachedObject):
             self.aoa_absolute, self.arcang, zrot, self.xrot, self.chord, self.pos
         )
 
+    def _te_cut_x(self):
+        """Normalized trailing-edge cut position in (0, 1); 1.0 means no cut.
+
+        Derived from ``trailing_edge_cut`` (an absolute length in model units)
+        and the local chord, so the tip is cut by a fixed physical length.
+        """
+        te_cut = getattr(self, "trailing_edge_cut", 0.0)
+        if te_cut and self.chord and self.chord > 0:
+            cut_x = 1.0 - te_cut / self.chord
+            if 0.0 < cut_x < 1.0:
+                return cut_x
+        return 1.0
+
+    def _get_truncated_profile(self):
+        """Return a copy of ``profile_2d`` with the trailing-edge tip truncated
+        by ``trailing_edge_cut`` (absolute length in model units), if set.
+
+        The truncation is applied here, at consumption time, rather than by
+        editing ``profile_2d`` in place: any resampling of ``profile_2d`` (e.g.
+        the 3d preview setting ``profile_numpoints``) would otherwise restore
+        the full-chord tip. The x-distribution is simply compressed to
+        ``[-cut_x, cut_x]`` so the point count stays constant, keeping cell and
+        panel meshing index-consistent. Returns an untouched copy when no
+        truncation applies.
+        """
+        profile = copy.deepcopy(self.profile_2d)
+        cut_x = self._te_cut_x()
+        if cut_x < 1.0:
+            profile.x_values = np.array(profile.x_values) * cut_x
+        return profile
+
     @cached_property("self")
     def profile_3d(self):
-        if self.profile_2d.data is not None:
-            return Profile3D(self.align_all(self.profile_2d.data))
+        profile = self._get_truncated_profile()
+        if profile.data is not None:
+            return Profile3D(self.align_all(profile.data))
         else:
             raise ValueError(
                 f"no 2d-profile present for the rib at rib {self.name}"
@@ -189,9 +221,8 @@ class Rib(CachedObject):
 
     def get_hull(self, glider=None):
         """returns the outer contour of the normalized mesh in form
-        of a Polyline"""
-        profile = copy.deepcopy(self.profile_2d)
-        return profile
+        of a Polyline (trailing-edge-truncated if ``trailing_edge_cut`` is set)"""
+        return self._get_truncated_profile()
 
     @property
     def base_profile_2d(self):
@@ -223,7 +254,15 @@ class Rib(CachedObject):
             # TODO: return line
             return Mesh.from_indexed([], {}, {})
 
-        vertices = list(self.get_hull(glider))[:-1]
+        hull_points = list(self.get_hull(glider))
+        # A sharp trailing edge closes the contour by duplicating the first point
+        # as the last one; drop that duplicate. A truncated (blunt) trailing edge
+        # leaves the contour open, so keep every point and let the boundary close
+        # the blunt edge — otherwise the last intrados point is dropped and the
+        # intrados ends up truncated one point more than the extrados.
+        if len(hull_points) > 1 and np.allclose(hull_points[0], hull_points[-1]):
+            hull_points = hull_points[:-1]
+        vertices = hull_points
         boundary = [list(range(len(vertices))) + [0]]
         hole_centers = []
 
@@ -383,6 +422,10 @@ class SingleSkinRib(Rib):
         """
         aero = getattr(self, '_aero_profile_2d', None) or self.profile_2d
         if aero.data is not None:
+            cut_x = self._te_cut_x()
+            if cut_x < 1.0:
+                aero = copy.deepcopy(aero)
+                aero.x_values = np.array(aero.x_values) * cut_x
             return Profile3D(self.align_all(aero.data))
         raise ValueError(f"no 2d-profile present for rib {self.name}")
 
@@ -480,6 +523,12 @@ class SingleSkinRib(Rib):
         # NOTE: The flat pattern of a SingleSkin rib is its 2D profile + parabolic bows.
         # The spanwise warp (shear_map) only affects the 3D positioning via align_all().
         # No coordinate stretching is applied here — that would distort the cut pattern.
+
+        # Trailing-edge truncation (applied last, on the bowed contour).
+        cut_x = self._te_cut_x()
+        if cut_x < 1.0:
+            profile.x_values = np.array(profile.x_values) * cut_x
+
         self._hull_profile = profile
         return profile
 

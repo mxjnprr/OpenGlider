@@ -37,6 +37,7 @@ class BallooningTool(BaseTool):
         self.Qballooning_widget = QtGui.QWidget()
         self.Qballooning_layout = QtGui.QFormLayout(self.Qballooning_widget)
         self.Qfit_button = QtGui.QPushButton("modify with handles")
+        self.Qcoord_label = QtGui.QLabel("")
 
         self.ballooning_sep = coin.SoSeparator()
         self.spline_sep = coin.SoSeparator()
@@ -58,6 +59,11 @@ class BallooningTool(BaseTool):
         self.Qballooning_widget.setWindowTitle("ballooning")
         self.Qballooning_layout.addWidget(self.Qballooning_name)
         self.Qballooning_layout.addWidget(self.Qfit_button)
+        self.Qcoord_label.setToolTip(
+            "Position of the control point being moved:\n"
+            "chord = position along the chord, fabric = ballooning added"
+        )
+        self.Qballooning_layout.addWidget(self.Qcoord_label)
 
         # selection widget
         self.layout.addWidget(self.QList_View)
@@ -112,12 +118,24 @@ class BallooningTool(BaseTool):
             self.grid += [Line_old(l, color="grey").object]
 
         self.grid += (Line_old([[0, 0, -0.001], [1, 0, -0.001]], color="red").object,)
+        # y-axis labels: fabric percentage added
         for l in y_points_upper + [[grid_x[-1], 0.0, 0.0]]:
             textsep = coin.SoSeparator()
             text = coin.SoText2()
             trans = coin.SoTranslation()
             trans.translation = l
             text.string = f"{abs(l[1]) / self.scale_y * 100:.1f} %"
+            textsep += [trans, text]
+            self.grid += textsep
+        # x-axis labels: chord position percentage (0 % .. 100 %), placed just
+        # below the grid so they do not collide with the y-axis labels.
+        y_label = grid_y[0] - (grid_y[-1] - grid_y[0]) * 0.04
+        for x in numpy.linspace(0.0, 1.0, 11):
+            textsep = coin.SoSeparator()
+            text = coin.SoText2()
+            trans = coin.SoTranslation()
+            trans.translation = [float(x), y_label, 0.0]
+            text.string = f"{x * 100:.0f} %"
             textsep += [trans, text]
             self.grid += textsep
 
@@ -285,15 +303,31 @@ class BallooningTool(BaseTool):
 
     def upper_on_change(self):
         self._update_upper_spline(30)
+        self._update_coord_readout(self.upper_cpc, "extrados")
 
     def lower_on_change(self):
         self._update_lower_spline(30)
+        self._update_coord_readout(self.lower_cpc, "intrados")
 
     def upper_drag_release(self):
         self._update_upper_spline(70)
+        self._update_coord_readout(self.upper_cpc, "extrados")
 
     def lower_drag_release(self):
         self._update_lower_spline(70)
+        self._update_coord_readout(self.lower_cpc, "intrados")
+
+    def _update_coord_readout(self, cpc, side):
+        """Show the chord/fabric percentage of the control point being moved."""
+        selected = list(getattr(cpc.interaction, "selected_objects", []))
+        if not selected:
+            return
+        pos = selected[0].points[0]
+        chord = pos[0] * 100
+        fabric = abs(pos[1]) / self.scale_y * 100
+        self.Qcoord_label.setText(
+            f"{side}  —  chord: {chord:.1f} %   |   fabric: {fabric:.2f} %"
+        )
 
     def constrain(self, control_point, index, value):
         p = control_point.points
@@ -371,6 +405,7 @@ class BallooningTool(BaseTool):
             self.spline_sep.removeAllChildren()
             self.upper_cpc.remove_callbacks()
             self.lower_cpc.remove_callbacks()
+            self.Qcoord_label.setText("")
             self.is_edit = False
 
     def accept(self):

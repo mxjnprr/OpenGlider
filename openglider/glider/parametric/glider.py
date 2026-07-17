@@ -237,6 +237,12 @@ class ParametricGlider:
         self.last_profile_thickness = kwargs.get('last_profile_thickness', 0.3)  # Relative thickness (0.3 = 30% of original)
         self.last_profile_custom = kwargs.get('last_profile_custom', None)  # Custom Profile2D
 
+        # Trailing-edge truncation: cut the profile tip at the trailing edge by
+        # an absolute length (millimetres) so the rib does not reach all the way
+        # to the tip, e.g. to let sand drain out of the ribs during build.
+        self.te_cut_enabled = kwargs.get('te_cut_enabled', False)
+        self.te_cut_mm = kwargs.get('te_cut_mm', 15.0)
+
         # Aerodynamic analysis results (stored for use by Lines Auto-placement tool)
         self.aerodynamics_results = kwargs.get('aerodynamics_results', None)
 
@@ -1680,6 +1686,9 @@ class ParametricGlider:
             "last_profile_type": getattr(self, "last_profile_type", "line"),
             "last_profile_thickness": getattr(self, "last_profile_thickness", 0.3),
             "last_profile_custom": getattr(self, "last_profile_custom", None),
+            # Trailing-edge truncation (sand-drain opening)
+            "te_cut_enabled": getattr(self, "te_cut_enabled", False),
+            "te_cut_mm": getattr(self, "te_cut_mm", 15.0),
             # Aerodynamic analysis results
             "aerodynamics_results": getattr(self, "aerodynamics_results", None),
             # Single Skin configuration
@@ -2503,6 +2512,15 @@ class ParametricGlider:
                 )
             )
             ribs[-1].aoa_relative = aoa_int(pos)
+
+            # Trailing-edge truncation length (model units = metres). Stored on the
+            # rib; the actual cut is applied lazily in Rib.get_hull / Rib.profile_3d
+            # (see Rib._get_truncated_profile) so it survives any later resampling
+            # of profile_2d and propagates to both the 3d hull and 2d templates.
+            if getattr(self, "te_cut_enabled", False) and chord > 0:
+                ribs[-1].trailing_edge_cut = getattr(self, "te_cut_mm", 15.0) / 1000.0
+            else:
+                ribs[-1].trailing_edge_cut = 0.0
 
         if self.shape.has_center_cell:
             new_rib = ribs[0].copy()

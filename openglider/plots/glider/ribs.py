@@ -44,6 +44,8 @@ class RibPlot:
         self.plotpart = PlotPart(
             name=self.rib.name, material_code=self.rib.material_code
         )
+        # The profile is already trailing-edge-truncated at the model level (see
+        # ParametricGlider.get_glider_3d), so the 2d template inherits the cut.
         prof2d = self.rib.get_hull(glider)
         self.x_values = prof2d.x_values
         self.inner = prof2d.copy().scale(self.rib.chord)
@@ -90,8 +92,15 @@ class RibPlot:
                 for diagonal in cell.diagonals + cell.straps:
                     self.insert_drib_mark(diagonal, True)
 
+        # On a truncated trailing edge the rearmost panel cut coincides with the
+        # blunt edge (already drawn as the cut line), so skip panel-cut marks that
+        # fall at or beyond the truncated tip — they would otherwise stick out
+        # past the cut line. Full profiles are unaffected.
+        te_cut_x = max((abs(x) for x in self.x_values), default=1.0)
+        truncated = te_cut_x < 1.0 - 1e-4
         for cut in panel_cuts:
-            # print(cut, self.marks_panel_cut)
+            if truncated and abs(cut) >= te_cut_x - 1e-6:
+                continue
             self.insert_mark(cut, self.config.marks_panel_cut)
 
         # rigidfoils
@@ -190,11 +199,25 @@ class RibPlot:
         self.draw_rib(glider)
         self.plotpart.layers["stitches"].append(self.inner)
 
+        # If the trailing edge is truncated the profile is an open contour with a
+        # blunt (near-vertical) edge; close the stitch line across it so the
+        # pattern outline is not left open at the trailing edge.
+        te_start = np.array(self.inner.data[0])
+        te_end = np.array(self.inner.data[-1])
+        if norm(te_start - te_end) > 1e-4:
+            self.plotpart.layers["stitches"].append(PolyLine2D([te_end, te_start]))
+
         return self.plotpart
 
 
     def _get_inner_outer(self, x_value):
+        # Clamp to the (possibly trailing-edge-truncated) contour range so marks
+        # near the trailing edge pin to the blunt edge instead of extrapolating
+        # past the end of the profile. No-op for a full, untruncated profile.
+        x_min, x_max = self.x_values[0], self.x_values[-1]
+        x_value = min(max(x_value, x_min), x_max)
         ik = get_x_value(self.x_values, x_value)
+        ik = min(max(ik, 0.0), len(self.inner) - 1)
 
         # ik = get_x_value(self.x_values, position)
         inner = self.inner[ik]
@@ -370,18 +393,25 @@ class RibPlot:
         stop = next(cuts)[0]
 
         contour = PolyLine2D([])
-
-        buerzl = PolyLine2D(
-            [
-                outer_rib[stop],
-                outer_rib[stop] + [t_e_allowance, 0],
-                outer_rib[start] + [t_e_allowance, 0],
-                outer_rib[start],
-            ]
-        )
-
         contour += PolyLine2D(outer_rib[start:stop])
-        contour += buerzl
+
+        # A truncated (blunt) trailing edge has no seam allowance on the cut end:
+        # the cut line runs straight through the truncated tip (the inner contour
+        # corners). A sharp trailing edge keeps the usual seam-allowance flap.
+        te_upper = np.array(inner_rib.data[0])
+        te_lower = np.array(inner_rib.data[-1])
+        if norm(te_upper - te_lower) > 1e-4:
+            contour += PolyLine2D([outer_rib[stop], te_lower, te_upper, outer_rib[start]])
+        else:
+            buerzl = PolyLine2D(
+                [
+                    outer_rib[stop],
+                    outer_rib[stop] + [t_e_allowance, 0],
+                    outer_rib[start] + [t_e_allowance, 0],
+                    outer_rib[start],
+                ]
+            )
+            contour += buerzl
 
         self.plotpart.layers["cuts"] += [contour]
 
