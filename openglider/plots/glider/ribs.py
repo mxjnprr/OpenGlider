@@ -92,8 +92,15 @@ class RibPlot:
                 for diagonal in cell.diagonals + cell.straps:
                     self.insert_drib_mark(diagonal, True)
 
+        # On a truncated trailing edge the rearmost panel cut coincides with the
+        # blunt edge (already drawn as the cut line), so skip panel-cut marks that
+        # fall at or beyond the truncated tip — they would otherwise stick out
+        # past the cut line. Full profiles are unaffected.
+        te_cut_x = max((abs(x) for x in self.x_values), default=1.0)
+        truncated = te_cut_x < 1.0 - 1e-4
         for cut in panel_cuts:
-            # print(cut, self.marks_panel_cut)
+            if truncated and abs(cut) >= te_cut_x - 1e-6:
+                continue
             self.insert_mark(cut, self.config.marks_panel_cut)
 
         # rigidfoils
