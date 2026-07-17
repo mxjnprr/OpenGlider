@@ -538,7 +538,10 @@ class AirfoilStructureTool(BaseTool):
             
         profile_3d = [[p[0], p[1], 0] for p in profile_points]
         self.preview_root.addChild(Line_old(profile_3d + [profile_3d[0]], width=2).object)
-        
+
+        # Air intake location: two ticks marking the folded intrados cuts
+        self._draw_air_intake_marks(rib, glider_instance)
+
         # Visualizing attachment points (red dots) if suspended
         valid_aps = []
         if is_suspended:
@@ -636,6 +639,70 @@ class AirfoilStructureTool(BaseTool):
         ]
         
         self.preview_root.addChild(Line_old(marker_points, color='red', width=3).object)
+
+    def _draw_air_intake_marks(self, rib, glider):
+        """Mark the air intake with two ticks at the folded intrados cuts.
+
+        The air-intake mouth is defined by the cell panels whose cut type is
+        'folded' (see Panel.CUT_TYPES). Their chord positions are drawn as short
+        lines crossing the profile so rod sleeves can be placed relative to the
+        opening.
+        """
+        if glider is None:
+            return
+        try:
+            # A rib borders up to two cells; the intake edges may come from
+            # either. For each, use the side value that belongs to this rib:
+            #  - right cell (this rib is rib1) -> 'left'
+            #  - left cell  (this rib is rib2) -> 'right'
+            rib_idx = next((i for i, r in enumerate(glider.ribs) if r is rib), None)
+            if rib_idx is None:
+                return
+
+            cells = glider.cells
+            neighbours = []
+            if rib_idx < len(cells):
+                neighbours.append((cells[rib_idx], 'left'))
+            if 0 <= rib_idx - 1 < len(cells):
+                neighbours.append((cells[rib_idx - 1], 'right'))
+
+            # Collect folded-cut chord positions (front/back edges of the mouth).
+            positions = []
+            for cell, side in neighbours:
+                for panel in cell.panels:
+                    for cut in (panel.cut_front, panel.cut_back):
+                        if cut.get("type") == "folded":
+                            x = cut[side]
+                            if not any(abs(x - u) < 1e-4 for u in positions):
+                                positions.append(x)
+
+            for x in positions:
+                self._draw_intake_tick(rib, x)
+        except Exception as e:
+            print(f"Error drawing air intake marks: {e}")
+
+    def _draw_intake_tick(self, rib, x):
+        """Draw one air-intake tick perpendicular to the profile at chord pos x."""
+        profile = rib.profile_2d
+        ik = profile(x)
+        pt = np.array(profile[ik]) * rib.chord
+
+        # Local tangent from the two bounding profile points, then rotate 90 deg.
+        i0 = int(np.floor(ik))
+        i1 = min(i0 + 1, len(profile) - 1)
+        tangent = (np.array(profile[i1]) - np.array(profile[i0])) * rib.chord
+        norm = np.linalg.norm(tangent)
+        if norm == 0:
+            return
+        tangent = tangent / norm
+        normal = np.array([-tangent[1], tangent[0]])
+
+        half = 0.025 * rib.chord  # tick half-length, ~2.5% chord each side
+        a = pt + normal * half
+        b = pt - normal * half
+        tick = Line_old([[a[0], a[1], 0], [b[0], b[1], 0]], width=3)
+        tick.object.color.diffuseColor = (1.0, 0.4, 0.0)  # orange
+        self.preview_root.addChild(tick.object)
 
     def _draw_reinforcement(self, reinforcement, rib, glider=None):
         """Draw an attachment reinforcement preview."""
