@@ -6,6 +6,12 @@ try:
 except ImportError:
     print("module not loaded with freecad")
 
+# Redirect old freecad.freecad_glider.* imports (stored in legacy .FCStd
+# files) to the current freecad.glider.* modules.
+from ._compat import install as _install_compat
+
+_install_compat()
+
 
 Dir = os.path.abspath(os.path.dirname(__file__))
 Gui.addIconPath(os.path.join(Dir, "icons"))
