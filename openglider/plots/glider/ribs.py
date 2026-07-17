@@ -386,18 +386,25 @@ class RibPlot:
         stop = next(cuts)[0]
 
         contour = PolyLine2D([])
-
-        buerzl = PolyLine2D(
-            [
-                outer_rib[stop],
-                outer_rib[stop] + [t_e_allowance, 0],
-                outer_rib[start] + [t_e_allowance, 0],
-                outer_rib[start],
-            ]
-        )
-
         contour += PolyLine2D(outer_rib[start:stop])
-        contour += buerzl
+
+        # A truncated (blunt) trailing edge has no seam allowance on the cut end:
+        # the cut line runs straight through the truncated tip (the inner contour
+        # corners). A sharp trailing edge keeps the usual seam-allowance flap.
+        te_upper = np.array(inner_rib.data[0])
+        te_lower = np.array(inner_rib.data[-1])
+        if norm(te_upper - te_lower) > 1e-4:
+            contour += PolyLine2D([outer_rib[stop], te_lower, te_upper, outer_rib[start]])
+        else:
+            buerzl = PolyLine2D(
+                [
+                    outer_rib[stop],
+                    outer_rib[stop] + [t_e_allowance, 0],
+                    outer_rib[start] + [t_e_allowance, 0],
+                    outer_rib[start],
+                ]
+            )
+            contour += buerzl
 
         self.plotpart.layers["cuts"] += [contour]
 
