@@ -893,26 +893,14 @@ class AirfoilStructureTool(BaseTool):
 
     def accept(self):
         is_suspended = self.ribTypeComboBox.currentIndex() == 1
-        
-        # Save current mode's data
+
+        # Save only the currently displayed mode's data. The other mode's config
+        # was already persisted to the parametric glider when switching profile
+        # type (see on_rib_type_change), so the suspended (_s) and non-suspended
+        # (_ns) configs stay independent. Writing to both suffixes here would
+        # clobber the other mode with the currently shown config.
         self.update_glider_data(is_suspended)
-        
-        # IMPORTANT: Also save rod sleeve configs to BOTH modes (suspended and non-suspended)
-        # This ensures exclusions work correctly regardless of rib suspension status
-        # The UI shows same rod sleeve groups for both modes, so we sync them
-        pg = self.parametric_glider
-        extrados_configs = self.extradosGroup.get_configs()
-        intrados_configs = self.intradosGroup.get_configs()
-        extrados_enabled = self.extradosGroup.is_enabled()
-        intrados_enabled = self.intradosGroup.is_enabled()
-        
-        # Save to both _s and _ns suffixes
-        for suffix in ['_s', '_ns']:
-            setattr(pg, f'extrados_sleeves_enabled{suffix}', extrados_enabled)
-            setattr(pg, f'extrados_sleeves{suffix}', extrados_configs)
-            setattr(pg, f'intrados_sleeves_enabled{suffix}', intrados_enabled)
-            setattr(pg, f'intrados_sleeves{suffix}', intrados_configs)
-        
+
         # Apply reinforcements and rod sleeves to ribs for 2D export
         self.apply_reinforcements_to_ribs()
         self.apply_rod_sleeves_to_ribs()
