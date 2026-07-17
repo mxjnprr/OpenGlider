@@ -433,6 +433,32 @@ class Profile2D(Polygon2D):
             self.data_without_flap = self.data
         self.data = np.array([x, y + dy]).T
 
+    def cut_trailing_edge(self, cut_x):
+        """
+        Truncate the trailing-edge tip at the normalized chord position
+        ``cut_x`` (0 < cut_x < 1, where 1 is the trailing edge).
+
+        Removes the tip beyond ``cut_x`` on both surfaces and re-closes the
+        contour with a blunt (near-vertical) trailing edge. Useful to leave
+        an opening at the trailing edge, e.g. so sand can drain out of a rib.
+        Returns ``self``. A ``cut_x`` outside (0, 1) leaves the profile
+        unchanged.
+        """
+        cut_x = float(cut_x)
+        if not (0.0 < cut_x < 1.0):
+            return self
+        # interpolated edge points on both surfaces at the cut position
+        # (negative x -> upper surface, positive x -> lower surface)
+        upper_pt = np.array(self.profilepoint(-cut_x), dtype=float)
+        lower_pt = np.array(self.profilepoint(cut_x), dtype=float)
+        new_data = [upper_pt]
+        for point in self.data:
+            if point[0] < cut_x:
+                new_data.append(np.array(point, dtype=float))
+        new_data.append(lower_pt)
+        self.data = np.array(new_data)
+        return self
+
     def calc_drag(self, re=2e6, cl=0.7):
         if not shutil.which("xfoil"):
             logger.error("xfoil is not available")

@@ -44,6 +44,8 @@ class RibPlot:
         self.plotpart = PlotPart(
             name=self.rib.name, material_code=self.rib.material_code
         )
+        # The profile is already trailing-edge-truncated at the model level (see
+        # ParametricGlider.get_glider_3d), so the 2d template inherits the cut.
         prof2d = self.rib.get_hull(glider)
         self.x_values = prof2d.x_values
         self.inner = prof2d.copy().scale(self.rib.chord)
@@ -190,11 +192,25 @@ class RibPlot:
         self.draw_rib(glider)
         self.plotpart.layers["stitches"].append(self.inner)
 
+        # If the trailing edge is truncated the profile is an open contour with a
+        # blunt (near-vertical) edge; close the stitch line across it so the
+        # pattern outline is not left open at the trailing edge.
+        te_start = np.array(self.inner.data[0])
+        te_end = np.array(self.inner.data[-1])
+        if norm(te_start - te_end) > 1e-4:
+            self.plotpart.layers["stitches"].append(PolyLine2D([te_end, te_start]))
+
         return self.plotpart
 
 
     def _get_inner_outer(self, x_value):
+        # Clamp to the (possibly trailing-edge-truncated) contour range so marks
+        # near the trailing edge pin to the blunt edge instead of extrapolating
+        # past the end of the profile. No-op for a full, untruncated profile.
+        x_min, x_max = self.x_values[0], self.x_values[-1]
+        x_value = min(max(x_value, x_min), x_max)
         ik = get_x_value(self.x_values, x_value)
+        ik = min(max(ik, 0.0), len(self.inner) - 1)
 
         # ik = get_x_value(self.x_values, position)
         inner = self.inner[ik]

@@ -60,7 +60,8 @@ class AirfoilControlTool(BaseTool):
         self._create_last_airfoil_tab()
         self._create_aoa_tab()
         self._create_zrot_tab()
-        
+        self._create_te_cut_tab()
+
         # 3D preview elements
         self.shape = coin.SoSeparator()
         self.preview_shape = coin.SoSeparator()
@@ -948,6 +949,7 @@ class AirfoilControlTool(BaseTool):
           5 = Last Airfoil (no 3D spline)
           6 = AoA
           7 = Z Rotation
+          8 = Trailing Edge (no 3D spline)
         """
         self.airfoil_switch.whichChild = 0 if index == 0 else -1
         self.dist_switch.whichChild = 0 if index == 1 else -1
@@ -2134,6 +2136,54 @@ class AirfoilControlTool(BaseTool):
                     f"Failed to import profile: {str(e)}"
                 )
                 
+    def _create_te_cut_tab(self):
+        """Tab 8: Trailing-edge truncation (sand-drain opening)"""
+        tab = QtGui.QWidget()
+        layout = QtGui.QVBoxLayout(tab)
+
+        # Enable checkbox
+        self.te_cut_enabled = QtGui.QCheckBox("Tronquer la pointe du bord de fuite")
+        self.te_cut_enabled.setChecked(
+            getattr(self.parametric_glider, 'te_cut_enabled', False)
+        )
+        self.te_cut_enabled.stateChanged.connect(self._update_te_cut)
+        layout.addWidget(self.te_cut_enabled)
+
+        # Truncation length (mm)
+        row = QtGui.QHBoxLayout()
+        row.addWidget(QtGui.QLabel("Troncature :"))
+        self.te_cut_spin = QtGui.QDoubleSpinBox()
+        self.te_cut_spin.setRange(0.0, 200.0)
+        self.te_cut_spin.setSingleStep(1.0)
+        self.te_cut_spin.setDecimals(1)
+        self.te_cut_spin.setSuffix(" mm")
+        self.te_cut_spin.setValue(
+            getattr(self.parametric_glider, 'te_cut_mm', 15.0)
+        )
+        self.te_cut_spin.valueChanged.connect(self._update_te_cut)
+        row.addWidget(self.te_cut_spin)
+        layout.addLayout(row)
+
+        # Info
+        info = QtGui.QLabel(
+            "Coupe la pointe du profil au bord de fuite d'une longueur fixe "
+            "(en mm), afin que la nervure n'aille pas jusqu'au bout et laisse "
+            "s'écouler le sable.\n\n"
+            "La troncature est appliquée aux gabarits 2D des nervures : "
+            "chaque profil est coupé à (corde − troncature)."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Trailing Edge")
+
+    def _update_te_cut(self, *args):
+        """Persist trailing-edge truncation settings on the model."""
+        self.parametric_glider.te_cut_enabled = self.te_cut_enabled.isChecked()
+        self.parametric_glider.te_cut_mm = self.te_cut_spin.value()
+        self.update_view_glider()
+
     def accept(self):
         """Accept changes and close"""
         # Save profiles from airfoil selection tab
