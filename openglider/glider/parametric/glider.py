@@ -1670,6 +1670,11 @@ class ParametricGlider:
             }),
             "reinforcement_configs_s": getattr(self, "reinforcement_configs_s", []),
             "reinforcement_excluded_ribs_s": getattr(self, "reinforcement_excluded_ribs_s", []),
+            "shark_nose_s": getattr(self, "shark_nose_s", {
+                'enabled': False, 'start': 0.03, 'end': 0.35, 'depth': 0.035,
+                'start_angle': 90.0, 'end_angle': 90.0, 'corner_radius': 0.01,
+                'rod': True, 'depth_relative': False,
+            }),
             # Multi-rod sleeves (NEW FORMAT)
             "extrados_sleeves_enabled_s": getattr(self, "extrados_sleeves_enabled_s", True),
             "extrados_sleeves_s": getattr(self, "extrados_sleeves_s", []),
