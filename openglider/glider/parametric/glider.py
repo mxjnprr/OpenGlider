@@ -1083,7 +1083,8 @@ class ParametricGlider:
         master_config = getattr(self, 'reinforcement_master_s', {})
         configs = getattr(self, 'reinforcement_configs_s', [])
         excluded_ribs = getattr(self, 'reinforcement_excluded_ribs_s', [])
-        
+        shark_cfg = getattr(self, 'shark_nose_s', {}) or {}
+
         # Identify suspended ribs
         suspended_ribs = {att.rib for att in glider.lineset.attachment_points if hasattr(att, 'rib')}
         
@@ -1107,11 +1108,35 @@ class ParametricGlider:
                         config = master_config
                     else:
                         config = configs[i] if i < len(configs) else master_config
-                    
+
+                    name = f"{rib_idx + 1}{ap.name}" if ap.name else f"{rib_idx + 1}_{i + 1}"
+
+                    # Front-most attachment point: shark-nose intrados box (keeps
+                    # the half-moon rod sleeve) when enabled.
+                    if i == 0 and shark_cfg.get('enabled'):
+                        reinforcements.append(AttachmentReinforcement(
+                            position=ap.rib_pos,
+                            surface_offset=config.get('surface_offset', 0.0005),
+                            halfmoon_radius=config.get('halfmoon_radius', 0.1),
+                            rod_enabled=shark_cfg.get('rod', True),
+                            rod_offset=config.get('rod_offset', 0.008),
+                            rod_width=config.get('rod_width', 0.009),
+                            rod_end_offset=config.get('rod_end_offset', 1.0),
+                            name=name,
+                            relative=config.get('relative', False),
+                            corner_radius=config.get('corner_radius', 0.0),
+                            shark_nose=True,
+                            shark_start=shark_cfg.get('start', 0.03),
+                            shark_end=shark_cfg.get('end', 0.35),
+                            shark_depth=shark_cfg.get('depth', 0.035),
+                            shark_start_angle=shark_cfg.get('start_angle', 90.0),
+                            shark_end_angle=shark_cfg.get('end_angle', 90.0),
+                            shark_corner_radius=shark_cfg.get('corner_radius', 0.01),
+                            shark_depth_relative=shark_cfg.get('depth_relative', False),
+                        ))
+                        continue
+
                     if config.get('enabled', True):
-                        # Generate name: rib index + attachment point name
-                        name = f"{rib_idx + 1}{ap.name}" if ap.name else f"{rib_idx + 1}_{i + 1}"
-                        
                         reinforcement = AttachmentReinforcement(
                             position=ap.rib_pos,
                             surface_offset=config.get('surface_offset', 0.0005),  # 0.5mm
@@ -1121,10 +1146,11 @@ class ParametricGlider:
                             rod_width=config.get('rod_width', 0.009),             # 9mm
                             rod_end_offset=config.get('rod_end_offset', 1.0),     # 1°
                             name=name,
+                            relative=config.get('relative', False),
+                            corner_radius=config.get('corner_radius', 0.0),
                         )
                         reinforcements.append(reinforcement)
 
-                
                 rib.reinforcements = reinforcements
             else:
                 # Non-suspended ribs don't get reinforcements
