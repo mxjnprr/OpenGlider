@@ -451,16 +451,15 @@ class AirfoilStructureTool(BaseTool):
     def get_first_suspended_rib(self):
         """Get the first suspended rib that has valid attachment points (< 90% chord)."""
         glider_instance = self.obj.Proxy.getGliderInstance()
-        suspended_ribs = {att.rib for att in glider_instance.attachment_points if hasattr(att, 'rib')}
-        
+
         for rib in glider_instance.ribs:
-            if rib in suspended_ribs:
-                # Check if this rib has valid attachment points (< 90%)
-                all_aps = glider_instance.get_rib_attachment_points(rib)
-                valid_aps = [ap for ap in all_aps if ap.rib_pos <= 0.90]
-                if valid_aps:
-                    return rib
-        
+            # Robust matcher (see apply_rod_sleeves_to_ribs): an identity-only
+            # set over attachment-point .rib objects can miss every rib.
+            all_aps = glider_instance.get_rib_attachment_points(rib)
+            valid_aps = [ap for ap in all_aps if ap.rib_pos <= 0.90]
+            if valid_aps:
+                return rib
+
         return glider_instance.ribs[0] if glider_instance.ribs else None
     
     def get_valid_attachment_points(self, rib):
@@ -476,15 +475,14 @@ class AirfoilStructureTool(BaseTool):
     def get_first_suspended_rib_index(self):
         """Get the index of the first suspended rib with valid attachment points."""
         glider_instance = self.obj.Proxy.getGliderInstance()
-        suspended_ribs = {att.rib for att in glider_instance.attachment_points if hasattr(att, 'rib')}
-        
+
         for idx, rib in enumerate(glider_instance.ribs):
-            if rib in suspended_ribs:
-                # Check if this rib has valid attachment points (< 90%)
-                all_aps = glider_instance.get_rib_attachment_points(rib)
-                valid_aps = [ap for ap in all_aps if ap.rib_pos <= 0.90]
-                if valid_aps:
-                    return idx
+            # Robust matcher (see apply_rod_sleeves_to_ribs): an identity-only
+            # set over attachment-point .rib objects can miss every rib.
+            all_aps = glider_instance.get_rib_attachment_points(rib)
+            valid_aps = [ap for ap in all_aps if ap.rib_pos <= 0.90]
+            if valid_aps:
+                return idx
         return 0
 
     def on_rib_type_change(self, new_index):
@@ -937,11 +935,11 @@ class AirfoilStructureTool(BaseTool):
         shark_intrados_configs = (getattr(pg, 'intrados_sleeves_s', [])
                                   if getattr(pg, 'intrados_sleeves_enabled_s', True) else [])
 
-        # Identify suspended ribs and build rib index map
-        suspended_ribs = {att.rib for att in glider_instance.attachment_points if hasattr(att, 'rib')}
-
         for rib_idx, rib in enumerate(glider_instance.ribs):
-            if rib in suspended_ribs:
+            # Robust suspended-rib test (see apply_rod_sleeves_to_ribs): match
+            # attachment points by name/identity via get_rib_attachment_points,
+            # not an identity-only set that can misclassify every rib.
+            if glider_instance.get_rib_attachment_points(rib):
                 # Check if this rib is excluded from reinforcements
                 if rib_idx in excluded_ribs:
                     rib.reinforcements = []
@@ -987,12 +985,17 @@ class AirfoilStructureTool(BaseTool):
         
         pg = self.parametric_glider
         glider_instance = self.obj.Proxy.getGliderInstance()
-        
-        # Identify suspended ribs
-        suspended_ribs = {att.rib for att in glider_instance.lineset.attachment_points if hasattr(att, 'rib')}
-        
+
         for rib_idx, rib in enumerate(glider_instance.ribs):
-            is_suspended = rib in suspended_ribs
+            # A rib is "suspended" when lines attach to it. Classify with the
+            # robust name/identity matcher (get_rib_attachment_points) rather
+            # than an identity-only set over attachment-point .rib objects:
+            # those objects are not always the same instances as the glider's
+            # ribs (SingleSkinRib replacements, mirrored ribs, rebuilds), so an
+            # identity set silently classifies EVERY rib as non-suspended, and
+            # every rib then reads the _ns config — coupling the two profile
+            # types (removing non-suspended joncs makes them vanish everywhere).
+            is_suspended = len(glider_instance.get_rib_attachment_points(rib)) > 0
             suffix = '_s' if is_suspended else '_ns'
             
             rod_sleeves = []
