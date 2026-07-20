@@ -24,7 +24,41 @@ class ShapePlot:
 
     def insert_design(self, lower=True):
         part = PlotPart()
-        for cell_no, cell_panels in enumerate(self.glider_2d.get_panels()):
+
+        # For an asymmetric decoupe the two wings carry different cuts/colours,
+        # so draw the whole span: the right half from the "right" panels and the
+        # mirrored left half from the "left" panels. Symmetric gliders keep the
+        # original single-half drawing (byte-identical output).
+        if getattr(self.glider_2d, "is_asymmetric", False):
+            self._draw_design_half(
+                part, self.glider_2d.get_panels(side="right"), lower, mirror=False
+            )
+            self._draw_design_half(
+                part, self.glider_2d.get_panels(side="left"), lower, mirror=True
+            )
+        else:
+            self._draw_design_half(
+                part, self.glider_2d.get_panels(), lower, mirror=False
+            )
+
+        self.drawing.parts.append(part)
+
+        return self
+
+    def _draw_design_half(self, part, cell_panels_list, lower, mirror):
+        """Draw one wing's design panels into ``part``.
+
+        ``mirror`` flips the spanwise coordinate so the left wing is placed on
+        the negative-x side. When the glider has a centre cell, cell 0 already
+        spans across the centreline (drawn once by the right pass), so it is
+        skipped on the mirrored pass to avoid a double-draw.
+        """
+        has_center = self.glider_2d.shape.has_center_cell
+        span_sign = -1 if mirror else 1
+
+        for cell_no, cell_panels in enumerate(cell_panels_list):
+            if mirror and has_center and cell_no == 0:
+                continue
 
             def match(panel):
                 # PolygonPanel (crossing-cut regions) has no cut_front/cut_back
@@ -58,6 +92,12 @@ class ShapePlot:
                 p3 = self.glider_2d.shape.get_shape_point(cell_no + 1, right_back)
                 p4 = self.glider_2d.shape.get_shape_point(cell_no + 1, rigth_front)
 
+                if mirror:
+                    p1 = [span_sign * p1[0], p1[1]]
+                    p2 = [span_sign * p2[0], p2[1]]
+                    p3 = [span_sign * p3[0], p3[1]]
+                    p4 = [span_sign * p4[0], p4[1]]
+
                 part.layers[panel.material_code].append(
                     PolyLine2D([p1, p2, p3, p4, p1])
                 )
@@ -65,10 +105,6 @@ class ShapePlot:
                 # self.drawing.parts.append(PlotPart(
                 #    cuts=[PolyLine2D([p1, p2, p3, p4, p1])],
                 #    material_code=panel.material_code))
-
-        self.drawing.parts.append(part)
-
-        return self
 
     def insert_baseline(self, pct=None):
         if pct is None:
