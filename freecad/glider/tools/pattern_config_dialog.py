@@ -12,8 +12,8 @@ from PySide import QtCore, QtGui
 PATTERN_PARAMETERS = [
     # Section: General
     ("complete_glider", False,
-     ("Exporter le planeur complet. ATTENTION: True peut causer des erreurs",
-      "Export complete glider. WARNING: True may cause errors"),
+     ("Exporter le parapente complet. ATTENTION: True peut causer des erreurs",
+      "Export complete paraglider. WARNING: True may cause errors"),
      bool, None),
     ("debug", False,
      ("Mode debug - affiche des lignes de construction supplémentaires",
