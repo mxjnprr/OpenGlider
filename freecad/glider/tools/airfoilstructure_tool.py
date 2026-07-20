@@ -725,7 +725,7 @@ class AirfoilStructureTool(BaseTool):
         """
         base_config = base_config or {}
         start = shark_cfg.get('start', 0.03)
-        end = shark_cfg.get('end', 0.35)
+        end = shark_cfg.get('end', 0.15)
 
         return AttachmentReinforcement(
             position=ap_pos,
@@ -1257,7 +1257,7 @@ class SharkNoseConfigWidget(QtGui.QWidget):
         self.endSpinBox.setDecimals(1)
         self.endSpinBox.setSuffix(" %")
         self.endSpinBox.setRange(0.0, 100.0)
-        self.endSpinBox.setValue(35.0)
+        self.endSpinBox.setValue(15.0)
         self.endSpinBox.setToolTip("End of the box on the intrados (chord %).")
         self.layout.addRow("End (intrados)", self.endSpinBox)
 
@@ -1380,7 +1380,7 @@ class SharkNoseConfigWidget(QtGui.QWidget):
             return
         self.enableCheckBox.setChecked(config.get('enabled', False))
         self.startSpinBox.setValue(config.get('start', 0.03) * 100.0)
-        self.endSpinBox.setValue(config.get('end', 0.35) * 100.0)
+        self.endSpinBox.setValue(config.get('end', 0.15) * 100.0)
         relative = config.get('depth_relative', False)
         blocked = self.depthRelativeCheckBox.blockSignals(True)
         self.depthRelativeCheckBox.setChecked(relative)

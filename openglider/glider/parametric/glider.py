@@ -170,7 +170,7 @@ class ParametricGlider:
         self.shark_nose_s = kwargs.get('shark_nose_s', {
             'enabled': False,
             'start': 0.03,          # box start on the intrados (chord fraction)
-            'end': 0.35,            # box end on the intrados (chord fraction)
+            'end': 0.15,            # box end on the intrados (chord fraction)
             'depth': 0.035,         # constant band thickness (35mm)
             'start_angle': 90.0,    # nose-side end cap angle (deg)
             'end_angle': 90.0,      # trailing-side end cap angle (deg)
@@ -1127,7 +1127,7 @@ class ParametricGlider:
                             corner_radius=config.get('corner_radius', 0.0),
                             shark_nose=True,
                             shark_start=shark_cfg.get('start', 0.03),
-                            shark_end=shark_cfg.get('end', 0.35),
+                            shark_end=shark_cfg.get('end', 0.15),
                             shark_depth=shark_cfg.get('depth', 0.035),
                             shark_start_angle=shark_cfg.get('start_angle', 90.0),
                             shark_end_angle=shark_cfg.get('end_angle', 90.0),
@@ -1671,7 +1671,7 @@ class ParametricGlider:
             "reinforcement_configs_s": getattr(self, "reinforcement_configs_s", []),
             "reinforcement_excluded_ribs_s": getattr(self, "reinforcement_excluded_ribs_s", []),
             "shark_nose_s": getattr(self, "shark_nose_s", {
-                'enabled': False, 'start': 0.03, 'end': 0.35, 'depth': 0.035,
+                'enabled': False, 'start': 0.03, 'end': 0.15, 'depth': 0.035,
                 'start_angle': 90.0, 'end_angle': 90.0, 'corner_radius': 0.01,
                 'rod': True, 'depth_relative': False,
             }),

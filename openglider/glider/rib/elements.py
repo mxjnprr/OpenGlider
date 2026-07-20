@@ -1045,7 +1045,7 @@ class AttachmentReinforcement:
         corner_radius=0.0,
         shark_nose=False,
         shark_start=0.0,
-        shark_end=0.35,
+        shark_end=0.15,
         shark_depth=0.04,
         shark_start_angle=90.0,
         shark_end_angle=90.0,

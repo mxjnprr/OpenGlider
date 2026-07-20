@@ -91,13 +91,14 @@ class PatternsNew:
         if self.config.complete_glider:
             base = self.project.glider_3d
             # Asymmetric decoupe: copy_complete() swaps the left-wing panel
-            # variants that get_glider_3d() stashes on the 3d glider as
-            # _asym_left_panels. A cached GliderInstance may have lost that
-            # side-channel attribute (it is not serialized), which would export
-            # the same (right) side twice. Rebuild from the parametric glider so
-            # the left variants are present. No-op for symmetric gliders.
+            # variants that get_glider_3d() stashes on the 3d glider as the
+            # dynamic _asym_left_panels attribute. A cached GliderInstance may
+            # have lost it (it is not serialized) or hold a stale one, which
+            # would export the same (right) side twice. For asymmetric gliders,
+            # rebuild a fresh 3d glider from the parametric so the left variants
+            # are guaranteed present and current. No-op for symmetric gliders.
             param = self.project.glider
-            if getattr(param, "is_asymmetric", False) and not getattr(base, "_asym_left_panels", None):
+            if getattr(param, "is_asymmetric", False):
                 try:
                     base = param.get_glider_3d()
                 except Exception:
