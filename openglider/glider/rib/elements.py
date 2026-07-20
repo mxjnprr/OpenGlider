@@ -1041,6 +1041,16 @@ class AttachmentReinforcement:
         rod_end_offset=10.0,
         name="",
         material_code=None,
+        relative=False,
+        corner_radius=0.0,
+        shark_nose=False,
+        shark_start=0.0,
+        shark_end=0.35,
+        shark_depth=0.04,
+        shark_start_angle=90.0,
+        shark_end_angle=90.0,
+        shark_corner_radius=0.01,
+        shark_depth_relative=False,
     ):
         self.position = position
         self.surface_offset = surface_offset
@@ -1051,7 +1061,36 @@ class AttachmentReinforcement:
         self.rod_end_offset = rod_end_offset
         self.name = name
         self.material_code = material_code or ""
-    
+        # Half-moon options:
+        #   relative -> if True, the metric dimensions (surface_offset,
+        #       halfmoon_radius, rod_offset, rod_width) are fractions of the rib
+        #       chord and scale with the profile size. rod_end_offset stays a angle.
+        #   corner_radius -> fillet radius (m) of the crescent tips where the
+        #       half-moon meets the intrados; 0 = sharp.
+        self.relative = relative
+        self.corner_radius = corner_radius
+        # Shark-nose mode: a rounded bounding box confined to the intrados. Its
+        # bottom edge follows the intrados profile exactly from shark_start to
+        # shark_end (chord fractions), its lid is a constant-thickness band offset
+        # shark_depth (m) inward from the intrados, and the corners are rounded. It
+        # englobes the attachment point, the air-intake and the intrados sleeve ends.
+        #   shark_start  -> start chord fraction on the intrados
+        #   shark_end    -> end chord fraction on the intrados
+        #   shark_depth  -> band thickness inward from the intrados (m)
+        #   shark_start_angle / shark_end_angle -> angle of each end cap vs the
+        #       intrados tangent (degrees). 90 = perpendicular cut.
+        #   shark_corner_radius -> fillet radius of the box corners (m); 0 = sharp.
+        #   shark_depth_relative -> if True, shark_depth is a fraction of the rib
+        #       chord (scales with profile size) instead of an absolute length.
+        self.shark_nose = shark_nose
+        self.shark_start = shark_start
+        self.shark_end = shark_end
+        self.shark_depth = shark_depth
+        self.shark_start_angle = shark_start_angle
+        self.shark_end_angle = shark_end_angle
+        self.shark_corner_radius = shark_corner_radius
+        self.shark_depth_relative = shark_depth_relative
+
     def __json__(self):
         return {
             "position": self.position,
@@ -1063,6 +1102,16 @@ class AttachmentReinforcement:
             "rod_end_offset": self.rod_end_offset,
             "name": self.name,
             "material_code": self.material_code,
+            "relative": self.relative,
+            "corner_radius": self.corner_radius,
+            "shark_nose": self.shark_nose,
+            "shark_start": self.shark_start,
+            "shark_end": self.shark_end,
+            "shark_depth": self.shark_depth,
+            "shark_start_angle": self.shark_start_angle,
+            "shark_end_angle": self.shark_end_angle,
+            "shark_corner_radius": self.shark_corner_radius,
+            "shark_depth_relative": self.shark_depth_relative,
         }
     
     def _get_profile_section(self, rib, num_points=30, glider=None):
@@ -1102,8 +1151,9 @@ class AttachmentReinforcement:
                     return (i - direction) + t * direction
             return float(i)  # bord du profil
 
-        start_idx = find_intersection_idx(all_pts, arc_center, self.halfmoon_radius, int(center_idx), -1)
-        end_idx   = find_intersection_idx(all_pts, arc_center, self.halfmoon_radius, int(center_idx), +1)
+        hr = self.halfmoon_radius * (chord if self.relative else 1.0)
+        start_idx = find_intersection_idx(all_pts, arc_center, hr, int(center_idx), -1)
+        end_idx   = find_intersection_idx(all_pts, arc_center, hr, int(center_idx), +1)
         
         if start_idx > end_idx:
             start_idx, end_idx = end_idx, start_idx
@@ -1151,43 +1201,52 @@ class AttachmentReinforcement:
 
         center_idx = profile(self.position)
         arc_center = np.array(profile[center_idx]) * rib.chord
-        
+
+        # Metric dims scale with chord in relative mode.
+        f = rib.chord if self.relative else 1.0
+        surface_offset = self.surface_offset * f
+        hr = self.halfmoon_radius * f
+
         # Outer edge: follows profile with surface offset
         outer_points = []
         for pt, normal in zip(points, normals):
-            outer_pt = pt - normal * self.surface_offset
+            outer_pt = pt - normal * surface_offset
             outer_points.append(outer_pt)
-        
+
         # Calculate angular range from arc_center to outer edge endpoints
         start_vec = outer_points[0] - arc_center
         end_vec = outer_points[-1] - arc_center
-        
+
         start_angle = np.arctan2(start_vec[1], start_vec[0])
         end_angle = np.arctan2(end_vec[1], end_vec[0])
-        
+
         # Ensure we go the right way (shorter arc)
         angle_diff = end_angle - start_angle
         if angle_diff > np.pi:
             angle_diff -= 2 * np.pi
         elif angle_diff < -np.pi:
             angle_diff += 2 * np.pi
-        
+
         # Inner edge: circular arc centered at attachment point, radius = halfmoon_radius
         inner_points = []
         for i in range(num_points):
             t = i / (num_points - 1)
             angle = start_angle + t * angle_diff
-            
+
             inner_pt = arc_center + np.array([
-                self.halfmoon_radius * np.cos(angle),
-                self.halfmoon_radius * np.sin(angle)
+                hr * np.cos(angle),
+                hr * np.sin(angle)
             ])
             inner_points.append(inner_pt)
-        
-        # Combine: outer edge + reversed inner edge + close
-        halfmoon = outer_points + list(reversed(inner_points)) + [outer_points[0]]
-        
-        return halfmoon
+
+        # Combine: outer edge + reversed inner edge. Optionally round the crescent
+        # tips (where the half-moon meets the intrados) before closing.
+        loop = outer_points + list(reversed(inner_points))
+        if self.corner_radius > 0 and len(loop) > 4:
+            n = len(outer_points)
+            r = min(self.corner_radius, 0.45 * hr)
+            loop = self._fillet_corners_dist(loop, [n - 1, 0], r)
+        return [np.asarray(p, dtype=float) for p in loop] + [np.asarray(loop[0], dtype=float)]
     
     def get_rod_sleeve_points(self, rib, num_points=30, glider=None):
         """
@@ -1214,11 +1273,18 @@ class AttachmentReinforcement:
 
         center_idx = profile(self.position)
         arc_center = np.array(profile[center_idx]) * rib.chord
-        
+
+        # Metric dims scale with chord in relative mode.
+        f = rib.chord if self.relative else 1.0
+        surface_offset = self.surface_offset * f
+        hr = self.halfmoon_radius * f
+        rod_offset = self.rod_offset * f
+        rod_width = self.rod_width * f
+
         # Calculate angular range (same as half-moon)
         outer_points = []
         for pt, normal in zip(points, normals):
-            outer_pt = pt - normal * self.surface_offset
+            outer_pt = pt - normal * surface_offset
             outer_points.append(outer_pt)
         
         start_vec = outer_points[0] - arc_center
@@ -1239,8 +1305,8 @@ class AttachmentReinforcement:
         rod_angle_diff = angle_diff - 2 * end_offset_rad * np.sign(angle_diff)
         
         # Rod sleeve: INSIDE the half-moon arc (closer to center)
-        rod_outer_radius = self.halfmoon_radius - self.rod_offset
-        rod_inner_radius = rod_outer_radius - self.rod_width
+        rod_outer_radius = hr - rod_offset
+        rod_inner_radius = rod_outer_radius - rod_width
         
         # Ensure positive radii
         rod_outer_radius = max(0.001, rod_outer_radius)
@@ -1269,8 +1335,163 @@ class AttachmentReinforcement:
         
         return inner_curve, outer_curve
     
+    def get_shark_nose_points(self, rib, num_points=140, glider=None):
+        """
+        Shark-nose reinforcement outline: a rounded bounding box confined to the
+        intrados.
+
+        - Bottom edge: follows the intrados profile exactly from ``shark_start``
+          to ``shark_end`` (chord fractions), wrapping the nose.
+        - Lid (top edge): a constant-thickness band, offset ``shark_depth`` inward
+          from the intrados (perpendicular), so the reinforcement keeps a roughly
+          constant thickness instead of bulging over the attachment point.
+        - Both ends are closed with rounded corners.
+
+        It englobes the attachment point, the air-intake and the intrados sleeve
+        ends (all sitting below the lid).
+        """
+        from openglider.glider.rib.rib import SingleSkinRib
+
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+
+        chord = rib.chord
+        normvectors = PolyLine2D(profile.normvectors)
+        n_norm = len(normvectors.data)
+
+        x0 = abs(self.shark_start)
+        x1 = abs(self.shark_end)
+        if x1 < x0:
+            x0, x1 = x1, x0
+        n = max(8, num_points)
+
+        # Band depth: absolute (m) or a fraction of the chord (scales with the
+        # profile size) when shark_depth_relative is set.
+        depth_abs = self.shark_depth * chord if self.shark_depth_relative else self.shark_depth
+
+        def frame(x):
+            """Intrados point, clamped band depth, inward normal and TE tangent."""
+            i_idx = profile(x)
+            intr = np.array(profile[i_idx]) * chord
+            extr = np.array(profile[profile(-x)]) * chord
+            nrm = np.array(normvectors.data[int(min(max(i_idx, 0), n_norm - 1))])
+            nlen = np.linalg.norm(nrm)
+            inward = -nrm / nlen if nlen > 1e-10 else np.array([0.0, 1.0])
+            thickness = float(np.linalg.norm(extr - intr))
+            d = min(depth_abs, 0.9 * thickness) if thickness > 1e-9 else depth_abs
+            tang = np.array([inward[1], -inward[0]])   # perpendicular to inward
+            if tang[0] < 0:
+                tang = -tang                            # point towards the trailing edge
+            return intr, d, inward, tang
+
+        def lid_point(x):
+            """Lid point: intrados offset inward by the (clamped) band depth."""
+            intr, d, inward, _ = frame(x)
+            return intr + inward * d
+
+        # End caps leave the intrados at the given angle to the tangent (90 =
+        # perpendicular). The cap is the straight edge from the intrados corner to
+        # the lid; to make it leave at the angle, the lid end is shifted along the
+        # chord by depth/tan(angle) (0 at 90 deg -> a perpendicular cut).
+        intr0, d0, m0, tau0 = frame(x0)
+        intr1, d1, m1, tau1 = frame(x1)
+        sh0 = d0 / np.tan(np.deg2rad(np.clip(self.shark_start_angle, 20.0, 160.0)))
+        sh1 = d1 / np.tan(np.deg2rad(np.clip(self.shark_end_angle, 20.0, 160.0)))
+        x0p = np.clip(x0 - tau0[0] * sh0 / chord, 0.0, 0.95) if chord else x0
+        x1p = np.clip(x1 + tau1[0] * sh1 / chord, 0.0, 0.95) if chord else x1
+
+        bottom = [np.array(profile[profile(x)]) * chord for x in np.linspace(x0, x1, n)]
+        lid = [lid_point(x) for x in np.linspace(x0p, x1p, n)]
+
+        if len(bottom) < 2 or len(lid) < 2:
+            return []
+
+        # Closed loop: intrados (x0->x1), end cap, lid (x1p->x0p), start cap. The
+        # end/start caps are the single straight segments between the edges; the
+        # four corners are then rounded with a fillet.
+        loop = list(bottom) + list(reversed(lid))
+        corner_idx = [len(bottom) - 1, len(bottom), len(loop) - 1, 0]
+        # Fillet radius (clamped so it never eats more than ~half of a cap).
+        r = min(self.shark_corner_radius, 0.45 * min(d0, d1))
+        loop = self._fillet_corners_dist(loop, corner_idx, r)
+
+        contour = [np.asarray(p, dtype=float) for p in loop]
+        contour.append(np.asarray(contour[0], dtype=float))
+        return contour
+
+    @staticmethod
+    def _fillet_corners_dist(points, corner_indices, r, k=8):
+        """Round the given corners of a closed loop with an arc of reach ``r``.
+
+        For each corner, trim distance ``r`` along both adjacent edges (walking
+        by arc length) and replace the trimmed span with a quadratic Bezier
+        through the corner. Non-adjacent edge points are left untouched.
+        """
+        P = [np.asarray(p, dtype=float) for p in points]
+        m = len(P)
+        if m < 3 or r <= 0:
+            return P
+        corners = set(i % m for i in corner_indices)
+
+        def interp(i, direction):
+            rem = r
+            j = i
+            for _ in range(m):
+                nj = (j + direction) % m
+                seg = float(np.linalg.norm(P[nj] - P[j]))
+                if seg >= rem:
+                    t = rem / seg if seg > 1e-12 else 0.0
+                    return P[j] + t * (P[nj] - P[j])
+                rem -= seg
+                j = nj
+            return P[j]
+
+        # Points within r of a corner are replaced by the corner arc.
+        trimmed = set()
+        for i in corners:
+            for direction in (-1, 1):
+                rem = r
+                j = i
+                for _ in range(m):
+                    nj = (j + direction) % m
+                    seg = float(np.linalg.norm(P[nj] - P[j]))
+                    if seg >= rem:
+                        break
+                    rem -= seg
+                    trimmed.add(nj)
+                    j = nj
+
+        out = []
+        for i in range(m):
+            if i in corners:
+                a = interp(i, -1)
+                c = interp(i, 1)
+                for t in np.linspace(0.0, 1.0, k):
+                    out.append((1 - t) ** 2 * a + 2 * (1 - t) * t * P[i] + t ** 2 * c)
+            elif i not in trimmed:
+                out.append(P[i])
+        return out
+
     def get_flattened(self, rib, num_points=30, glider=None):
         """Get the flattened 2D representation."""
+        if self.shark_nose:
+            # Merged piece = half-moon prolonged into the nose band. Keep the
+            # optional rod sleeve of the half-moon unchanged.
+            shark_points = self.get_shark_nose_points(rib, glider=glider)
+            inner_rod, outer_rod = self.get_rod_sleeve_points(rib, num_points, glider=glider)
+            rod_points = []
+            if inner_rod and outer_rod:
+                rod_points = outer_rod + list(reversed(inner_rod)) + [outer_rod[0]]
+            return {
+                'halfmoon': PolyLine2D(shark_points),
+                'rod_sleeve': PolyLine2D(rod_points),
+            }
+
         halfmoon_points = self.get_halfmoon_points(rib, num_points, glider=glider)
         inner_rod, outer_rod = self.get_rod_sleeve_points(rib, num_points, glider=glider)
         

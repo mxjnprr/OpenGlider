@@ -162,6 +162,23 @@ class ParametricGlider:
         self.reinforcement_configs_s = kwargs.get('reinforcement_configs_s', [])
         self.reinforcement_excluded_ribs_s = kwargs.get('reinforcement_excluded_ribs_s', [])
 
+        # Shark-nose reinforcement (front-most attachment point, suspended only).
+        # A rounded bounding box confined to the intrados: bottom edge follows the
+        # intrados from start to end (chord fractions), the lid is a constant-
+        # thickness band (depth, m) inward from the intrados, each end cap cut at
+        # start_angle / end_angle degrees (90 = perpendicular), rounded corners.
+        self.shark_nose_s = kwargs.get('shark_nose_s', {
+            'enabled': False,
+            'start': 0.03,          # box start on the intrados (chord fraction)
+            'end': 0.35,            # box end on the intrados (chord fraction)
+            'depth': 0.035,         # constant band thickness (35mm)
+            'start_angle': 90.0,    # nose-side end cap angle (deg)
+            'end_angle': 90.0,      # trailing-side end cap angle (deg)
+            'corner_radius': 0.01,  # corner rounding radius (10mm); 0 = sharp
+            'rod': True,            # include the attachment rod sleeve
+            'depth_relative': False,  # thickness as a chord fraction (scales with size)
+        })
+
         # Multi-rod sleeves (NEW FORMAT - list of configs)
         # Suspended ribs
         self.extrados_sleeves_enabled_s = kwargs.get('extrados_sleeves_enabled_s', True)

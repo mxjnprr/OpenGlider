@@ -335,6 +335,10 @@ class AirfoilStructureTool(BaseTool):
         self.reinforcementStack.addWidget(self.reinforcementTabs)
         self.reinforcement_widgets = []
 
+        # Shark-nose config (applies to the front-most attachment point only)
+        self.sharkNoseLabel = QtGui.QLabel("— Shark nose —", self.reinforcementGroupBox)
+        self.sharkConfig = SharkNoseConfigWidget(self.reinforcementGroupBox)
+
         self.applyButton = QtGui.QPushButton("Apply", self.base_widget)
 
         # Preview rib selector - use ComboBox to show actual rib names
@@ -359,7 +363,9 @@ class AirfoilStructureTool(BaseTool):
         self.reinforcementLayout.addRow(self.reinforcementApplyAllCheckBox)
         self.reinforcementLayout.addRow("Excluded Ribs", self.reinforcementExcludedRibsEdit)
         self.reinforcementLayout.addRow(self.reinforcementStack)
-        
+        self.reinforcementLayout.addRow(self.sharkNoseLabel)
+        self.reinforcementLayout.addRow(self.sharkConfig)
+
         self.layout.addRow(self.reinforcementGroupBox)
         
         # Preview selector
@@ -388,6 +394,7 @@ class AirfoilStructureTool(BaseTool):
         self.reinforcementApplyAllCheckBox.stateChanged.connect(self.update_preview)
         # Master config signals are connected in ReinforcementConfigWidget
         self.masterConfig.changed.connect(self.update_preview)
+        self.sharkConfig.changed.connect(self.update_preview)
         
         self.ribTypeComboBox.currentIndexChanged.connect(self.on_rib_type_change)
         self.previewRibComboBox.currentIndexChanged.connect(self.update_preview)
@@ -521,6 +528,13 @@ class AirfoilStructureTool(BaseTool):
 
         is_suspended = self.ribTypeComboBox.currentIndex() == 1
         rib = self.get_representative_rib(suspended=is_suspended)
+        # Reference chord for the mm<->% (proportional) conversions.
+        if rib is not None:
+            ref_c = getattr(rib, 'chord', 2.5)
+            self.sharkConfig.ref_chord = ref_c
+            self.masterConfig.ref_chord = ref_c
+            for w in self.reinforcement_widgets:
+                w.ref_chord = ref_c
         if not rib:
             return
 
@@ -560,7 +574,8 @@ class AirfoilStructureTool(BaseTool):
         # Draw attachment reinforcements if enabled and suspended
         if is_suspended and self.reinforcementEnabledCheckBox.isChecked():
             apply_all = self.reinforcementApplyAllCheckBox.isChecked()
-            
+            shark_cfg = self.sharkConfig.get_values()
+
             for i, ap in enumerate(valid_aps):
                 # Get config
                 if apply_all:
@@ -571,7 +586,18 @@ class AirfoilStructureTool(BaseTool):
                         config = self.reinforcement_widgets[i].get_values()
                     else:
                         continue # Should not happen if tabs aligned with valid_aps
-                
+
+                # Front-most attachment point: the half-moon is prolonged into a
+                # merged shark-nose piece when enabled (keeps the half-moon).
+                if i == 0 and shark_cfg.get('enabled'):
+                    reinforcement, _, _ = self._create_shark_reinforcement(
+                        rib, glider_instance, shark_cfg, ap.rib_pos,
+                        self.extradosGroup.get_configs(),
+                        self.intradosGroup.get_configs(),
+                        config)
+                    self._draw_reinforcement(reinforcement, rib, glider=glider_instance)
+                    continue
+
                 if config['enabled']:
                     reinforcement = self._create_reinforcement(ap.rib_pos, config)
                     self._draw_reinforcement(reinforcement, rib, glider=glider_instance)
@@ -587,6 +613,8 @@ class AirfoilStructureTool(BaseTool):
             rod_width=config['rod_width'],
             rod_end_offset=config.get('rod_end_offset', 10.0),
             name=name,
+            relative=config.get('relative', False),
+            corner_radius=config.get('corner_radius', 0.0),
         )
 
 
@@ -651,35 +679,72 @@ class AirfoilStructureTool(BaseTool):
         if glider is None:
             return
         try:
-            # A rib borders up to two cells; the intake edges may come from
-            # either. For each, use the side value that belongs to this rib:
-            #  - right cell (this rib is rib1) -> 'left'
-            #  - left cell  (this rib is rib2) -> 'right'
-            rib_idx = next((i for i, r in enumerate(glider.ribs) if r is rib), None)
-            if rib_idx is None:
-                return
-
-            cells = glider.cells
-            neighbours = []
-            if rib_idx < len(cells):
-                neighbours.append((cells[rib_idx], 'left'))
-            if 0 <= rib_idx - 1 < len(cells):
-                neighbours.append((cells[rib_idx - 1], 'right'))
-
-            # Collect folded-cut chord positions (front/back edges of the mouth).
-            positions = []
-            for cell, side in neighbours:
-                for panel in cell.panels:
-                    for cut in (panel.cut_front, panel.cut_back):
-                        if cut.get("type") == "folded":
-                            x = cut[side]
-                            if not any(abs(x - u) < 1e-4 for u in positions):
-                                positions.append(x)
-
-            for x in positions:
+            for x in self._get_air_intake_positions(rib, glider):
                 self._draw_intake_tick(rib, x)
         except Exception as e:
             print(f"Error drawing air intake marks: {e}")
+
+    def _get_air_intake_positions(self, rib, glider):
+        """Return the chord positions of the air-intake mouth (folded cuts).
+
+        A rib borders up to two cells; the intake edges may come from either.
+        For each, use the side value that belongs to this rib:
+          - right cell (this rib is rib1) -> 'left'
+          - left cell  (this rib is rib2) -> 'right'
+        """
+        positions = []
+        if glider is None:
+            return positions
+        rib_idx = next((i for i, r in enumerate(glider.ribs) if r is rib), None)
+        if rib_idx is None:
+            return positions
+
+        cells = glider.cells
+        neighbours = []
+        if rib_idx < len(cells):
+            neighbours.append((cells[rib_idx], 'left'))
+        if 0 <= rib_idx - 1 < len(cells):
+            neighbours.append((cells[rib_idx - 1], 'right'))
+
+        for cell, side in neighbours:
+            for panel in cell.panels:
+                for cut in (panel.cut_front, panel.cut_back):
+                    if cut.get("type") == "folded":
+                        x = cut[side]
+                        if not any(abs(x - u) < 1e-4 for u in positions):
+                            positions.append(x)
+        return positions
+
+    def _create_shark_reinforcement(self, rib, glider, shark_cfg, ap_pos,
+                                    extrados_configs, intrados_configs, base_config):
+        """Build the shark-nose AttachmentReinforcement (intrados rounded box).
+
+        Inherits the half-moon parameters (radius, surface offset, rod sleeve)
+        from ``base_config`` (that AP's normal reinforcement config) so the rod
+        sleeve is kept inside the box.
+        """
+        base_config = base_config or {}
+        start = shark_cfg.get('start', 0.03)
+        end = shark_cfg.get('end', 0.35)
+
+        return AttachmentReinforcement(
+            position=ap_pos,
+            surface_offset=base_config.get('surface_offset', 0.0005),
+            halfmoon_radius=base_config.get('halfmoon_radius', 0.1),
+            rod_enabled=shark_cfg.get('rod', True),
+            rod_offset=base_config.get('rod_offset', 0.008),
+            rod_width=base_config.get('rod_width', 0.009),
+            rod_end_offset=base_config.get('rod_end_offset', 1.0),
+            name="",
+            shark_nose=True,
+            shark_start=start,
+            shark_end=end,
+            shark_depth=shark_cfg.get('depth', 0.035),
+            shark_start_angle=shark_cfg.get('start_angle', 90.0),
+            shark_end_angle=shark_cfg.get('end_angle', 90.0),
+            shark_corner_radius=shark_cfg.get('corner_radius', 0.01),
+            shark_depth_relative=shark_cfg.get('depth_relative', False),
+        ), start, end
 
     def _draw_intake_tick(self, rib, x):
         """Draw one air-intake tick perpendicular to the profile at chord pos x."""
@@ -804,6 +869,9 @@ class AirfoilStructureTool(BaseTool):
                 else:
                     pass
 
+            # Load shark-nose config
+            self.sharkConfig.set_values(getattr(pg, 'shark_nose_s', {}))
+
     def update_glider_data(self, is_suspended):
         """Save UI values to parametric glider."""
         pg = self.parametric_glider
@@ -829,6 +897,9 @@ class AirfoilStructureTool(BaseTool):
             # Save list of configs
             configs = [w.get_values() for w in self.reinforcement_widgets]
             pg.reinforcement_configs_s = configs
+
+            # Save shark-nose config
+            pg.shark_nose_s = self.sharkConfig.get_values()
     
     def get_reinforcement_excluded_ribs(self):
         """Parse excluded ribs for reinforcements. Returns list of 0-based indices."""
@@ -857,36 +928,54 @@ class AirfoilStructureTool(BaseTool):
         master_config = getattr(pg, 'reinforcement_master_s', {})
         configs = getattr(pg, 'reinforcement_configs_s', [])
         excluded_ribs = getattr(pg, 'reinforcement_excluded_ribs_s', [])
-        
+
+        # Shark-nose config + the rod-sleeve configs it englobes (parametric,
+        # suspended-side). Only the front-most attachment point uses it.
+        shark_cfg = getattr(pg, 'shark_nose_s', {}) or {}
+        shark_extrados_configs = (getattr(pg, 'extrados_sleeves_s', [])
+                                  if getattr(pg, 'extrados_sleeves_enabled_s', True) else [])
+        shark_intrados_configs = (getattr(pg, 'intrados_sleeves_s', [])
+                                  if getattr(pg, 'intrados_sleeves_enabled_s', True) else [])
+
         # Identify suspended ribs and build rib index map
         suspended_ribs = {att.rib for att in glider_instance.attachment_points if hasattr(att, 'rib')}
-        
+
         for rib_idx, rib in enumerate(glider_instance.ribs):
             if rib in suspended_ribs:
                 # Check if this rib is excluded from reinforcements
                 if rib_idx in excluded_ribs:
                     rib.reinforcements = []
                     continue
-                
+
                 # Get valid attachment points for this rib
                 valid_aps = self.get_valid_attachment_points(rib)
-                
+
                 reinforcements = []
                 for i, ap in enumerate(valid_aps):
+                    # Generate name: rib index + attachment point name (contains
+                    # the line letter A, B, C, D...).
+                    name = f"{rib_idx + 1}{ap.name}" if ap.name else f"{rib_idx + 1}_{i + 1}"
+
                     # Get config
                     if apply_all:
                         config = master_config
                     else:
                         config = configs[i] if i < len(configs) else master_config
-                    
+
+                    # Front-most attachment point: the half-moon is prolonged into
+                    # a merged shark-nose piece when enabled (keeps the half-moon).
+                    if i == 0 and shark_cfg.get('enabled'):
+                        reinforcement, _, _ = self._create_shark_reinforcement(
+                            rib, glider_instance, shark_cfg, ap.rib_pos,
+                            shark_extrados_configs, shark_intrados_configs, config)
+                        reinforcement.name = name
+                        reinforcements.append(reinforcement)
+                        continue
+
                     if config.get('enabled', True):
-                        # Generate name: rib index + attachment point name (contains line letter)
-                        # ap.name typically contains the line letter (A, B, C, D, etc.)
-                        name = f"{rib_idx + 1}{ap.name}" if ap.name else f"{rib_idx + 1}_{i + 1}"
-                        
                         reinforcement = self._create_reinforcement(ap.rib_pos, config, name)
                         reinforcements.append(reinforcement)
-                
+
                 rib.reinforcements = reinforcements
             else:
                 # Non-suspended ribs don't get reinforcements
@@ -1031,7 +1120,29 @@ class ReinforcementConfigWidget(QtGui.QWidget):
         self.rodEndOffsetSpinBox.setRange(0.0, 90.0)
         self.rodEndOffsetSpinBox.setValue(1.0)  # 1° default
         self.layout.addRow("Rod end offset", self.rodEndOffsetSpinBox)
-        
+
+        self.cornerRadiusSpinBox = QtGui.QDoubleSpinBox()
+        self.cornerRadiusSpinBox.setSingleStep(1.0)
+        self.cornerRadiusSpinBox.setDecimals(1)
+        self.cornerRadiusSpinBox.setSuffix(" mm")
+        self.cornerRadiusSpinBox.setRange(0.0, 200.0)
+        self.cornerRadiusSpinBox.setValue(0.0)
+        self.cornerRadiusSpinBox.setToolTip("Rounding of the crescent tips near the intrados. 0 = sharp.")
+        self.layout.addRow("Corner radius", self.cornerRadiusSpinBox)
+
+        self.relativeCheckBox = QtGui.QCheckBox("Proportional (% chord)")
+        self.relativeCheckBox.setChecked(False)
+        self.relativeCheckBox.setToolTip(
+            "Scale the half-moon dimensions (offset, radius, rod) with the profile "
+            "size: interpret them as percentages of the chord.")
+        self.layout.addRow(self.relativeCheckBox)
+
+        # Reference chord (of the preview rib) for the mm<->% conversion.
+        self.ref_chord = 2.5
+        # Metric fields that switch between mm and % chord in proportional mode.
+        self._metric_spins = [self.surfaceOffsetSpinBox, self.halfmoonRadiusSpinBox,
+                              self.rodOffsetSpinBox, self.rodWidthSpinBox]
+
         self.enableCheckBox.stateChanged.connect(self.emit_changed)
         self.surfaceOffsetSpinBox.valueChanged.connect(self.emit_changed)
         self.halfmoonRadiusSpinBox.valueChanged.connect(self.emit_changed)
@@ -1039,29 +1150,248 @@ class ReinforcementConfigWidget(QtGui.QWidget):
         self.rodOffsetSpinBox.valueChanged.connect(self.emit_changed)
         self.rodWidthSpinBox.valueChanged.connect(self.emit_changed)
         self.rodEndOffsetSpinBox.valueChanged.connect(self.emit_changed)
-        
+        self.cornerRadiusSpinBox.valueChanged.connect(self.emit_changed)
+        self.relativeCheckBox.stateChanged.connect(self._on_relative_toggle)
+
     def emit_changed(self):
         self.changed.emit()
-        
+
+    def _apply_relative_units(self, relative):
+        """Set the metric spinboxes' unit for %-chord vs mm (no conversion)."""
+        for spin in self._metric_spins:
+            blocked = spin.blockSignals(True)
+            if relative:
+                spin.setSuffix(" %")
+                spin.setDecimals(2)
+                spin.setRange(0.0, 100.0)
+                spin.setSingleStep(0.1)
+            else:
+                spin.setSuffix(" mm")
+                spin.setDecimals(1)
+                spin.setRange(0.0, 1000.0)
+                spin.setSingleStep(1.0)
+            spin.blockSignals(blocked)
+
+    def _on_relative_toggle(self):
+        """Convert the metric fields between mm and % chord, then re-unit."""
+        relative = self.relativeCheckBox.isChecked()
+        ref = self.ref_chord or 2.5
+        vals = [s.value() for s in self._metric_spins]
+        self._apply_relative_units(relative)
+        for spin, v in zip(self._metric_spins, vals):
+            new = (v / 1000.0) / ref * 100.0 if relative else (v / 100.0) * ref * 1000.0
+            blocked = spin.blockSignals(True)
+            spin.setValue(new)
+            spin.blockSignals(blocked)
+        self.emit_changed()
+
     def get_values(self):
+        relative = self.relativeCheckBox.isChecked()
+        div = 100.0 if relative else 1000.0   # % chord (fraction) vs mm (meters)
         return {
             'enabled': self.enableCheckBox.isChecked(),
-            'surface_offset': self.surfaceOffsetSpinBox.value() / 1000.0,
-            'halfmoon_radius': self.halfmoonRadiusSpinBox.value() / 1000.0,
+            'surface_offset': self.surfaceOffsetSpinBox.value() / div,
+            'halfmoon_radius': self.halfmoonRadiusSpinBox.value() / div,
             'rod_enabled': self.rodEnabledCheckBox.isChecked(),
-            'rod_offset': self.rodOffsetSpinBox.value() / 1000.0,
-            'rod_width': self.rodWidthSpinBox.value() / 1000.0,
+            'rod_offset': self.rodOffsetSpinBox.value() / div,
+            'rod_width': self.rodWidthSpinBox.value() / div,
             'rod_end_offset': self.rodEndOffsetSpinBox.value(),
+            'corner_radius': self.cornerRadiusSpinBox.value() / 1000.0,
+            'relative': relative,
         }
-        
+
     def set_values(self, config):
         if not config:
             return
         self.enableCheckBox.setChecked(config.get('enabled', True))
-        self.surfaceOffsetSpinBox.setValue(config.get('surface_offset', 0.003) * 1000.0)
-        self.halfmoonRadiusSpinBox.setValue(config.get('halfmoon_radius', 0.03) * 1000.0)
+        relative = config.get('relative', False)
+        blocked = self.relativeCheckBox.blockSignals(True)
+        self.relativeCheckBox.setChecked(relative)
+        self.relativeCheckBox.blockSignals(blocked)
+        self._apply_relative_units(relative)
+        mul = 100.0 if relative else 1000.0
+        self.surfaceOffsetSpinBox.setValue(config.get('surface_offset', 0.003) * mul)
+        self.halfmoonRadiusSpinBox.setValue(config.get('halfmoon_radius', 0.03) * mul)
         self.rodEnabledCheckBox.setChecked(config.get('rod_enabled', True))
-        self.rodOffsetSpinBox.setValue(config.get('rod_offset', 0.005) * 1000.0)
-        self.rodWidthSpinBox.setValue(config.get('rod_width', 0.005) * 1000.0)
+        self.rodOffsetSpinBox.setValue(config.get('rod_offset', 0.005) * mul)
+        self.rodWidthSpinBox.setValue(config.get('rod_width', 0.005) * mul)
         self.rodEndOffsetSpinBox.setValue(config.get('rod_end_offset', 10.0))
+        self.cornerRadiusSpinBox.setValue(config.get('corner_radius', 0.0) * 1000.0)
+
+
+class SharkNoseConfigWidget(QtGui.QWidget):
+    """Config for the shark-nose reinforcement on the front attachment point.
+
+    A rounded bounding box confined to the intrados: its bottom edge follows the
+    intrados profile (and the nose) from 'Start' to 'End' (chord %), its lid is a
+    constant-thickness band 'Thickness' inward from the intrados, and each end cap
+    is cut at its 'Start angle' / 'End angle' (90 = perpendicular) with rounded
+    corners.
+    """
+    changed = QtCore.Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QtGui.QFormLayout(self)
+        self.layout.setContentsMargins(0, 5, 0, 5)
+
+        # Reference chord (of the preview rib) used to convert the Thickness field
+        # between mm and % chord; updated by the tool.
+        self.ref_chord = 2.5
+
+        self.enableCheckBox = QtGui.QCheckBox("Shark nose (front attachment)")
+        self.enableCheckBox.setChecked(False)
+        self.layout.addRow(self.enableCheckBox)
+
+        self.startSpinBox = QtGui.QDoubleSpinBox()
+        self.startSpinBox.setSingleStep(1.0)
+        self.startSpinBox.setDecimals(1)
+        self.startSpinBox.setSuffix(" %")
+        self.startSpinBox.setRange(0.0, 100.0)
+        self.startSpinBox.setValue(3.0)
+        self.startSpinBox.setToolTip("Start of the box on the intrados (chord %). 0 = leading edge.")
+        self.layout.addRow("Start (intrados)", self.startSpinBox)
+
+        self.endSpinBox = QtGui.QDoubleSpinBox()
+        self.endSpinBox.setSingleStep(1.0)
+        self.endSpinBox.setDecimals(1)
+        self.endSpinBox.setSuffix(" %")
+        self.endSpinBox.setRange(0.0, 100.0)
+        self.endSpinBox.setValue(35.0)
+        self.endSpinBox.setToolTip("End of the box on the intrados (chord %).")
+        self.layout.addRow("End (intrados)", self.endSpinBox)
+
+        self.thicknessSpinBox = QtGui.QDoubleSpinBox()
+        self.thicknessSpinBox.setSingleStep(1.0)
+        self.thicknessSpinBox.setDecimals(1)
+        self.thicknessSpinBox.setSuffix(" mm")
+        self.thicknessSpinBox.setRange(1.0, 500.0)
+        self.thicknessSpinBox.setValue(35.0)
+        self.thicknessSpinBox.setToolTip("Constant band thickness, inward from the intrados.")
+        self.layout.addRow("Thickness", self.thicknessSpinBox)
+
+        self.depthRelativeCheckBox = QtGui.QCheckBox("Proportional (% chord)")
+        self.depthRelativeCheckBox.setChecked(False)
+        self.depthRelativeCheckBox.setToolTip(
+            "Scale the thickness with the profile size: interpret Thickness as a "
+            "percentage of the chord instead of an absolute length.")
+        self.layout.addRow(self.depthRelativeCheckBox)
+
+        self.startAngleSpinBox = QtGui.QDoubleSpinBox()
+        self.startAngleSpinBox.setSingleStep(5.0)
+        self.startAngleSpinBox.setDecimals(0)
+        self.startAngleSpinBox.setSuffix(" °")
+        self.startAngleSpinBox.setRange(20.0, 160.0)
+        self.startAngleSpinBox.setValue(90.0)
+        self.startAngleSpinBox.setToolTip("Angle of the start (nose-side) end cap. 90 = perpendicular.")
+        self.layout.addRow("Start angle", self.startAngleSpinBox)
+
+        self.endAngleSpinBox = QtGui.QDoubleSpinBox()
+        self.endAngleSpinBox.setSingleStep(5.0)
+        self.endAngleSpinBox.setDecimals(0)
+        self.endAngleSpinBox.setSuffix(" °")
+        self.endAngleSpinBox.setRange(20.0, 160.0)
+        self.endAngleSpinBox.setValue(90.0)
+        self.endAngleSpinBox.setToolTip("Angle of the end (trailing-side) end cap. 90 = perpendicular.")
+        self.layout.addRow("End angle", self.endAngleSpinBox)
+
+        self.cornerRadiusSpinBox = QtGui.QDoubleSpinBox()
+        self.cornerRadiusSpinBox.setSingleStep(1.0)
+        self.cornerRadiusSpinBox.setDecimals(1)
+        self.cornerRadiusSpinBox.setSuffix(" mm")
+        self.cornerRadiusSpinBox.setRange(0.0, 100.0)
+        self.cornerRadiusSpinBox.setValue(10.0)
+        self.cornerRadiusSpinBox.setToolTip("Corner rounding radius near the intrados line. 0 = sharp corners.")
+        self.layout.addRow("Corner radius", self.cornerRadiusSpinBox)
+
+        self.rodCheckBox = QtGui.QCheckBox("Rod sleeve")
+        self.rodCheckBox.setChecked(True)
+        self.rodCheckBox.setToolTip("Include the attachment-point rod sleeve inside the box.")
+        self.layout.addRow(self.rodCheckBox)
+
+        self.enableCheckBox.stateChanged.connect(self._update_enabled_state)
+        self.enableCheckBox.stateChanged.connect(self.emit_changed)
+        self.startSpinBox.valueChanged.connect(self.emit_changed)
+        self.endSpinBox.valueChanged.connect(self.emit_changed)
+        self.thicknessSpinBox.valueChanged.connect(self.emit_changed)
+        self.depthRelativeCheckBox.stateChanged.connect(self._on_depth_mode_toggle)
+        self.startAngleSpinBox.valueChanged.connect(self.emit_changed)
+        self.endAngleSpinBox.valueChanged.connect(self.emit_changed)
+        self.cornerRadiusSpinBox.valueChanged.connect(self.emit_changed)
+        self.rodCheckBox.stateChanged.connect(self.emit_changed)
+
+        self._update_enabled_state()
+
+    def emit_changed(self):
+        self.changed.emit()
+
+    def _apply_depth_units(self, relative):
+        """Set the Thickness spinbox unit/range for %-chord vs mm (no convert)."""
+        blocked = self.thicknessSpinBox.blockSignals(True)
+        if relative:
+            self.thicknessSpinBox.setSuffix(" %")
+            self.thicknessSpinBox.setDecimals(2)
+            self.thicknessSpinBox.setRange(0.1, 50.0)
+            self.thicknessSpinBox.setSingleStep(0.1)
+        else:
+            self.thicknessSpinBox.setSuffix(" mm")
+            self.thicknessSpinBox.setDecimals(1)
+            self.thicknessSpinBox.setRange(1.0, 500.0)
+            self.thicknessSpinBox.setSingleStep(1.0)
+        self.thicknessSpinBox.blockSignals(blocked)
+
+    def _on_depth_mode_toggle(self):
+        """Convert the Thickness value between mm and % chord, then re-unit."""
+        relative = self.depthRelativeCheckBox.isChecked()
+        ref = self.ref_chord or 2.5
+        cur = self.thicknessSpinBox.value()
+        new = (cur / 1000.0) / ref * 100.0 if relative else (cur / 100.0) * ref * 1000.0
+        self._apply_depth_units(relative)
+        blocked = self.thicknessSpinBox.blockSignals(True)
+        self.thicknessSpinBox.setValue(new)
+        self.thicknessSpinBox.blockSignals(blocked)
+        self.emit_changed()
+
+    def _update_enabled_state(self):
+        on = self.enableCheckBox.isChecked()
+        for w in (self.startSpinBox, self.endSpinBox, self.thicknessSpinBox,
+                  self.depthRelativeCheckBox, self.startAngleSpinBox, self.endAngleSpinBox,
+                  self.cornerRadiusSpinBox, self.rodCheckBox):
+            w.setEnabled(on)
+
+    def get_values(self):
+        relative = self.depthRelativeCheckBox.isChecked()
+        # relative -> depth is a chord fraction (value %); else meters (value mm)
+        depth = self.thicknessSpinBox.value() / (100.0 if relative else 1000.0)
+        return {
+            'enabled': self.enableCheckBox.isChecked(),
+            'start': self.startSpinBox.value() / 100.0,
+            'end': self.endSpinBox.value() / 100.0,
+            'depth': depth,
+            'depth_relative': relative,
+            'start_angle': self.startAngleSpinBox.value(),
+            'end_angle': self.endAngleSpinBox.value(),
+            'corner_radius': self.cornerRadiusSpinBox.value() / 1000.0,
+            'rod': self.rodCheckBox.isChecked(),
+        }
+
+    def set_values(self, config):
+        if not config:
+            return
+        self.enableCheckBox.setChecked(config.get('enabled', False))
+        self.startSpinBox.setValue(config.get('start', 0.03) * 100.0)
+        self.endSpinBox.setValue(config.get('end', 0.35) * 100.0)
+        relative = config.get('depth_relative', False)
+        blocked = self.depthRelativeCheckBox.blockSignals(True)
+        self.depthRelativeCheckBox.setChecked(relative)
+        self.depthRelativeCheckBox.blockSignals(blocked)
+        self._apply_depth_units(relative)
+        blocked = self.thicknessSpinBox.blockSignals(True)
+        self.thicknessSpinBox.setValue(config.get('depth', 0.035) * (100.0 if relative else 1000.0))
+        self.thicknessSpinBox.blockSignals(blocked)
+        self.startAngleSpinBox.setValue(config.get('start_angle', 90.0))
+        self.endAngleSpinBox.setValue(config.get('end_angle', 90.0))
+        self.cornerRadiusSpinBox.setValue(config.get('corner_radius', 0.01) * 1000.0)
+        self.rodCheckBox.setChecked(config.get('rod', True))
+        self._update_enabled_state()
 
