@@ -27,6 +27,11 @@ class ShapePlot:
         for cell_no, cell_panels in enumerate(self.glider_2d.get_panels()):
 
             def match(panel):
+                # PolygonPanel (crossing-cut regions) has no cut_front/cut_back
+                # trapezoid cuts -> it can't be drawn as a design trapezoid here,
+                # so skip it (the pattern itself still exports elsewhere).
+                if not hasattr(panel, "cut_front") or not hasattr(panel, "cut_back"):
+                    return False
                 if lower:
                     # -> either on the left or on the right it should go further than 0
                     return panel.cut_back["left"] > 0 or panel.cut_back["right"] > 0
