@@ -740,7 +740,7 @@ class AirfoilStructureTool(BaseTool):
             shark_depth=shark_cfg.get('depth', 0.035),
             shark_start_angle=shark_cfg.get('start_angle', 90.0),
             shark_end_angle=shark_cfg.get('end_angle', 90.0),
-            shark_corner_radius=shark_cfg.get('corner_radius', 0.01),
+            shark_corner_radius=shark_cfg.get('corner_radius', 0.5),
             shark_depth_relative=shark_cfg.get('depth_relative', False),
         ), start, end
 
@@ -1299,13 +1299,15 @@ class SharkNoseConfigWidget(QtGui.QWidget):
         self.layout.addRow("End angle", self.endAngleSpinBox)
 
         self.cornerRadiusSpinBox = QtGui.QDoubleSpinBox()
-        self.cornerRadiusSpinBox.setSingleStep(1.0)
-        self.cornerRadiusSpinBox.setDecimals(1)
-        self.cornerRadiusSpinBox.setSuffix(" mm")
+        self.cornerRadiusSpinBox.setSingleStep(5.0)
+        self.cornerRadiusSpinBox.setDecimals(0)
+        self.cornerRadiusSpinBox.setSuffix(" %")
         self.cornerRadiusSpinBox.setRange(0.0, 100.0)
-        self.cornerRadiusSpinBox.setValue(10.0)
-        self.cornerRadiusSpinBox.setToolTip("Corner rounding radius near the intrados line. 0 = sharp corners.")
-        self.layout.addRow("Corner radius", self.cornerRadiusSpinBox)
+        self.cornerRadiusSpinBox.setValue(50.0)
+        self.cornerRadiusSpinBox.setToolTip(
+            "Corner rounding as a fraction of the band depth: 0 % = sharp, "
+            "100 % = fully rounded. Scales with the reinforcement size.")
+        self.layout.addRow("Corner rounding", self.cornerRadiusSpinBox)
 
         self.rodCheckBox = QtGui.QCheckBox("Rod sleeve")
         self.rodCheckBox.setChecked(True)
@@ -1374,7 +1376,7 @@ class SharkNoseConfigWidget(QtGui.QWidget):
             'depth_relative': relative,
             'start_angle': self.startAngleSpinBox.value(),
             'end_angle': self.endAngleSpinBox.value(),
-            'corner_radius': self.cornerRadiusSpinBox.value() / 1000.0,
+            'corner_radius': self.cornerRadiusSpinBox.value() / 100.0,
             'rod': self.rodCheckBox.isChecked(),
         }
 
@@ -1394,7 +1396,7 @@ class SharkNoseConfigWidget(QtGui.QWidget):
         self.thicknessSpinBox.blockSignals(blocked)
         self.startAngleSpinBox.setValue(config.get('start_angle', 90.0))
         self.endAngleSpinBox.setValue(config.get('end_angle', 90.0))
-        self.cornerRadiusSpinBox.setValue(config.get('corner_radius', 0.01) * 1000.0)
+        self.cornerRadiusSpinBox.setValue(config.get('corner_radius', 0.5) * 100.0)
         self.rodCheckBox.setChecked(config.get('rod', True))
         self._update_enabled_state()
 

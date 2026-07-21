@@ -1049,7 +1049,7 @@ class AttachmentReinforcement:
         shark_depth=0.04,
         shark_start_angle=90.0,
         shark_end_angle=90.0,
-        shark_corner_radius=0.01,
+        shark_corner_radius=0.5,
         shark_depth_relative=False,
     ):
         self.position = position
@@ -1079,7 +1079,10 @@ class AttachmentReinforcement:
         #   shark_depth  -> band thickness inward from the intrados (m)
         #   shark_start_angle / shark_end_angle -> angle of each end cap vs the
         #       intrados tangent (degrees). 90 = perpendicular cut.
-        #   shark_corner_radius -> fillet radius of the box corners (m); 0 = sharp.
+        #   shark_corner_radius -> corner rounding as a fraction (0..1) of the max
+        #       rounding each cap can take (0 = sharp, 1 = fully rounded). Being
+        #       relative to the local band depth, it scales with the profile and
+        #       every value produces a visible change.
         #   shark_depth_relative -> if True, shark_depth is a fraction of the rib
         #       chord (scales with profile size) instead of an absolute length.
         self.shark_nose = shark_nose
@@ -1379,11 +1382,18 @@ class AttachmentReinforcement:
             i_idx = profile(x)
             intr = np.array(profile[i_idx]) * chord
             extr = np.array(profile[profile(-x)]) * chord
-            nrm = np.array(normvectors.data[int(min(max(i_idx, 0), n_norm - 1))])
+            # Interpolate the normal at the fractional profile index. Flooring it
+            # (data[int(i_idx)]) yields a staircase direction that, offset inward by
+            # ``depth_abs``, kicks the lid sideways at every integer boundary and
+            # saws the curve into little triangles.
+            nrm = np.array(normvectors[min(max(i_idx, 0.0), n_norm - 1.0)])
             nlen = np.linalg.norm(nrm)
             inward = -nrm / nlen if nlen > 1e-10 else np.array([0.0, 1.0])
             thickness = float(np.linalg.norm(extr - intr))
-            d = min(depth_abs, 0.9 * thickness) if thickness > 1e-9 else depth_abs
+            # Band depth can never exceed the local profile thickness; at the nose
+            # (thickness -> 0) it collapses to a point instead of jutting out full
+            # depth in the degenerate tangential direction.
+            d = min(depth_abs, 0.9 * thickness)
             tang = np.array([inward[1], -inward[0]])   # perpendicular to inward
             if tang[0] < 0:
                 tang = -tang                            # point towards the trailing edge
@@ -1416,9 +1426,18 @@ class AttachmentReinforcement:
         # four corners are then rounded with a fillet.
         loop = list(bottom) + list(reversed(lid))
         corner_idx = [len(bottom) - 1, len(bottom), len(loop) - 1, 0]
-        # Fillet radius (clamped so it never eats more than ~half of a cap).
-        r = min(self.shark_corner_radius, 0.45 * min(d0, d1))
-        loop = self._fillet_corners_dist(loop, corner_idx, r)
+        # shark_corner_radius is a fraction (0..1) of the maximum rounding a cap
+        # can take, so it scales with the reinforcement and the whole range maps
+        # to a visible change (an absolute mm radius saturates at ~0.45*depth and
+        # stops responding). Each corner is clamped by ITS OWN end depth, so a
+        # degenerate (nose) end with d~0 rounds to nothing there WITHOUT zeroing
+        # the far corners -- the old global min(d0, d1) let a nose end kill every
+        # corner's radius.
+        frac = float(np.clip(self.shark_corner_radius, 0.0, 1.0))
+        r0 = frac * 0.45 * d0      # both corners of the start (x0) cap
+        r1 = frac * 0.45 * d1      # both corners of the end (x1) cap
+        # corner_idx order: [x1 intrados, x1 lid, x0 lid, x0 intrados]
+        loop = self._fillet_corners_dist(loop, corner_idx, [r1, r1, r0, r0])
 
         contour = [np.asarray(p, dtype=float) for p in loop]
         contour.append(np.asarray(contour[0], dtype=float))
@@ -1431,15 +1450,26 @@ class AttachmentReinforcement:
         For each corner, trim distance ``r`` along both adjacent edges (walking
         by arc length) and replace the trimmed span with a quadratic Bezier
         through the corner. Non-adjacent edge points are left untouched.
+
+        ``r`` may be a scalar (same reach for every corner) or a sequence aligned
+        with ``corner_indices`` (per-corner reach), so corners of unequal size can
+        be rounded independently.
         """
         P = [np.asarray(p, dtype=float) for p in points]
         m = len(P)
-        if m < 3 or r <= 0:
+        if m < 3:
             return P
-        corners = set(i % m for i in corner_indices)
+        # Per-corner reach, keyed by loop index. A scalar applies to all corners.
+        if np.ndim(r) == 0:
+            reach = {i % m: float(r) for i in corner_indices}
+        else:
+            reach = {i % m: float(rr) for i, rr in zip(corner_indices, r)}
+        corners = {i for i, rr in reach.items() if rr > 0}
+        if not corners:
+            return P
 
-        def interp(i, direction):
-            rem = r
+        def interp(i, direction, rr):
+            rem = rr
             j = i
             for _ in range(m):
                 nj = (j + direction) % m
@@ -1451,11 +1481,11 @@ class AttachmentReinforcement:
                 j = nj
             return P[j]
 
-        # Points within r of a corner are replaced by the corner arc.
+        # Points within a corner's reach are replaced by that corner's arc.
         trimmed = set()
         for i in corners:
             for direction in (-1, 1):
-                rem = r
+                rem = reach[i]
                 j = i
                 for _ in range(m):
                     nj = (j + direction) % m
@@ -1469,8 +1499,9 @@ class AttachmentReinforcement:
         out = []
         for i in range(m):
             if i in corners:
-                a = interp(i, -1)
-                c = interp(i, 1)
+                rr = reach[i]
+                a = interp(i, -1, rr)
+                c = interp(i, 1, rr)
                 for t in np.linspace(0.0, 1.0, k):
                     out.append((1 - t) ** 2 * a + 2 * (1 - t) * t * P[i] + t ** 2 * c)
             elif i not in trimmed:
