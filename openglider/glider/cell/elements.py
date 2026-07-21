@@ -306,14 +306,88 @@ class DiagonalRib:
         
         cone_config = getattr(self, 'cone_hole_config', None)
         band_config = getattr(self, 'band_hole_config', None)
-        
+        strap_config = getattr(self, 'strap_hole_config', None)
+
         if cone_config:
             holes += self._cone_holes_parametric(cell, cone_config)
-        
+
         if band_config:
             holes += self._band_holes_parametric(band_config)
-        
+
+        if strap_config:
+            holes += self._strap_holes_parametric(strap_config)
+
         return holes
+
+    def _strap_holes_parametric(self, config):
+        """
+        Generate holes for an intrados tension strap in parametric space.
+
+        The `num` holes are evenly distributed along the span direction
+        (rib1 -> rib2, the parametric y axis) and centred across the strap
+        width (parametric x axis). Each hole is sized as a percentage of the
+        per-hole span slot (width_pct) and of the strap width (height_pct).
+
+        In parametric space:
+          x in [0,1]: position across the strap width (front -> back on rib)
+          y in [0,1]: position along the span (rib1 -> rib2)
+        """
+        holes = []
+        num = int(config.get('num', 0))
+        if num <= 0:
+            return holes
+
+        shape = config.get('shape', 0)  # 0 = ellipse, 1 = rounded rectangle
+        width_pct = config.get('width_pct', 0.6)   # along span (y)
+        height_pct = config.get('height_pct', 0.6)  # across width (x)
+        corner_pct = config.get('corner_radius_pct', 0.25)
+
+        slot = 1.0 / num
+        half_y = 0.5 * width_pct * slot
+        half_x = 0.5 * height_pct * 0.5  # height_pct of the full width (0..1)
+
+        if half_x < 1e-4 or half_y < 1e-4:
+            return holes
+
+        for i in range(num):
+            cx = 0.5
+            cy = slot * (i + 0.5)
+            contour = self._hole_contour_parametric(
+                cx, cy, half_x, half_y, shape, corner_pct
+            )
+            holes.append((contour, [cx, cy]))
+
+        return holes
+
+    @staticmethod
+    def _hole_contour_parametric(cx, cy, half_x, half_y, shape, corner_pct, n_pts=28):
+        """Build an ellipse or rounded-rectangle contour in parametric space."""
+        contour = []
+        if shape == 1:
+            # Rounded rectangle
+            r = min(half_x, half_y) * max(0.0, min(corner_pct, 1.0))
+            ax = max(half_x - r, 0.0)
+            ay = max(half_y - r, 0.0)
+            corners = [
+                (cx + ax, cy + ay, 0.0),
+                (cx - ax, cy + ay, np.pi / 2),
+                (cx - ax, cy - ay, np.pi),
+                (cx + ax, cy - ay, 3 * np.pi / 2),
+            ]
+            per_corner = 7
+            for ox, oy, base in corners:
+                for k in range(per_corner):
+                    a = base + (np.pi / 2) * (k / (per_corner - 1))
+                    contour.append([ox + r * np.cos(a), oy + r * np.sin(a)])
+        else:
+            for j in range(n_pts):
+                a = 2 * np.pi * j / n_pts
+                contour.append([cx + half_x * np.cos(a), cy + half_y * np.sin(a)])
+
+        # Clamp to keep contours inside the strap boundary
+        contour = [[max(0.01, min(0.99, px)), max(0.01, min(0.99, py))]
+                   for px, py in contour]
+        return contour
     
     def _cone_holes_parametric(self, cell, config):
         """

@@ -841,8 +841,104 @@ class DribPlot:
         self._insert_text(plotpart)
         self._insert_diagonal_cone_holes(plotpart, attachment_points)
         self._insert_band_ellipse_holes(plotpart, attachment_points)
+        self._insert_strap_holes(plotpart, attachment_points)
 
         return plotpart
+
+    def _insert_strap_holes(self, plotpart, attachment_points=None):
+        """Insert holes (ellipse or rounded rectangle) into an intrados tension strap.
+
+        The strap is flattened into two edge curves ``self.left`` (on rib1) and
+        ``self.right`` (on rib2). Holes are evenly distributed along the span
+        (rib1 -> rib2) and centred across the strap width. Each hole is sized as
+        a percentage of the per-hole span slot (width_pct) and of the strap
+        width (height_pct). Matches ``_strap_holes_parametric`` used for the 3D mesh.
+        """
+        config = getattr(self.drib, 'strap_hole_config', None)
+        if not config:
+            return
+
+        from numpy.linalg import norm
+
+        num = int(config.get('num', 0))
+        if num <= 0:
+            return
+
+        shape = config.get('shape', 0)          # 0 = ellipse, 1 = rounded rect
+        width_pct = config.get('width_pct', 0.6)   # along span
+        height_pct = config.get('height_pct', 0.6)  # across strap width
+        corner_pct = config.get('corner_radius_pct', 0.25)
+
+        inner = self.left    # curve on rib1 (front -> back), length = strap width
+        outer = self.right   # curve on rib2
+
+        inner_total = inner.get_length()
+        outer_total = outer.get_length()
+        if inner_total < 1e-9 or outer_total < 1e-9:
+            return
+
+        strap_width = (inner_total + outer_total) / 2.0
+
+        # Mid-width points (t=0.5) on each edge define the span axis
+        p_in_mid = np.array(inner[inner.walk(0, 0.5 * inner_total)])
+        p_out_mid = np.array(outer[outer.walk(0, 0.5 * outer_total)])
+        span_len = norm(p_out_mid - p_in_mid)
+        if span_len < 1e-6:
+            return
+
+        slot = span_len / num
+        hole_span_half = 0.5 * width_pct * slot        # along span
+        hole_width_half = 0.5 * height_pct * strap_width  # across width
+        if hole_span_half < 1e-4 or hole_width_half < 1e-4:
+            return
+
+        span_dir = (p_out_mid - p_in_mid) / span_len
+        width_dir = np.array([-span_dir[1], span_dir[0]])
+
+        for i in range(num):
+            s = (i + 0.5) / num
+            center = p_in_mid * (1.0 - s) + p_out_mid * s
+
+            if shape == 1:
+                pts = self._strap_rounded_rect(
+                    center, span_dir, width_dir,
+                    hole_span_half, hole_width_half, corner_pct)
+            else:
+                pts = []
+                n = 32
+                for j in range(n + 1):
+                    a = 2 * np.pi * j / n
+                    pt = (center
+                          + hole_span_half * np.cos(a) * span_dir
+                          + hole_width_half * np.sin(a) * width_dir)
+                    pts.append(pt.tolist())
+
+            plotpart.layers["cuts"].append(PolyLine2D(pts))
+
+    @staticmethod
+    def _strap_rounded_rect(center, u_dir, v_dir, half_u, half_v, corner_pct):
+        """Rounded rectangle in the local (u_dir, v_dir) frame, returned as 2D points."""
+        r = min(half_u, half_v) * max(0.0, min(corner_pct, 1.0))
+        au = max(half_u - r, 0.0)
+        av = max(half_v - r, 0.0)
+        # corner centres in local coords (u, v) with sweep start angle
+        corners = [
+            (au, av, 0.0),
+            (-au, av, np.pi / 2),
+            (-au, -av, np.pi),
+            (au, -av, 3 * np.pi / 2),
+        ]
+        per_corner = 8
+        pts = []
+        for ou, ov, base in corners:
+            for k in range(per_corner):
+                a = base + (np.pi / 2) * (k / (per_corner - 1))
+                lu = ou + r * np.cos(a)
+                lv = ov + r * np.sin(a)
+                pt = center + lu * u_dir + lv * v_dir
+                pts.append(pt.tolist())
+        pts.append(pts[0])
+        return pts
 
     def _insert_band_ellipse_holes(self, plotpart, attachment_points=None):
         """Insert elliptical holes into horizontal bands (both sides extrados).

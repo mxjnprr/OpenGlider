@@ -51,6 +51,23 @@ class HoleDesignTool(BaseTool):
         self.diagHoleMarginBottomSpinBox = QtGui.QDoubleSpinBox(self.base_widget)
         self.diagHoleCornerRadiusSpinBox = QtGui.QDoubleSpinBox(self.base_widget)
 
+        # Strap hole controls (intrados tension straps / vector straps)
+        self.strapHoleLabel = QtGui.QLabel("<b>Strap Holes</b> <i>(intrados tension bands)</i>", self.base_widget)
+        self.strapHolesEnabledCheckBox = QtGui.QCheckBox("Enable", self.base_widget)
+        self.strapHoleShapeComboBox = QtGui.QComboBox(self.base_widget)
+        self.strapHoleNumSpinBox = QtGui.QSpinBox(self.base_widget)
+        self.strapHoleWidthSpinBox = QtGui.QDoubleSpinBox(self.base_widget)
+        self.strapHoleHeightSpinBox = QtGui.QDoubleSpinBox(self.base_widget)
+        self.strapHoleCornerRadiusSpinBox = QtGui.QDoubleSpinBox(self.base_widget)
+        # Row selection (which straps get holes: A/B/C rows or custom positions)
+        self.strapAllRowsCheckBox = QtGui.QCheckBox("All", self.base_widget)
+        self.strapPosChecks = []  # list of (pos, QCheckBox) built dynamically
+        self.strapRowsWidget = QtGui.QWidget(self.base_widget)
+        self.strapRowsLayout = QtGui.QHBoxLayout(self.strapRowsWidget)
+        self.strapRowsLayout.setContentsMargins(0, 0, 0, 0)
+        self.strapHoleCustomLineEdit = QtGui.QLineEdit(self.base_widget)
+        self.strapHoleCustomLineEdit.setPlaceholderText("e.g. 0.3, 0.5-0.6")
+
         # Preview rib selector - ComboBox to show only relevant ribs with real names
         self.previewRibComboBox = QtGui.QComboBox(self.base_widget)
         self._rib_indices = []  # Mapping from combo index to actual rib index
@@ -99,6 +116,20 @@ class HoleDesignTool(BaseTool):
         self.layout.addRow("Diag Side Margin (mm)", self.diagHoleMarginSideSpinBox)
         self.layout.addRow("Diag Bottom Margin (mm)", self.diagHoleMarginBottomSpinBox)
         self.layout.addRow("Diag Corner Radius (%)", self.diagHoleCornerRadiusSpinBox)
+
+        # Strap hole controls (always visible - straps are a cell feature)
+        self.strapHoleShapeComboBox.addItems(["Ellipse", "Rounded Rectangle"])
+        self.layout.addRow(self.strapHoleLabel)
+        self.layout.addRow("", self.strapHolesEnabledCheckBox)
+        self.layout.addRow("Strap Hole Shape", self.strapHoleShapeComboBox)
+        self.layout.addRow("Holes per Strap", self.strapHoleNumSpinBox)
+        self.layout.addRow("Hole Length (% of slot)", self.strapHoleWidthSpinBox)
+        self.layout.addRow("Hole Width (% of band)", self.strapHoleHeightSpinBox)
+        self.layout.addRow("Strap Corner Radius (%)", self.strapHoleCornerRadiusSpinBox)
+        self.layout.addRow("Apply to Rows", self.strapAllRowsCheckBox)
+        self.layout.addRow("", self.strapRowsWidget)
+        self.layout.addRow("Custom Positions", self.strapHoleCustomLineEdit)
+        self._build_strap_row_checks()
 
         self.layout.addRow("Preview Rib", self.previewRibComboBox)
 
@@ -176,6 +207,23 @@ class HoleDesignTool(BaseTool):
         self.diagHoleCornerRadiusSpinBox.setRange(0.0, 50.0)
         self.diagHoleCornerRadiusSpinBox.setValue(25.0)
 
+        # Strap hole spinbox configuration
+        self.strapHoleNumSpinBox.setRange(0, 20)
+        self.strapHoleNumSpinBox.setValue(3)
+
+        for spinbox in [self.strapHoleWidthSpinBox, self.strapHoleHeightSpinBox]:
+            spinbox.setSingleStep(5.0)
+            spinbox.setDecimals(0)
+            spinbox.setSuffix(" %")
+            spinbox.setRange(0.0, 100.0)
+            spinbox.setValue(60.0)
+
+        self.strapHoleCornerRadiusSpinBox.setSingleStep(5.0)
+        self.strapHoleCornerRadiusSpinBox.setDecimals(0)
+        self.strapHoleCornerRadiusSpinBox.setSuffix(" %")
+        self.strapHoleCornerRadiusSpinBox.setRange(0.0, 50.0)
+        self.strapHoleCornerRadiusSpinBox.setValue(25.0)
+
         # Load initial values
         self.update_form_from_glider_data()
 
@@ -206,6 +254,15 @@ class HoleDesignTool(BaseTool):
         self.diagHoleMarginSideSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
         self.diagHoleMarginBottomSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
         self.diagHoleCornerRadiusSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        # Strap hole signal connections
+        self.strapHolesEnabledCheckBox.stateChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapHoleShapeComboBox.currentIndexChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapHoleNumSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapHoleWidthSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapHoleHeightSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapHoleCornerRadiusSpinBox.valueChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+        self.strapAllRowsCheckBox.stateChanged.connect(self._on_strap_all_rows_changed)
+        self.strapHoleCustomLineEdit.textChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
         self.previewRibComboBox.currentIndexChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
         self.applyButton.clicked.connect(self.accept)
 
@@ -1114,6 +1171,14 @@ class HoleDesignTool(BaseTool):
             except Exception:
                 pass
 
+        # === STRAP 2D PREVIEW ===
+        if self.strapHolesEnabledCheckBox.isChecked():
+            try:
+                self._draw_strap_preview(rib, scale)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+
     def _draw_diagonal_preview(self, rib, scale):
         """Draw 2D flattened diagonals adjacent to the selected rib."""
         from numpy.linalg import norm
@@ -1251,6 +1316,211 @@ class HoleDesignTool(BaseTool):
                     pts_3d = [transform_pt(p) for p in poly]
                     self.preview_root.addChild(Line_old(pts_3d, color='blue', width=1).object)
     
+    def _get_strap_ap_rows(self):
+        """Return list of (rib_pos, letter) from attachment points for row classification."""
+        import re
+        rows = []
+        try:
+            glider_instance = self.obj.Proxy.getGliderInstance()
+        except Exception:
+            return rows
+        for ap in getattr(glider_instance, 'attachment_points', []) or []:
+            m = re.match(r'\s*([A-Za-z]+)', str(getattr(ap, 'name', '')))
+            rib_pos = getattr(ap, 'rib_pos', None)
+            if m and rib_pos is not None:
+                rows.append((float(rib_pos), m.group(1).upper()))
+        return rows
+
+    def _detect_strap_positions(self, tol=0.02):
+        """Enumerate every distinct intrados-strap chord position on the glider.
+
+        Returns a sorted list of (pos, label) where `pos` is the clustered
+        center chord position (0..1) and `label` is like "B 28%" when the
+        position matches a named attachment-point row, otherwise just "28%".
+        """
+        from openglider.glider.cell.elements import TensionLine
+        try:
+            glider_instance = self.obj.Proxy.getGliderInstance()
+        except Exception:
+            return []
+
+        centers = []
+        for cell in getattr(glider_instance, 'cells', []) or []:
+            for strap in getattr(cell, 'straps', []) or []:
+                if isinstance(strap, TensionLine):
+                    continue
+                if strap.width_left < 1e-4 and strap.width_right < 1e-4:
+                    continue
+                centers.append((strap.center_left + strap.center_right) / 2.0)
+
+        # Cluster nearby positions
+        centers.sort()
+        clusters = []
+        for c in centers:
+            if clusters and abs(c - clusters[-1][-1]) < tol:
+                clusters[-1].append(c)
+            else:
+                clusters.append([c])
+
+        ap_rows = self._get_strap_ap_rows()
+        result = []
+        for group in clusters:
+            pos = sum(group) / len(group)
+            letter = None
+            if ap_rows:
+                nearest = min(ap_rows, key=lambda rp: abs(rp[0] - pos))
+                if abs(nearest[0] - pos) < 0.05:
+                    letter = nearest[1]
+            pct = int(round(pos * 100))
+            label = f"{letter} {pct}%" if letter else f"{pct}%"
+            result.append((round(pos, 4), label))
+        return result
+
+    def _build_strap_row_checks(self):
+        """Build one checkbox per detected strap position (labelled by % chord)."""
+        # Clear any existing checkboxes
+        for _pos, cb in self.strapPosChecks:
+            self.strapRowsLayout.removeWidget(cb)
+            cb.setParent(None)
+        self.strapPosChecks = []
+
+        for pos, label in self._detect_strap_positions():
+            cb = QtGui.QCheckBox(label, self.strapRowsWidget)
+            cb.stateChanged.connect(lambda: self.update_glider_data_and_preview(switch=False))
+            self.strapRowsLayout.addWidget(cb)
+            self.strapPosChecks.append((pos, cb))
+        self.strapRowsLayout.addStretch()
+
+    def _on_strap_all_rows_changed(self, *args):
+        """Enable/disable per-position checkboxes based on the 'All' checkbox."""
+        all_checked = self.strapAllRowsCheckBox.isChecked()
+        for _pos, cb in self.strapPosChecks:
+            cb.setEnabled(not all_checked)
+        self.strapHoleCustomLineEdit.setEnabled(not all_checked)
+        self.update_glider_data_and_preview(switch=False)
+
+    def _strap_included_by_filter(self, strap, ap_rows=None):
+        """Mirror of the model-side position/custom filter, for the preview."""
+        if self.strapAllRowsCheckBox.isChecked():
+            return True
+        center = (strap.center_left + strap.center_right) / 2.0
+        # Selected position checkboxes (tolerance match)
+        for pos, cb in self.strapPosChecks:
+            if cb.isChecked() and abs(center - pos) < 0.02:
+                return True
+        # Custom positions / ranges
+        for tok in str(self.strapHoleCustomLineEdit.text()).split(','):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                if '-' in tok:
+                    a, b = tok.split('-', 1)
+                    lo, hi = sorted((float(a), float(b)))
+                else:
+                    v = float(tok)
+                    lo, hi = v - 0.03, v + 0.03
+            except ValueError:
+                continue
+            if lo <= center <= hi:
+                return True
+        return False
+
+    def _draw_strap_preview(self, rib, scale):
+        """Draw flattened intrados straps (adjacent to the selected rib) with their holes."""
+        from numpy.linalg import norm
+        from openglider.glider.cell.elements import TensionLine
+        glider_instance = self.obj.Proxy.getGliderInstance()
+
+        num = self.strapHoleNumSpinBox.value()
+        if num <= 0:
+            return
+        shape = self.strapHoleShapeComboBox.currentIndex()
+        width_pct = self.strapHoleWidthSpinBox.value() / 100.0
+        height_pct = self.strapHoleHeightSpinBox.value() / 100.0
+        corner_pct = self.strapHoleCornerRadiusSpinBox.value() / 100.0
+
+        # Collect real fabric straps in cells adjacent to this rib
+        straps = []
+        for cell in glider_instance.cells:
+            if cell.rib1 is rib or cell.rib2 is rib:
+                for strap in cell.straps:
+                    if isinstance(strap, TensionLine):
+                        continue
+                    if strap.width_left < 1e-4 and strap.width_right < 1e-4:
+                        continue
+                    straps.append((strap, cell))
+
+        if not straps:
+            return
+
+        ap_rows = self._get_strap_ap_rows()
+        y_base = 0.30 * scale
+        for s_idx, (strap, cell) in enumerate(straps):
+            try:
+                left, right = strap.get_flattened(cell)
+            except Exception:
+                continue
+
+            included = self._strap_included_by_filter(strap, ap_rows)
+            offset = np.array([0.0, y_base + s_idx * 0.12 * scale])
+
+            def T(p):
+                return [p[0] + offset[0], p[1] + offset[1], 0]
+
+            # Outline: left edge -> across -> right edge (reversed) -> close
+            # Green if this strap gets holes, white if excluded by the row filter.
+            outline = [T(left[i]) for i in range(len(left))]
+            outline.append(T(right[len(right) - 1]))
+            for i in range(len(right) - 1, -1, -1):
+                outline.append(T(right[i]))
+            outline.append(T(left[0]))
+            outline_color = 'green' if included else 'white'
+            self.preview_root.addChild(Line_old(outline, color=outline_color, width=2).object)
+
+            if not included:
+                continue
+
+            inner_total = left.get_length()
+            outer_total = right.get_length()
+            if inner_total < 1e-9 or outer_total < 1e-9:
+                continue
+            strap_width = (inner_total + outer_total) / 2.0
+            p_in = np.array(left[left.walk(0, 0.5 * inner_total)])
+            p_out = np.array(right[right.walk(0, 0.5 * outer_total)])
+            span_len = norm(p_out - p_in)
+            if span_len < 1e-6:
+                continue
+            slot = span_len / num
+            h_span = 0.5 * width_pct * slot
+            h_wid = 0.5 * height_pct * strap_width
+            if h_span < 1e-4 or h_wid < 1e-4:
+                continue
+            span_dir = (p_out - p_in) / span_len
+            width_dir = np.array([-span_dir[1], span_dir[0]])
+
+            for i in range(num):
+                t = (i + 0.5) / num
+                c = p_in * (1 - t) + p_out * t
+                pts = []
+                if shape == 1:
+                    r = min(h_span, h_wid) * max(0.0, min(corner_pct, 1.0))
+                    au = max(h_span - r, 0.0)
+                    av = max(h_wid - r, 0.0)
+                    for ou, ov, base in [(au, av, 0.0), (-au, av, np.pi / 2),
+                                         (-au, -av, np.pi), (au, -av, 3 * np.pi / 2)]:
+                        for k in range(8):
+                            a = base + (np.pi / 2) * (k / 7)
+                            q = c + (ou + r * np.cos(a)) * span_dir + (ov + r * np.sin(a)) * width_dir
+                            pts.append(T(q))
+                    pts.append(pts[0])
+                else:
+                    for j in range(33):
+                        a = 2 * np.pi * j / 32
+                        q = c + h_span * np.cos(a) * span_dir + h_wid * np.sin(a) * width_dir
+                        pts.append(T(q))
+                self.preview_root.addChild(Line_old(pts, color='blue', width=1).object)
+
     def _compute_diag_holes(self, ap, inner, other_inner, front, back, config):
         """Compute diagonal hole polygons (same logic as cell.py _create_diag_holes).
         Returns list of polygon point lists."""
@@ -1546,7 +1816,13 @@ class HoleDesignTool(BaseTool):
                             # Diagonal hole widgets (always loaded)
                             self.diagHolesEnabledCheckBox, self.diagHoleNumZonesSpinBox,
                             self.diagHoleMarginTopSpinBox, self.diagHoleMarginSideSpinBox,
-                            self.diagHoleMarginBottomSpinBox, self.diagHoleCornerRadiusSpinBox]
+                            self.diagHoleMarginBottomSpinBox, self.diagHoleCornerRadiusSpinBox,
+                            # Strap hole widgets (always loaded)
+                            self.strapHolesEnabledCheckBox, self.strapHoleShapeComboBox,
+                            self.strapHoleNumSpinBox, self.strapHoleWidthSpinBox,
+                            self.strapHoleHeightSpinBox, self.strapHoleCornerRadiusSpinBox,
+                            self.strapAllRowsCheckBox, self.strapHoleCustomLineEdit]
+        widgets_to_block += [cb for _pos, cb in self.strapPosChecks]
         if is_suspended:
             widgets_to_block.extend([self.noHoleAngleSpinBox,
                                      self.coneHolesEnabledCheckBox,
@@ -1602,6 +1878,32 @@ class HoleDesignTool(BaseTool):
         self.diagHoleCornerRadiusSpinBox.setValue(getattr(pg, 'diag_hole_corner_radius',
                                                  getattr(pg, 'cone_hole_corner_radius_s', 25.0)))
 
+        # Strap hole parameters (always loaded)
+        self.strapHolesEnabledCheckBox.setChecked(getattr(pg, 'strap_holes_enabled', False))
+        self.strapHoleShapeComboBox.setCurrentIndex(getattr(pg, 'strap_hole_shape', 0))
+        self.strapHoleNumSpinBox.setValue(getattr(pg, 'strap_hole_num', 3))
+        self.strapHoleWidthSpinBox.setValue(getattr(pg, 'strap_hole_width_pct', 0.6) * 100.0)
+        self.strapHoleHeightSpinBox.setValue(getattr(pg, 'strap_hole_height_pct', 0.6) * 100.0)
+        self.strapHoleCornerRadiusSpinBox.setValue(getattr(pg, 'strap_hole_corner_radius', 25.0))
+
+        # Strap position selection
+        rows_spec = str(getattr(pg, 'strap_hole_rows', 'all')).strip().lower()
+        all_rows = rows_spec in ('all', '*')
+        self.strapAllRowsCheckBox.setChecked(all_rows)
+        saved_positions = set()
+        for t in str(getattr(pg, 'strap_hole_positions', '')).split(','):
+            t = t.strip()
+            if t:
+                try:
+                    saved_positions.add(round(float(t), 3))
+                except ValueError:
+                    pass
+        for pos, cb in self.strapPosChecks:
+            cb.setChecked(round(pos, 3) in saved_positions)
+            cb.setEnabled(not all_rows)
+        self.strapHoleCustomLineEdit.setText(str(getattr(pg, 'strap_hole_custom', '')))
+        self.strapHoleCustomLineEdit.setEnabled(not all_rows)
+
         # Initial visibility update
         self.on_height_mode_change(0)  # Default mode
 
@@ -1639,6 +1941,23 @@ class HoleDesignTool(BaseTool):
         pg.diag_hole_margin_side = self.diagHoleMarginSideSpinBox.value()
         pg.diag_hole_margin_bottom = self.diagHoleMarginBottomSpinBox.value()
         pg.diag_hole_corner_radius = self.diagHoleCornerRadiusSpinBox.value()
+
+        # Strap hole params (always saved - straps are a cell feature)
+        pg.strap_holes_enabled = self.strapHolesEnabledCheckBox.isChecked()
+        pg.strap_hole_shape = self.strapHoleShapeComboBox.currentIndex()
+        pg.strap_hole_num = self.strapHoleNumSpinBox.value()
+        pg.strap_hole_width_pct = self.strapHoleWidthSpinBox.value() / 100.0
+        pg.strap_hole_height_pct = self.strapHoleHeightSpinBox.value() / 100.0
+        pg.strap_hole_corner_radius = self.strapHoleCornerRadiusSpinBox.value()
+        # Position selection: 'all', or explicit chord positions of the
+        # checked straps stored in strap_hole_positions.
+        if self.strapAllRowsCheckBox.isChecked():
+            pg.strap_hole_rows = 'all'
+        else:
+            pg.strap_hole_rows = ''
+        checked = [f"{pos:.4f}" for pos, cb in self.strapPosChecks if cb.isChecked()]
+        pg.strap_hole_positions = ','.join(checked)
+        pg.strap_hole_custom = self.strapHoleCustomLineEdit.text()
 
         if not is_suspended:
             pg.hole_shape_ns = self.holeShapeComboBox.currentIndex()
