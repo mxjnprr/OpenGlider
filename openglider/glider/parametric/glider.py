@@ -103,6 +103,17 @@ class ParametricGlider:
         self.cone_hole_margin_bottom_s = kwargs.get('cone_hole_margin_bottom_s', 3.0)  # mm
         self.cone_hole_corner_radius_s = kwargs.get('cone_hole_corner_radius_s', 25.0)  # %
 
+        # Intrados strap holes (ellipse / rounded rectangle on tension straps)
+        self.strap_holes_enabled = kwargs.get('strap_holes_enabled', False)
+        self.strap_hole_num = kwargs.get('strap_hole_num', 3)
+        self.strap_hole_shape = kwargs.get('strap_hole_shape', 0)  # 0: Ellipse, 1: Rounded Rectangle
+        self.strap_hole_width_pct = kwargs.get('strap_hole_width_pct', 0.6)   # % of per-hole span slot
+        self.strap_hole_height_pct = kwargs.get('strap_hole_height_pct', 0.6)  # % of strap width
+        self.strap_hole_corner_radius = kwargs.get('strap_hole_corner_radius', 25.0)  # %
+        self.strap_hole_rows = kwargs.get('strap_hole_rows', 'all')  # 'all' or '' (custom-only)
+        self.strap_hole_positions = kwargs.get('strap_hole_positions', '')  # selected strap chord positions
+        self.strap_hole_custom = kwargs.get('strap_hole_custom', '')  # custom chord positions/ranges
+
         # Airfoil Structure - Extrados Sleeve (suspended)
         self.extrados_sleeve_enabled_s = kwargs.get('extrados_sleeve_enabled_s', False)
         self.extrados_sleeve_width_s = kwargs.get('extrados_sleeve_width_s', 0.015)
@@ -1069,6 +1080,67 @@ class ParametricGlider:
                     if is_band:
                         drib.band_hole_config = cone_config
 
+        # === INTRADOS STRAP HOLES ===
+        # Holes (ellipse or rounded rectangle) on selected intrados tension straps.
+        if getattr(self, 'strap_holes_enabled', False):
+            strap_config = {
+                'num': getattr(self, 'strap_hole_num', 3),
+                'shape': getattr(self, 'strap_hole_shape', 0),
+                'width_pct': getattr(self, 'strap_hole_width_pct', 0.6),
+                'height_pct': getattr(self, 'strap_hole_height_pct', 0.6),
+                'corner_radius_pct': getattr(self, 'strap_hole_corner_radius', 25.0) / 100.0,
+            }
+
+            rows_spec = str(getattr(self, 'strap_hole_rows', 'all')).strip().lower()
+            # Empty string means "custom/position selection only"; only 'all'/'*'
+            # applies holes to every strap.
+            select_all = rows_spec in ('all', '*')
+
+            # Selected strap positions (from the tool's per-strap checkboxes)
+            # and free-text custom chord positions / ranges (e.g. "0.3, 0.5-0.6").
+            # Both are turned into inclusion ranges.
+            custom_ranges = []
+            for v in str(getattr(self, 'strap_hole_positions', '')).split(','):
+                v = v.strip()
+                if not v:
+                    continue
+                try:
+                    p = float(v)
+                    custom_ranges.append((p - 0.02, p + 0.02))
+                except ValueError:
+                    continue
+            for tok in str(getattr(self, 'strap_hole_custom', '')).split(','):
+                tok = tok.strip()
+                if not tok:
+                    continue
+                try:
+                    if '-' in tok:
+                        a, b = tok.split('-', 1)
+                        lo, hi = float(a), float(b)
+                        custom_ranges.append((min(lo, hi), max(lo, hi)))
+                    else:
+                        v = float(tok)
+                        custom_ranges.append((v - 0.03, v + 0.03))
+                except ValueError:
+                    continue
+
+            for cell in glider.cells:
+                for strap in cell.straps:
+                    # Only real fabric bands (TensionStrap), not thin TensionLines.
+                    if isinstance(strap, TensionLine):
+                        continue
+                    if strap.width_left < 1e-4 and strap.width_right < 1e-4:
+                        continue
+
+                    center = (strap.center_left + strap.center_right) / 2.0
+                    include = select_all
+                    if not include and custom_ranges:
+                        if any(lo <= center <= hi for lo, hi in custom_ranges):
+                            include = True
+
+                    if include:
+                        strap.strap_hole_config = strap_config
+
     def apply_reinforcements(self, glider):
         """Apply reinforcement configurations to ribs for 2D export."""
         from openglider.glider.rib.elements import AttachmentReinforcement
@@ -1623,6 +1695,16 @@ class ParametricGlider:
             "cone_hole_margin_side_s": getattr(self, "cone_hole_margin_side_s", 3.0),
             "cone_hole_margin_bottom_s": getattr(self, "cone_hole_margin_bottom_s", 3.0),
             "cone_hole_corner_radius_s": getattr(self, "cone_hole_corner_radius_s", 25.0),
+            # Intrados strap holes
+            "strap_holes_enabled": getattr(self, "strap_holes_enabled", False),
+            "strap_hole_num": getattr(self, "strap_hole_num", 3),
+            "strap_hole_shape": getattr(self, "strap_hole_shape", 0),
+            "strap_hole_width_pct": getattr(self, "strap_hole_width_pct", 0.6),
+            "strap_hole_height_pct": getattr(self, "strap_hole_height_pct", 0.6),
+            "strap_hole_corner_radius": getattr(self, "strap_hole_corner_radius", 25.0),
+            "strap_hole_rows": getattr(self, "strap_hole_rows", "all"),
+            "strap_hole_positions": getattr(self, "strap_hole_positions", ""),
+            "strap_hole_custom": getattr(self, "strap_hole_custom", ""),
             # Airfoil Structure - Extrados Sleeve (suspended)
             "extrados_sleeve_enabled_s": getattr(self, "extrados_sleeve_enabled_s", False),
             "extrados_sleeve_width_s": getattr(self, "extrados_sleeve_width_s", 0.015),
