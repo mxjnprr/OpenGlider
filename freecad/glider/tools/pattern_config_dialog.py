@@ -12,8 +12,10 @@ from PySide import QtCore, QtGui
 PATTERN_PARAMETERS = [
     # Section: General
     ("complete_glider", False,
-     ("Exporter le parapente complet. ATTENTION: True peut causer des erreurs",
-      "Export complete paraglider. WARNING: True may cause errors"),
+     ("Exporter le parapente complet (aile gauche + droite). "
+      "Obligatoire pour un design asymetrique.",
+      "Export the complete paraglider (left + right wing). "
+      "Mandatory for an asymmetric design."),
      bool, None),
     ("debug", False,
      ("Mode debug - affiche des lignes de construction supplémentaires",
@@ -127,13 +129,19 @@ _STRINGS = {
     "reset_btn":      ("Réinitialiser les valeurs par défaut", "Reset to defaults"),
     "cancel_btn":     ("Annuler", "Cancel"),
     "export_btn":     ("Exporter", "Export"),
+    "asym_banner":    ("⚠ Design asymétrique détecté : l'aile gauche et l'aile "
+                       "droite diffèrent. L'export complet est obligatoire et a "
+                       "été activé automatiquement.",
+                       "⚠ Asymmetric design detected: the left and right wings "
+                       "differ. Complete-glider export is mandatory and has been "
+                       "enabled automatically."),
 }
 
 
 class PatternConfigDialog(QtGui.QDialog):
     """Dialog for configuring pattern export parameters."""
 
-    def __init__(self, parent=None, config=None):
+    def __init__(self, parent=None, config=None, is_asymmetric=False):
         super().__init__(parent)
         self.setMinimumSize(750, 550)
 
@@ -143,8 +151,13 @@ class PatternConfigDialog(QtGui.QDialog):
         # Store config for loading values
         self.input_config = config or {}
 
+        # Asymmetric gliders MUST be exported complete (left != right wing);
+        # the complete_glider checkbox is forced on and locked in that case.
+        self.is_asymmetric = bool(is_asymmetric)
+
         self._setup_ui()
         self._load_values()
+        self._apply_asymmetric_lock()
         self._apply_language()
 
     # ------------------------------------------------------------------ UI
@@ -164,6 +177,16 @@ class PatternConfigDialog(QtGui.QDialog):
         self.lang_btn.clicked.connect(self._toggle_language)
         top_row.addWidget(self.lang_btn)
         layout.addLayout(top_row)
+
+        # Asymmetric-design banner (shown only for asymmetric gliders)
+        self.asym_banner = QtGui.QLabel()
+        self.asym_banner.setWordWrap(True)
+        self.asym_banner.setStyleSheet(
+            "QLabel { background: #fff3cd; color: #664d03; border: 1px solid "
+            "#ffe69c; border-radius: 4px; padding: 6px; }"
+        )
+        self.asym_banner.setVisible(False)
+        layout.addWidget(self.asym_banner)
 
         # Create table
         self.table = QtGui.QTableWidget()
@@ -241,6 +264,18 @@ class PatternConfigDialog(QtGui.QDialog):
 
         layout.addLayout(button_layout)
 
+    # ------------------------------------------------------- Asymmetric lock
+    def _apply_asymmetric_lock(self):
+        """For an asymmetric glider, force complete_glider on and lock it."""
+        if not self.is_asymmetric:
+            return
+        self.asym_banner.setVisible(True)
+        entry = self.widgets.get("complete_glider")
+        if entry:
+            widget = entry[0]
+            widget.setChecked(True)
+            widget.setEnabled(False)  # locked: cannot export a half asym glider
+
     # ----------------------------------------------------------- Language
     def _toggle_language(self):
         self._lang = 1 - self._lang
@@ -260,6 +295,7 @@ class PatternConfigDialog(QtGui.QDialog):
         self.reset_btn.setText(_STRINGS["reset_btn"][lang])
         self.cancel_btn.setText(_STRINGS["cancel_btn"][lang])
         self.ok_btn.setText(_STRINGS["export_btn"][lang])
+        self.asym_banner.setText(_STRINGS["asym_banner"][lang])
 
         # Update description column
         for row, (name, default, descs, vtype, unit) in enumerate(PATTERN_PARAMETERS):
@@ -298,6 +334,8 @@ class PatternConfigDialog(QtGui.QDialog):
                 widget.setValue(default)
             else:
                 widget.setText(str(default))
+        # keep the asymmetric lock after a reset
+        self._apply_asymmetric_lock()
 
     def get_config_dict(self):
         """Return a dictionary of all parameter values (converting mm back to meters)."""
@@ -318,18 +356,20 @@ class PatternConfigDialog(QtGui.QDialog):
         return result
 
 
-def show_pattern_config_dialog(parent=None, current_config=None):
+def show_pattern_config_dialog(parent=None, current_config=None, is_asymmetric=False):
     """
     Show the pattern configuration dialog and return the config dict.
 
     Args:
         parent: Parent widget
         current_config: Dict of current config values (in meters for lengths)
+        is_asymmetric: True if the glider has a left/right-asymmetric design;
+            forces complete-glider export and locks the checkbox.
 
     Returns:
         dict or None: Configuration dict if accepted (lengths in meters), None if cancelled.
     """
-    dialog = PatternConfigDialog(parent, current_config)
+    dialog = PatternConfigDialog(parent, current_config, is_asymmetric=is_asymmetric)
     if dialog.exec_() == QtGui.QDialog.Accepted:
         return dialog.get_config_dict()
     return None

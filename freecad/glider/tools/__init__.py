@@ -185,9 +185,18 @@ class PatternCommand(BaseCommand):
         if proceed:
             from openglider import plots
             from freecad.glider.tools.pattern_config_dialog import show_pattern_config_dialog
-            
+
+            # Detect asymmetric design: it must always be exported complete.
+            try:
+                is_asymmetric = bool(obj.Proxy.getParametricGlider().is_asymmetric)
+            except Exception:
+                is_asymmetric = False
+
             # Show configuration dialog with last used config
-            config_dict = show_pattern_config_dialog(current_config=PatternCommand._last_config)
+            config_dict = show_pattern_config_dialog(
+                current_config=PatternCommand._last_config,
+                is_asymmetric=is_asymmetric,
+            )
             if config_dict is None:
                 # User cancelled
                 return

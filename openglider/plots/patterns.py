@@ -86,9 +86,23 @@ class PatternsNew:
         return drawings
 
     def _get_plotfile(self):
-        glider = self.project.glider_3d
+        param = self.project.glider
+        asymmetric = getattr(param, "is_asymmetric", False)
 
-        if self.config.complete_glider:
+        # An asymmetric glider has genuinely different left- and right-wing
+        # panels (different cuts and/or colours).  A half-wing export would
+        # silently produce two identical wings and misrepresent the design, so
+        # the complete glider is ALWAYS exported for asymmetric gliders,
+        # regardless of the complete_glider flag.  Symmetric gliders keep the
+        # user's choice.
+        complete = self.config.complete_glider or asymmetric
+        if asymmetric and not self.config.complete_glider:
+            self.logger.info(
+                "asymmetric glider: forcing complete-glider export "
+                "(left and right wings differ)"
+            )
+
+        if complete:
             base = self.project.glider_3d
             # Asymmetric decoupe: copy_complete() swaps the left-wing panel
             # variants that get_glider_3d() stashes on the 3d glider as the
@@ -97,8 +111,7 @@ class PatternsNew:
             # would export the same (right) side twice. For asymmetric gliders,
             # rebuild a fresh 3d glider from the parametric so the left variants
             # are guaranteed present and current. No-op for symmetric gliders.
-            param = self.project.glider
-            if getattr(param, "is_asymmetric", False):
+            if asymmetric:
                 try:
                     base = param.get_glider_3d()
                 except Exception:
