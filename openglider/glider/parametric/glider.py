@@ -1085,18 +1085,20 @@ class ParametricGlider:
         excluded_ribs = getattr(self, 'reinforcement_excluded_ribs_s', [])
         shark_cfg = getattr(self, 'shark_nose_s', {}) or {}
 
-        # Identify suspended ribs
-        suspended_ribs = {att.rib for att in glider.lineset.attachment_points if hasattr(att, 'rib')}
-        
         for rib_idx, rib in enumerate(glider.ribs):
-            if rib in suspended_ribs:
+            # Robust suspended-rib test: match attachment points by name/identity
+            # via get_rib_attachment_points (mirrors apply_reinforcements_to_ribs in
+            # the FreeCAD tool). The old {att.rib ...} identity set misclassifies
+            # every rib when att.rib still points to pre-replacement instances
+            # (e.g. SingleSkinRib), which silently dropped every reinforcement --
+            # shark-nose included -- from the 2D export.
+            attachment_points = glider.get_rib_attachment_points(rib)
+            if attachment_points:
                 # Check if this rib is excluded from reinforcements
                 if rib_idx in excluded_ribs:
                     rib.reinforcements = []
                     continue
-                
-                # Get attachment points for this rib
-                attachment_points = glider.get_rib_attachment_points(rib)
+
                 # Filter to valid attachment points (< 90% chord)
                 valid_aps = [ap for ap in attachment_points if ap.rib_pos <= 0.90]
                 valid_aps.sort(key=lambda x: x.rib_pos)
@@ -1131,7 +1133,7 @@ class ParametricGlider:
                             shark_depth=shark_cfg.get('depth', 0.035),
                             shark_start_angle=shark_cfg.get('start_angle', 90.0),
                             shark_end_angle=shark_cfg.get('end_angle', 90.0),
-                            shark_corner_radius=shark_cfg.get('corner_radius', 0.01),
+                            shark_corner_radius=shark_cfg.get('corner_radius', 0.5),
                             shark_depth_relative=shark_cfg.get('depth_relative', False),
                         ))
                         continue

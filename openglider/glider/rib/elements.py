@@ -1338,7 +1338,119 @@ class AttachmentReinforcement:
         
         return inner_curve, outer_curve
     
-    def get_shark_nose_points(self, rib, num_points=140, glider=None):
+    def _shark_setup(self, rib, glider=None):
+        """Profile + normals + resolved band depth shared by the shark helpers."""
+        from openglider.glider.rib.rib import SingleSkinRib
+        if isinstance(rib, SingleSkinRib) and glider is not None:
+            try:
+                profile = rib.get_hull(glider)
+            except Exception:
+                profile = rib.profile_2d
+        else:
+            profile = rib.profile_2d
+        chord = rib.chord
+        normvectors = PolyLine2D(profile.normvectors)
+        n_norm = len(normvectors.data)
+        # Band depth: absolute (m) or a fraction of the chord when relative.
+        depth_abs = self.shark_depth * chord if self.shark_depth_relative else self.shark_depth
+        return profile, chord, normvectors, n_norm, depth_abs
+
+    def _shark_frame(self, ctx, x):
+        """Intrados point, clamped band depth, inward normal and TE tangent at x."""
+        profile, chord, normvectors, n_norm, depth_abs = ctx
+        i_idx = profile(x)
+        intr = np.array(profile[i_idx]) * chord
+        extr = np.array(profile[profile(-x)]) * chord
+        # Interpolate the normal at the fractional profile index. Flooring it
+        # (data[int(i_idx)]) yields a staircase direction that, offset inward by
+        # depth_abs, kicks the lid sideways at every integer boundary and saws
+        # the curve into little triangles.
+        nrm = np.array(normvectors[min(max(i_idx, 0.0), n_norm - 1.0)])
+        nlen = np.linalg.norm(nrm)
+        inward = -nrm / nlen if nlen > 1e-10 else np.array([0.0, 1.0])
+        thickness = float(np.linalg.norm(extr - intr))
+        # Band depth can never exceed the local profile thickness; at the nose
+        # (thickness -> 0) it collapses to a point instead of jutting out full
+        # depth in the degenerate tangential direction.
+        d = min(depth_abs, 0.9 * thickness)
+        tang = np.array([inward[1], -inward[0]])   # perpendicular to inward
+        if tang[0] < 0:
+            tang = -tang                            # point towards the trailing edge
+        return intr, d, inward, tang
+
+    def _shark_intrados_edge(self, ctx, x0, x1, n, allowance):
+        """Sample the intrados edge from x0 to x1.
+
+        Returns (net, out, a, b): ``net`` the net intrados points, ``out`` those
+        offset outward by ``allowance`` (away from the lid), and [a, b] the index
+        range of the straight part BEFORE the corner roundings (the fillet reach
+        is trimmed off each end).
+        """
+        frames = [self._shark_frame(ctx, x) for x in np.linspace(x0, x1, n)]
+        net = [f[0] for f in frames]
+        out = [net[i] - frames[i][2] * allowance for i in range(n)]  # -inward = outward
+        frac = float(np.clip(self.shark_corner_radius, 0.0, 1.0))
+        r0 = frac * 0.45 * frames[0][1]
+        r1 = frac * 0.45 * frames[-1][1]
+        arc = [0.0]
+        for i in range(1, n):
+            arc.append(arc[-1] + float(np.linalg.norm(net[i] - net[i - 1])))
+        lo, hi = r0, arc[-1] - r1
+        keep = [i for i in range(n) if lo <= arc[i] <= hi]
+        a = keep[0] if keep else 0
+        b = keep[-1] if keep else n - 1
+        return net, out, a, b
+
+    def get_shark_notches(self, rib, glider=None, tick_len=0.01, num=3):
+        """Assembly-alignment notches for the shark-nose reinforcement.
+
+        Short ticks laid across the intrados seam, anchored on the NET intrados
+        line and running outward by ``tick_len``, at ``num`` evenly spaced chord
+        positions between shark_start and shark_end. The same chord positions are
+        notched on the rib and on the cut piece (both in profile*chord coords), so
+        the notches coincide when the piece is placed on the rib intrados.
+
+        Returns a list of PolyLine2D ticks (empty if not a shark reinforcement).
+        """
+        if not self.shark_nose or num < 1:
+            return []
+        ctx = self._shark_setup(rib, glider)
+        x0 = abs(self.shark_start)
+        x1 = abs(self.shark_end)
+        if x1 < x0:
+            x0, x1 = x1, x0
+        n = max(8, 140)
+        net, out, a, b = self._shark_intrados_edge(ctx, x0, x1, n, tick_len)
+        if b <= a:
+            return []
+        notches = []
+        for k in range(num):
+            i = a + int(round((k + 1) / (num + 1) * (b - a)))  # within the straight part
+            notches.append(PolyLine2D([net[i], out[i]]))       # net edge -> allowance edge
+        return notches
+
+    def get_shark_seam_line(self, rib, glider=None, allowance=0.01, num_points=140):
+        """Sewing (seam) line of the shark piece: the NET intrados edge over the
+        straight part before the corner roundings -- i.e. the inner boundary of
+        the seam allowance strip. Drawn green inside the red cut contour.
+
+        Returns a PolyLine2D, or None if not a shark reinforcement / no allowance.
+        """
+        if not self.shark_nose or allowance <= 0:
+            return None
+        ctx = self._shark_setup(rib, glider)
+        x0 = abs(self.shark_start)
+        x1 = abs(self.shark_end)
+        if x1 < x0:
+            x0, x1 = x1, x0
+        n = max(8, num_points)
+        net, out, a, b = self._shark_intrados_edge(ctx, x0, x1, n, allowance)
+        if b <= a:
+            return None
+        return PolyLine2D(net[a:b + 1])
+
+    def get_shark_nose_points(self, rib, num_points=140, glider=None,
+                              intrados_allowance=0.0):
         """
         Shark-nose reinforcement outline: a rounded bounding box confined to the
         intrados.
@@ -1352,20 +1464,14 @@ class AttachmentReinforcement:
 
         It englobes the attachment point, the air-intake and the intrados sleeve
         ends (all sitting below the lid).
+
+        ``intrados_allowance`` (m) pushes only the intrados (bottom) edge outward
+        by that much: a seam allowance on the side caught in the rib's intrados
+        seam. The lid and end caps stay net (the piece is glued or sewn flat
+        there). 0 = net contour (used for the on-rib placement mark).
         """
-        from openglider.glider.rib.rib import SingleSkinRib
-
-        if isinstance(rib, SingleSkinRib) and glider is not None:
-            try:
-                profile = rib.get_hull(glider)
-            except Exception:
-                profile = rib.profile_2d
-        else:
-            profile = rib.profile_2d
-
-        chord = rib.chord
-        normvectors = PolyLine2D(profile.normvectors)
-        n_norm = len(normvectors.data)
+        ctx = self._shark_setup(rib, glider)
+        profile, chord, normvectors, n_norm, depth_abs = ctx
 
         x0 = abs(self.shark_start)
         x1 = abs(self.shark_end)
@@ -1373,31 +1479,8 @@ class AttachmentReinforcement:
             x0, x1 = x1, x0
         n = max(8, num_points)
 
-        # Band depth: absolute (m) or a fraction of the chord (scales with the
-        # profile size) when shark_depth_relative is set.
-        depth_abs = self.shark_depth * chord if self.shark_depth_relative else self.shark_depth
-
         def frame(x):
-            """Intrados point, clamped band depth, inward normal and TE tangent."""
-            i_idx = profile(x)
-            intr = np.array(profile[i_idx]) * chord
-            extr = np.array(profile[profile(-x)]) * chord
-            # Interpolate the normal at the fractional profile index. Flooring it
-            # (data[int(i_idx)]) yields a staircase direction that, offset inward by
-            # ``depth_abs``, kicks the lid sideways at every integer boundary and
-            # saws the curve into little triangles.
-            nrm = np.array(normvectors[min(max(i_idx, 0.0), n_norm - 1.0)])
-            nlen = np.linalg.norm(nrm)
-            inward = -nrm / nlen if nlen > 1e-10 else np.array([0.0, 1.0])
-            thickness = float(np.linalg.norm(extr - intr))
-            # Band depth can never exceed the local profile thickness; at the nose
-            # (thickness -> 0) it collapses to a point instead of jutting out full
-            # depth in the degenerate tangential direction.
-            d = min(depth_abs, 0.9 * thickness)
-            tang = np.array([inward[1], -inward[0]])   # perpendicular to inward
-            if tang[0] < 0:
-                tang = -tang                            # point towards the trailing edge
-            return intr, d, inward, tang
+            return self._shark_frame(ctx, x)
 
         def lid_point(x):
             """Lid point: intrados offset inward by the (clamped) band depth."""
@@ -1415,7 +1498,26 @@ class AttachmentReinforcement:
         x0p = np.clip(x0 - tau0[0] * sh0 / chord, 0.0, 0.95) if chord else x0
         x1p = np.clip(x1 + tau1[0] * sh1 / chord, 0.0, 0.95) if chord else x1
 
-        bottom = [np.array(profile[profile(x)]) * chord for x in np.linspace(x0, x1, n)]
+        # Intrados (bottom) edge. With a seam allowance the edge bulges OUTWARD by
+        # ``intrados_allowance`` on the straight part only (before the roundings),
+        # closed at each end by a short segment back to the net edge; the corner
+        # roundings stay net. 0 = the plain net intrados edge.
+        net_b, out_b, a_idx, b_idx = self._shark_intrados_edge(ctx, x0, x1, n, intrados_allowance)
+        if intrados_allowance > 0 and b_idx > a_idx:
+            bottom = []
+            for i in range(n):
+                if i < a_idx or i > b_idx:
+                    bottom.append(net_b[i])
+                elif i == a_idx:
+                    bottom.append(net_b[i])   # base of the start closer
+                    bottom.append(out_b[i])   # step out to the allowance edge
+                elif i == b_idx:
+                    bottom.append(out_b[i])   # last allowance point
+                    bottom.append(net_b[i])   # step back in (end closer)
+                else:
+                    bottom.append(out_b[i])   # allowance edge along the straight part
+        else:
+            bottom = net_b
         lid = [lid_point(x) for x in np.linspace(x0p, x1p, n)]
 
         if len(bottom) < 2 or len(lid) < 2:
@@ -1508,12 +1610,18 @@ class AttachmentReinforcement:
                 out.append(P[i])
         return out
 
-    def get_flattened(self, rib, num_points=30, glider=None):
-        """Get the flattened 2D representation."""
+    def get_flattened(self, rib, num_points=30, glider=None, intrados_allowance=0.0):
+        """Get the flattened 2D representation.
+
+        ``intrados_allowance`` (m) adds a seam allowance on the intrados side of
+        the shark-nose cut piece (0 = net outline, e.g. for the on-rib placement
+        mark). It has no effect in half-moon mode.
+        """
         if self.shark_nose:
             # Merged piece = half-moon prolonged into the nose band. Keep the
             # optional rod sleeve of the half-moon unchanged.
-            shark_points = self.get_shark_nose_points(rib, glider=glider)
+            shark_points = self.get_shark_nose_points(
+                rib, glider=glider, intrados_allowance=intrados_allowance)
             inner_rod, outer_rod = self.get_rod_sleeve_points(rib, num_points, glider=glider)
             rod_points = []
             if inner_rod and outer_rod:

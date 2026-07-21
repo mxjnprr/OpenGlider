@@ -30,6 +30,9 @@ class PatternConfig(Config):
     allowance_trailing_edge = 0.01
     allowance_entry_open = 0.015
     allowance_rod_sleeve = 0.01
+    # Shark-nose reinforcement is glued / sewn flat: seam allowance on the
+    # intrados edge only (caught in the rib's intrados seam), net everywhere else.
+    allowance_reinforcement = 0.01
 
     marks_diagonal_front = marks.Inside(marks.Arrow(left=True, name="diagonal_front"))
     marks_diagonal_back = marks.Inside(marks.Arrow(left=False, name="diagonal_back"))

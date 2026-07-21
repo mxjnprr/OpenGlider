@@ -197,7 +197,17 @@ class PlotMaker:
             if hasattr(rib, "reinforcements") and rib.reinforcements:
                 for reinf_idx, reinforcement in enumerate(rib.reinforcements):
                     try:
-                        flat = reinforcement.get_flattened(rib, glider=self.glider_3d)
+                        # Cut piece (red): the intrados seam allowance is baked
+                        # into the closed contour -- it bulges outward on the
+                        # straight part, closed at the ends. The net intrados edge
+                        # is drawn separately as the green sewing line inside.
+                        reinf_allowance = (
+                            getattr(self.config, 'allowance_reinforcement', 0.01)
+                            if getattr(reinforcement, 'shark_nose', False) else 0.0
+                        )
+                        flat = reinforcement.get_flattened(
+                            rib, glider=self.glider_3d,
+                            intrados_allowance=reinf_allowance)
                         # Short name: rib number + row letter (A, B, C...)
                         row_letter = chr(ord('A') + reinf_idx)
                         unique_name = f"{rib_idx+1}{row_letter}"
@@ -209,7 +219,23 @@ class PlotMaker:
                                 material_code="reinforcement"
                             )
                             halfmoon_part.layers["cuts"].append(flat['halfmoon'])
-                            
+
+                            if getattr(reinforcement, "shark_nose", False) and reinf_allowance > 0:
+                                # Green sewing line: the net intrados edge, inside
+                                # the red cut contour (inner boundary of the seam
+                                # allowance strip that the red contour bulges over).
+                                seam = reinforcement.get_shark_seam_line(
+                                    rib, glider=self.glider_3d, allowance=reinf_allowance)
+                                if seam is not None and len(seam.data) > 1:
+                                    halfmoon_part.layers["marks"].append(seam)
+
+                                # Assembly notches spanning the allowance, from the
+                                # net sewing line out to the cut edge, at the same
+                                # chord positions notched on the rib.
+                                halfmoon_part.layers["marks"] += reinforcement.get_shark_notches(
+                                    rib, glider=self.glider_3d, tick_len=reinf_allowance
+                                )
+
                             # Text along the outer edge (bottom/intrados line)
                             # Halfmoon polygon = outer_points + reversed(inner_points) + [close]
                             # First half = outer_points = profile/intrados edge = BOTTOM

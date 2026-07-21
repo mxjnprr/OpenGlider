@@ -136,7 +136,15 @@ class RibPlot:
             # Draw rod sleeve
             if flat.get('rod_sleeve') and len(flat['rod_sleeve'].data) > 0:
                 self.plotpart.layers["marks"].append(flat['rod_sleeve'])
-            
+
+            # Assembly notches for the shark-nose piece: the same chord positions
+            # are notched on the cut piece (see PlotMaker.get_reinforcements), so
+            # they coincide when the reinforcement is laid on the rib intrados.
+            if getattr(reinforcement, "shark_nose", False):
+                self.plotpart.layers["marks"] += reinforcement.get_shark_notches(
+                    self.rib, glider=glider, tick_len=self.config.allowance_general
+                )
+
             # Add profile mark at reinforcement position
             self.insert_mark(reinforcement.position, self.config.marks_attachment_point)
 
