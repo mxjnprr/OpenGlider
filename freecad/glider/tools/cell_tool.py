@@ -312,12 +312,15 @@ class CellTool(BaseTool):
             intrados_spin.setSuffix(" cm")
             
             before_axis_spin = QtGui.QDoubleSpinBox()
-            before_axis_spin.setRange(0, 50)
+            # Range must cover the real defaults (C/D go up to 75%); a 0..50
+            # cap silently clamped C/D on load and then re-saved the clamped
+            # value, permanently losing the setting.
+            before_axis_spin.setRange(0, 200)
             before_axis_spin.setValue(defaults[line_type][1])
             before_axis_spin.setSuffix(" %")
-            
+
             after_axis_spin = QtGui.QDoubleSpinBox()
-            after_axis_spin.setRange(0, 50)
+            after_axis_spin.setRange(0, 200)
             after_axis_spin.setValue(defaults[line_type][2])
             after_axis_spin.setSuffix(" %")
             
@@ -1073,6 +1076,10 @@ class diagonals_table(base_table_widget):
 
     def __init__(self):
         super().__init__(name="diagonals")
+        # Non-geometry diagonal attributes (material_code / edge_curve / name)
+        # have no table column; cache them per row so an edit round-trip does
+        # not silently wipe them from an existing glider. Keyed by table row.
+        self._extra_by_row = {}
         self.table.setRowCount(200)
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels(
@@ -1090,17 +1097,25 @@ class diagonals_table(base_table_widget):
         )
 
     def get_from_ParametricGlider(self, ParametricGlider):
+        self._extra_by_row = {}
         if "diagonals" in ParametricGlider.elements:
             diags = ParametricGlider.elements["diagonals"]
             for row, element in enumerate(diags):
                 entries = list(
-                    element["right_front"]
-                    + element["right_back"]
-                    + element["left_back"]
-                    + element["left_front"]
+                    list(element["right_front"])
+                    + list(element["right_back"])
+                    + list(element["left_back"])
+                    + list(element["left_front"])
                 )
                 entries.append(element["cells"])
                 self.table.setRow(row, entries)
+                # Preserve attributes that have no table column so they survive
+                # the read/apply round-trip (material/color, edge curvature, name).
+                self._extra_by_row[row] = {
+                    k: element[k]
+                    for k in ("material_code", "name", "edge_curve")
+                    if k in element
+                }
 
     def apply_to_glider(self, ParametricGlider):
         num_rows = self.table.rowCount()
@@ -1115,10 +1130,16 @@ class diagonals_table(base_table_widget):
                 diagonal["left_back"] = (row[4], row[5])
                 diagonal["left_front"] = (row[6], row[7])
                 diagonal["cells"] = row[-1]
+                # Restore preserved non-geometry attributes (material_code /
+                # edge_curve / name); new rows have no cache entry -> defaults.
+                diagonal.update(self._extra_by_row.get(n_row, {}))
                 ParametricGlider.elements["diagonals"].append(diagonal)
 
     def set_diagonals(self, diagonals_list):
         """Populate table with auto-generated diagonals."""
+        # Fresh geometry -> drop any cached material/edge-curve from a
+        # previously loaded glider so it isn't misapplied to these rows.
+        self._extra_by_row = {}
         # Clear existing rows
         for row in range(self.table.rowCount()):
             for col in range(self.table.columnCount()):

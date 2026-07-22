@@ -103,6 +103,17 @@ class ParametricGlider:
         self.cone_hole_margin_bottom_s = kwargs.get('cone_hole_margin_bottom_s', 3.0)  # mm
         self.cone_hole_corner_radius_s = kwargs.get('cone_hole_corner_radius_s', 25.0)  # %
 
+        # Diagonal & band holes (cut into diagonal ribs / bands). Must be
+        # persisted so the Hole Design tool restores the enabled state and
+        # geometry on reopen; without this the diagonal/band hole preview and
+        # cutouts silently disappear (fell back to the legacy cone flag).
+        self.diag_holes_enabled = kwargs.get('diag_holes_enabled', False)
+        self.diag_hole_num_zones = kwargs.get('diag_hole_num_zones', 1)
+        self.diag_hole_margin_top = kwargs.get('diag_hole_margin_top', 3.0)      # mm
+        self.diag_hole_margin_side = kwargs.get('diag_hole_margin_side', 3.0)    # mm
+        self.diag_hole_margin_bottom = kwargs.get('diag_hole_margin_bottom', 3.0)  # mm
+        self.diag_hole_corner_radius = kwargs.get('diag_hole_corner_radius', 25.0)  # %
+
         # Intrados strap holes (ellipse / rounded rectangle on tension straps)
         self.strap_holes_enabled = kwargs.get('strap_holes_enabled', False)
         self.strap_hole_num = kwargs.get('strap_hole_num', 3)
@@ -210,6 +221,10 @@ class ParametricGlider:
             "D": (4.0, 50.0, 75.0, 1),
         })
         self.diagonal_autofill_offset = kwargs.get('diagonal_autofill_offset', 0)  # mm
+        self.diagonal_autofill_mode = kwargs.get('diagonal_autofill_mode', 'percent')
+        self.diagonal_autofill_angles = kwargs.get('diagonal_autofill_angles', {
+            "A": 45.0, "B": 45.0, "C": 45.0, "D": 45.0,
+        })
 
         # Lines Auto-Placement configuration
         self.lines_placement_config = kwargs.get('lines_placement_config', {
@@ -1695,6 +1710,13 @@ class ParametricGlider:
             "cone_hole_margin_side_s": getattr(self, "cone_hole_margin_side_s", 3.0),
             "cone_hole_margin_bottom_s": getattr(self, "cone_hole_margin_bottom_s", 3.0),
             "cone_hole_corner_radius_s": getattr(self, "cone_hole_corner_radius_s", 25.0),
+            # Diagonal & band holes
+            "diag_holes_enabled": getattr(self, "diag_holes_enabled", False),
+            "diag_hole_num_zones": getattr(self, "diag_hole_num_zones", 1),
+            "diag_hole_margin_top": getattr(self, "diag_hole_margin_top", 3.0),
+            "diag_hole_margin_side": getattr(self, "diag_hole_margin_side", 3.0),
+            "diag_hole_margin_bottom": getattr(self, "diag_hole_margin_bottom", 3.0),
+            "diag_hole_corner_radius": getattr(self, "diag_hole_corner_radius", 25.0),
             # Intrados strap holes
             "strap_holes_enabled": getattr(self, "strap_holes_enabled", False),
             "strap_hole_num": getattr(self, "strap_hole_num", 3),
@@ -1776,6 +1798,10 @@ class ParametricGlider:
                 "D": (4.0, 50.0, 75.0, 1),
             }),
             "diagonal_autofill_offset": getattr(self, "diagonal_autofill_offset", 0),
+            "diagonal_autofill_mode": getattr(self, "diagonal_autofill_mode", "percent"),
+            "diagonal_autofill_angles": getattr(self, "diagonal_autofill_angles", {
+                "A": 45.0, "B": 45.0, "C": 45.0, "D": 45.0,
+            }),
             # Lines Auto-Placement configuration
             "lines_placement_config": getattr(self, "lines_placement_config", {
                 "demi_ecartement": 0.2,
