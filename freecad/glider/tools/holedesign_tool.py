@@ -1001,7 +1001,6 @@ class HoleDesignTool(BaseTool):
         # Draw extrados sleeves
         extrados_enabled = getattr(pg, f'extrados_sleeves_enabled{suffix}', True)
         extrados_configs = getattr(pg, f'extrados_sleeves{suffix}', [])
-        print(f"DEBUG: extrados_enabled={extrados_enabled}, configs={len(extrados_configs)}, suffix={suffix}")
         if extrados_enabled and extrados_configs:
             for config in extrados_configs:
                 excluded_ribs = config.get('excluded_ribs', [])
@@ -1013,10 +1012,14 @@ class HoleDesignTool(BaseTool):
                             offset=config.get('offset', 0.005),
                             start_chord=config.get('start_chord', 0.0),
                             end_chord=config.get('end_chord', 0.7),
+                            le_curl=config.get('start_curl', 60.0),
+                            te_curl=config.get('end_curl', 60.0),
+                            le_length=config.get('start_length', 0.08),
+                            te_length=config.get('end_length', 0.06),
                         )
-                        inner_pts, outer_pts = sleeve.get_sleeve_points(rib)
-                        if inner_pts and outer_pts:
-                            # Draw at full scale (already scaled by rib.chord in get_sleeve_points)
+                        inner_pts, outer_pts = sleeve.get_full_sleeve_points(rib, glider=glider_instance)
+                        if len(inner_pts) and len(outer_pts):
+                            # Full sleeve incl. LE/TE curl terminations (already scaled by rib.chord)
                             sleeve_poly = list(inner_pts) + list(reversed(outer_pts)) + [inner_pts[0]]
                             self.preview_root.addChild(Line_old(sleeve_poly, color='green', width=2).object)
                     except Exception as e:
@@ -1027,7 +1030,6 @@ class HoleDesignTool(BaseTool):
         # Draw intrados sleeves
         intrados_enabled = getattr(pg, f'intrados_sleeves_enabled{suffix}', True)
         intrados_configs = getattr(pg, f'intrados_sleeves{suffix}', [])
-        print(f"DEBUG: intrados_enabled={intrados_enabled}, configs={len(intrados_configs)}, suffix={suffix}")
         if intrados_enabled and intrados_configs:
             for config in intrados_configs:
                 excluded_ribs = config.get('excluded_ribs', [])
@@ -1039,10 +1041,14 @@ class HoleDesignTool(BaseTool):
                             offset=config.get('offset', 0.005),
                             start_chord=config.get('start_chord', 0.06),
                             end_chord=config.get('end_chord', 0.5),
+                            le_curl=config.get('start_curl', 60.0),
+                            te_curl=config.get('end_curl', 60.0),
+                            le_length=config.get('start_length', 0.08),
+                            te_length=config.get('end_length', 0.06),
                         )
-                        inner_pts, outer_pts = sleeve.get_sleeve_points(rib)
-                        if inner_pts and outer_pts:
-                            # Draw at full scale (already scaled by rib.chord in get_sleeve_points)
+                        inner_pts, outer_pts = sleeve.get_full_sleeve_points(rib, glider=glider_instance)
+                        if len(inner_pts) and len(outer_pts):
+                            # Full sleeve incl. LE/TE curl terminations (already scaled by rib.chord)
                             sleeve_poly = list(inner_pts) + list(reversed(outer_pts)) + [inner_pts[0]]
                             self.preview_root.addChild(Line_old(sleeve_poly, color='white', width=2).object)
                     except Exception as e:
@@ -1054,10 +1060,17 @@ class HoleDesignTool(BaseTool):
         if is_suspended and hasattr(rib, 'reinforcements') and rib.reinforcements:
             for reinf in rib.reinforcements:
                 try:
-                    halfmoon_pts = reinf.get_halfmoon_points(rib)
+                    # get_flattened dispatches to the sharknose box when
+                    # shark_nose is set, otherwise the half-moon crescent, and
+                    # also yields the rod-sleeve sub-piece. Matches the real
+                    # 2D export and the airfoil-structure tool preview.
+                    flat = reinf.get_flattened(rib, glider=glider_instance)
+                    halfmoon_pts = [[p[0], p[1], 0] for p in flat['halfmoon'].data]
                     if halfmoon_pts:
-                        # Draw at full scale (already scaled in get_halfmoon_points)
-                        self.preview_root.addChild(Line_old(list(halfmoon_pts), color='yellow', width=2).object)
+                        self.preview_root.addChild(Line_old(halfmoon_pts, color='yellow', width=2).object)
+                    rod_pts = [[p[0], p[1], 0] for p in flat['rod_sleeve'].data]
+                    if rod_pts:
+                        self.preview_root.addChild(Line_old(rod_pts, color='red', width=2).object)
                 except Exception as e:
                     print(f"Error drawing reinforcement: {e}")
 
@@ -1169,7 +1182,16 @@ class HoleDesignTool(BaseTool):
             try:
                 self._draw_diagonal_preview(rib, scale)
             except Exception:
-                pass
+                import traceback
+                traceback.print_exc()
+            # Horizontal extrados bands are diagonals too but are NOT drawn by
+            # _draw_diagonal_preview (which only handles intrados->extrados
+            # "full" diagonals); draw them separately with their band holes.
+            try:
+                self._draw_band_preview(rib, scale)
+            except Exception:
+                import traceback
+                traceback.print_exc()
 
         # === STRAP 2D PREVIEW ===
         if self.strapHolesEnabledCheckBox.isChecked():
@@ -1440,8 +1462,12 @@ class HoleDesignTool(BaseTool):
         height_pct = self.strapHoleHeightSpinBox.value() / 100.0
         corner_pct = self.strapHoleCornerRadiusSpinBox.value() / 100.0
 
-        # Collect real fabric straps in cells adjacent to this rib
+        # Collect real fabric straps in cells adjacent to this rib.
+        # An interior rib is shared by two cells; a strap spanning both is
+        # present in each cell's list, so dedupe by geometry to avoid drawing
+        # the same strap twice (once per adjacent cell).
         straps = []
+        seen_sig = set()
         for cell in glider_instance.cells:
             if cell.rib1 is rib or cell.rib2 is rib:
                 for strap in cell.straps:
@@ -1449,13 +1475,24 @@ class HoleDesignTool(BaseTool):
                         continue
                     if strap.width_left < 1e-4 and strap.width_right < 1e-4:
                         continue
+                    sig = (round(strap.get_average_x(), 4),
+                           round(strap.width_left, 4),
+                           round(strap.width_right, 4))
+                    if sig in seen_sig:
+                        continue
+                    seen_sig.add(sig)
                     straps.append((strap, cell))
 
         if not straps:
             return
 
         ap_rows = self._get_strap_ap_rows()
-        y_base = 0.30 * scale
+        # Lay straps out in their own column BELOW the profile (to the right of
+        # the band column), stacked by each strap's real flattened height, so
+        # they never overlap the diagonal fan drawn above the profile.
+        cursor_y = -0.18 * scale
+        gap = 0.05 * scale
+        x_col = 0.45 * scale
         for s_idx, (strap, cell) in enumerate(straps):
             try:
                 left, right = strap.get_flattened(cell)
@@ -1463,7 +1500,12 @@ class HoleDesignTool(BaseTool):
                 continue
 
             included = self._strap_included_by_filter(strap, ap_rows)
-            offset = np.array([0.0, y_base + s_idx * 0.12 * scale])
+
+            xs = [left[i][0] for i in range(len(left))] + [right[i][0] for i in range(len(right))]
+            ys = [left[i][1] for i in range(len(left))] + [right[i][1] for i in range(len(right))]
+            min_x, min_y, max_y = min(xs), min(ys), max(ys)
+            offset = np.array([x_col - min_x, cursor_y - max_y])
+            cursor_y = cursor_y - (max_y - min_y) - gap
 
             def T(p):
                 return [p[0] + offset[0], p[1] + offset[1], 0]
@@ -1519,6 +1561,112 @@ class HoleDesignTool(BaseTool):
                         a = 2 * np.pi * j / 32
                         q = c + h_span * np.cos(a) * span_dir + h_wid * np.sin(a) * width_dir
                         pts.append(T(q))
+                self.preview_root.addChild(Line_old(pts, color='blue', width=1).object)
+
+    def _draw_band_preview(self, rib, scale):
+        """Draw 2D flattened horizontal extrados bands (adjacent to the selected
+        rib) with their uniform elliptical holes.
+
+        Mirrors the 3D model: bands are diagonals with both sides on the
+        extrados at the same height (see ParametricGlider.apply_holes /
+        DiagonalRib._band_holes_parametric). Placed below the rib profile so
+        they don't overlap the diagonal/strap previews drawn above it.
+        """
+        glider_instance = self.obj.Proxy.getGliderInstance()
+
+        # Collect bands in cells adjacent to this rib; dedupe bands spanning
+        # two adjacent cells (same as the strap preview).
+        band_items = []
+        seen_sig = set()
+        for cell in glider_instance.cells:
+            if cell.rib1 is rib or cell.rib2 is rib:
+                for drib in cell.diagonals:
+                    left_h = (drib.left_front[1], drib.left_back[1])
+                    right_h = (drib.right_front[1], drib.right_back[1])
+                    left_is_ext = (left_h[0] > 0 and left_h[1] > 0)
+                    right_is_ext = (right_h[0] > 0 and right_h[1] > 0)
+                    is_band = (left_is_ext and right_is_ext and
+                               abs(left_h[0] - right_h[0]) < 0.01 and
+                               abs(left_h[1] - right_h[1]) < 0.01)
+                    if not is_band:
+                        continue
+                    sig = (round(drib.get_average_x(), 4),
+                           round(drib.width_left, 4),
+                           round(drib.width_right, 4))
+                    if sig in seen_sig:
+                        continue
+                    seen_sig.add(sig)
+                    band_items.append((drib, cell))
+
+        if not band_items:
+            return
+
+        # Uniform elliptical band holes, identical sizing to the export/model
+        # (_band_holes_parametric): parametric x along band (front->back),
+        # y across width (rib1->rib2).
+        num_zones = self.diagHoleNumZonesSpinBox.value()
+        total_holes = max(2 * num_zones, 0)
+        margin_x_edge = 0.03
+        margin_y_edge = 0.12
+        margin_between = 0.03
+        usable_x = 1.0 - 2 * margin_x_edge
+        zone_width = usable_x / total_holes if total_holes else 0.0
+        ellipse_w = max((zone_width - margin_between) / 2, 0.01) if total_holes else 0.0
+        ellipse_h = max((1.0 - 2 * margin_y_edge) / 2, 0.01)
+
+        # Stack bands downward below the intrados, spacing by each band's real
+        # flattened height (a fixed increment overlaps taller bands), and align
+        # every band's left edge to a common column so they read as a tidy list.
+        cursor_y = -0.15 * scale
+        gap = 0.05 * scale
+        x_col = 0.10 * scale
+        for b_idx, (drib, cell) in enumerate(band_items):
+            try:
+                left, right = drib.get_flattened(cell)
+            except Exception:
+                continue
+
+            xs = [left[i][0] for i in range(len(left))] + [right[i][0] for i in range(len(right))]
+            ys = [left[i][1] for i in range(len(left))] + [right[i][1] for i in range(len(right))]
+            min_x, min_y, max_y = min(xs), min(ys), max(ys)
+            band_height = max_y - min_y
+
+            offset = np.array([x_col - min_x, cursor_y - max_y])
+            cursor_y = cursor_y - band_height - gap
+
+            def T(p):
+                return [p[0] + offset[0], p[1] + offset[1], 0]
+
+            # Band outline: left edge -> across -> right edge (reversed) -> close
+            outline = [T(left[i]) for i in range(len(left))]
+            outline.append(T(right[len(right) - 1]))
+            for i in range(len(right) - 1, -1, -1):
+                outline.append(T(right[i]))
+            outline.append(T(left[0]))
+            self.preview_root.addChild(Line_old(outline, color='green', width=2).object)
+
+            if total_holes <= 0:
+                continue
+
+            left_total = left.get_length()
+            right_total = right.get_length()
+            if left_total < 1e-9 or right_total < 1e-9:
+                continue
+
+            def param_to_2d(px, py):
+                pl = np.array(left[left.walk(0, px * left_total)])
+                pr = np.array(right[right.walk(0, px * right_total)])
+                return pl * (1.0 - py) + pr * py
+
+            for i in range(total_holes):
+                cx = margin_x_edge + zone_width * (i + 0.5)
+                cy = 0.5
+                pts = []
+                for j in range(25):
+                    angle = 2 * np.pi * j / 24
+                    px = min(0.99, max(0.01, cx + ellipse_w * np.cos(angle)))
+                    py = min(0.99, max(0.01, cy + ellipse_h * np.sin(angle)))
+                    pts.append(T(param_to_2d(px, py)))
                 self.preview_root.addChild(Line_old(pts, color='blue', width=1).object)
 
     def _compute_diag_holes(self, ap, inner, other_inner, front, back, config):

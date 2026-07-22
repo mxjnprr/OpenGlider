@@ -427,25 +427,52 @@ class AirfoilStructureTool(BaseTool):
         except:
             return 1
     
-    def _populate_rib_combo(self):
-        """Populate the rib combo box with actual rib names."""
+    def _populate_rib_combo(self, suspended=None):
+        """Populate the rib combo box, filtered by profile type.
+
+        In suspended mode only ribs that carry attachment points are offered;
+        in non-suspended mode only ribs without attachment points. A mapping
+        from combo index -> glider.ribs index is kept so get_representative_rib
+        resolves back to the real rib regardless of filtering.
+        """
+        if suspended is None:
+            suspended = self.ribTypeComboBox.currentIndex() == 1
+        self.previewRibComboBox.blockSignals(True)
         self.previewRibComboBox.clear()
+        self._preview_rib_indices = []  # combo index -> glider.ribs index
         try:
             glider_instance = self.obj.Proxy.getGliderInstance()
-            for rib in glider_instance.ribs:
-                # Use rib.name if available, otherwise use index+1
-                name = rib.name if hasattr(rib, 'name') and rib.name else f"r{glider_instance.ribs.index(rib) + 1}"
+            for idx, rib in enumerate(glider_instance.ribs):
+                # A rib counts as "suspended" only if it carries *valid* (load-
+                # bearing) attachment points; brake attachments (rib_pos > 0.90)
+                # don't make a rib suspended, matching get_valid_attachment_points
+                # / get_first_suspended_rib used everywhere else in the tool.
+                all_aps = glider_instance.get_rib_attachment_points(rib)
+                has_aps = any(ap.rib_pos <= 0.90 for ap in all_aps)
+                if bool(suspended) != bool(has_aps):
+                    continue
+                name = rib.name if getattr(rib, 'name', None) else f"r{idx + 1}"
                 self.previewRibComboBox.addItem(name)
+                self._preview_rib_indices.append(idx)
+            # Fallback: never leave the selector empty (e.g. a glider with no
+            # suspended ribs at all) so the preview still shows something.
+            if not self._preview_rib_indices and glider_instance.ribs:
+                for idx, rib in enumerate(glider_instance.ribs):
+                    name = rib.name if getattr(rib, 'name', None) else f"r{idx + 1}"
+                    self.previewRibComboBox.addItem(name)
+                    self._preview_rib_indices.append(idx)
         except Exception:
             self.previewRibComboBox.addItem("r1")
+            self._preview_rib_indices = [0]
+        self.previewRibComboBox.blockSignals(False)
 
     def get_representative_rib(self, suspended=False):
-        """Get rib for preview based on spinner selection."""
+        """Get rib for preview based on the (filtered) combo selection."""
         glider_instance = self.obj.Proxy.getGliderInstance()
-        rib_idx = self.previewRibComboBox.currentIndex()
-        
-        if rib_idx < len(glider_instance.ribs):
-            return glider_instance.ribs[rib_idx]
+        combo_idx = self.previewRibComboBox.currentIndex()
+        indices = getattr(self, '_preview_rib_indices', None)
+        if indices and 0 <= combo_idx < len(indices):
+            return glider_instance.ribs[indices[combo_idx]]
         return glider_instance.ribs[0] if glider_instance.ribs else None
 
     def get_first_suspended_rib(self):
@@ -492,12 +519,12 @@ class AirfoilStructureTool(BaseTool):
         
         is_suspended = new_index == 1
         self.reinforcementGroupBox.setVisible(is_suspended)
-        
-        # Auto-switch preview rib to first suspended rib when switching to Suspended mode
-        if is_suspended:
-            first_suspended_idx = self.get_first_suspended_rib_index()
-            self.previewRibComboBox.setCurrentIndex(first_suspended_idx)
-        
+
+        # Rebuild the preview selector so it only offers ribs of the active
+        # type (suspended vs non-suspended). Without this the dropdown keeps
+        # listing every rib and the preview can show the wrong profile.
+        self._populate_rib_combo(suspended=is_suspended)
+
         # Reload data for new state
         self.update_form_from_glider_data()
         self.update_preview(force=True)
