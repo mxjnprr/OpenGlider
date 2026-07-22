@@ -24,6 +24,7 @@ from openglider.lines.line_types import LineType
 
 from .glider import draw_glider
 from .lines_auto_placement_dialog import LinesAutoPlacementDialog
+from .lines_force_distribution_dialog import LinesForceDistributionDialog
 from .tools import BaseTool, input_field, text_field, vector3D
 
 
@@ -256,6 +257,11 @@ class LineTool(BaseTool):
         self.layer_layout.setWidget(4, text_field, QtGui.QLabel("generate lines"))
         self.layer_layout.setWidget(4, input_field, self.auto_placement_button)
 
+        # Force-distribution button
+        self.force_distribution_button = QtGui.QPushButton("Distribute forces...")
+        self.layer_layout.setWidget(5, text_field, QtGui.QLabel("attach. forces"))
+        self.layer_layout.setWidget(5, input_field, self.force_distribution_button)
+
         # dialogs
         self.add_layer_dialog = QtGui.QInputDialog()
         add_button.clicked.connect(self.add_new_layer)
@@ -266,6 +272,7 @@ class LineTool(BaseTool):
         self.layer_color_button.clicked.connect(self.layer_color_dialog.open)
         self.layer_color_dialog.accepted.connect(self.color_changed)
         self.auto_placement_button.clicked.connect(self.open_auto_placement_dialog)
+        self.force_distribution_button.clicked.connect(self.open_force_distribution_dialog)
 
     def color_changed(self):
         color = self.layer_color_dialog.currentColor().getRgbF()[:-1]
@@ -315,6 +322,34 @@ class LineTool(BaseTool):
                 App.Console.PrintError(traceback.format_exc())
 
     
+    def open_force_distribution_dialog(self):
+        """Open the force-distribution dialog and update attachment forces.
+
+        The markers wrap the same UpperNode2D objects as the lineset, so
+        updating ``node.force`` is enough for the change to survive accept().
+        """
+        dialog = LinesForceDistributionDialog(self.parametric_glider)
+        if dialog.exec_() != QtGui.QDialog.Accepted:
+            return
+        try:
+            params = dialog.get_parameters()
+            result = self.parametric_glider.lineset.distribute_forces(
+                self.parametric_glider, **params
+            )
+            # keep the displayed markers / property widget in sync
+            for obj in self.shape.dynamic_objects:
+                if isinstance(obj, Upper_Att_Marker):
+                    obj.force = obj._node.force
+            self.selection_changed()
+            App.Console.PrintMessage(
+                f"Force distribution: updated {len(result)} attachment points "
+                f"({params['spanwise']} / {params['chordwise']}).\n"
+            )
+        except Exception as e:
+            App.Console.PrintError(f"Force distribution error: {str(e)}\n")
+            import traceback
+            App.Console.PrintError(traceback.format_exc())
+
     def _apply_lineset_to_display(self, lineset):
         """Apply a LineSet2D to the visual display."""
         nodes = {}
