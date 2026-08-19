@@ -103,7 +103,7 @@ class AirfoilControlTool(BaseTool):
         
     def _create_airfoil_selection_tab(self):
         """Tab 0: Airfoil Selection - manage base profiles"""
-        COMPARE_COLORS = ["blue", "green", "yellow", "cyan", "magenta", "orange"]
+        COMPARE_COLORS = ["blue", "cyan", "magenta", "orange", "gold", "purple"]
         self._airfoil_colors = COMPARE_COLORS
         self._airfoil_undo = {}  # item id -> list of previous airfoil states
         
