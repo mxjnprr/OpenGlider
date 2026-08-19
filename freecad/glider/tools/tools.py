@@ -5,13 +5,48 @@ import FreeCAD
 import FreeCADGui
 import numpy as np
 from pivy import coin
-from pivy.graphics import InteractionSeparator, Line, Marker
+from pivy.graphics import COLORS, InteractionSeparator, Line, Marker
 from PySide import QtGui
 
 import openglider
 from openglider.glider import ParametricGlider
 from openglider.jsonify import load
 from openglider.vector.spline import BernsteinBase, BSplineBase
+
+
+# pivy only ships a handful of named colors (black, white, grey, red, blue,
+# green, yellow), so any tool cycling through a larger compare-palette raised a
+# KeyError in Object3D.set_color. Register the missing names once, here, without
+# touching pivy's existing entries.
+EXTRA_COLORS = {
+    "cyan": (0.0, 1.0, 1.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "orange": (1.0, 0.5, 0.0),
+    "purple": (0.5, 0.0, 1.0),
+    "gold": (1.0, 0.85, 0.0),
+    "lime": (0.4, 1.0, 0.2),
+    "pink": (1.0, 0.4, 0.7),
+    "brown": (0.6, 0.3, 0.1),
+}
+for _name, _rgb in EXTRA_COLORS.items():
+    COLORS.setdefault(_name, _rgb)
+
+
+def set_color(obj, color):
+    """Color a pivy graphics object from a color name or an (r, g, b) tuple.
+
+    Unknown names fall back to black instead of raising, so a bad palette entry
+    never breaks a tool's preview.
+    """
+    if isinstance(color, (tuple, list, np.ndarray)):
+        obj.color.diffuseColor = tuple(float(c) for c in color)
+    elif color in COLORS:
+        obj.set_color(color)
+    else:
+        FreeCAD.Console.PrintWarning(
+            "unknown color '{}', falling back to black\n".format(color)
+        )
+        obj.set_color("black")
 
 
 class ConstrainedMarker(Marker):
@@ -46,7 +81,7 @@ class Line_old:
             points = [[0.0, 0.0, 0.0]]
         self.object = Line(list(map(vector3D, points)))
         self.object.drawstyle.lineWidth = width
-        self.object.set_color(color)
+        set_color(self.object, color)
 
     def update(self, points):
         self.object.points = vector3D(points)

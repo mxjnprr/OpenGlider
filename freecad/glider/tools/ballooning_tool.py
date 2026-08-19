@@ -10,6 +10,7 @@ from PySide import QtCore, QtGui
 from openglider.glider.ballooning import BallooningBezier
 
 from .tools import (
+    COLORS,
     BaseTool,
     ControlPointContainer,
     Line_old,
@@ -22,7 +23,7 @@ from .tools import (
 class BallooningTool(BaseTool):
     widget_name = "Selection"
     scale_y = 5
-    COMPARE_COLORS = ["blue", "green", "yellow", "cyan", "magenta", "orange"]
+    COMPARE_COLORS = ["blue", "cyan", "magenta", "orange", "gold", "purple"]
 
     def __init__(self, obj):
         super().__init__(obj)
@@ -40,6 +41,7 @@ class BallooningTool(BaseTool):
         self.Qcoord_label = QtGui.QLabel("")
 
         self.ballooning_sep = coin.SoSeparator()
+        self.reference_sep = coin.SoSeparator()
         self.spline_sep = coin.SoSeparator()
         self.upper_spline = coin.SoSeparator()
         self.lower_spline = coin.SoSeparator()
@@ -49,6 +51,7 @@ class BallooningTool(BaseTool):
         self.lower_cpc = ControlPointContainer(self.rm, [])
         self.previous_foil = None
         self.is_edit = False
+        self.edit_item = None
 
         self.setup_widget()
         self.setup_pivy()
@@ -77,6 +80,11 @@ class BallooningTool(BaseTool):
         self.layout.addWidget(self.Qimport_button)
         self.QList_View.setDragDropMode(QtGui.QAbstractItemView.InternalMove)
         self.QList_View.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
+        self.QList_View.setToolTip(
+            "Click a ballooning to edit it (drawn red).\n"
+            "Tick the box of any other ballooning to keep it on screen as a\n"
+            "colored reference, including while modifying with handles."
+        )
 
         # connections
         self.Qnew_button.clicked.connect(self.create_ballooning)
@@ -85,6 +93,7 @@ class BallooningTool(BaseTool):
         self.Qimport_button.clicked.connect(self.import_ballooning)
         self.QList_View.currentRowChanged.connect(self.update_selection)
         self.QList_View.itemSelectionChanged.connect(self.update_ballooning)
+        self.QList_View.itemChanged.connect(self.update_ballooning)
         self.Qballooning_name.textChanged.connect(self.update_name)
         self.Qfit_button.clicked.connect(self.spline_edit)
 
@@ -92,7 +101,7 @@ class BallooningTool(BaseTool):
         self.layout.addWidget(self.spline_select)
 
     def setup_pivy(self):
-        self.task_separator += [self.ballooning_sep, self.spline_sep]
+        self.task_separator += [self.reference_sep, self.ballooning_sep, self.spline_sep]
         self.update_selection()
         self.grid = coin.SoSeparator()
         self.task_separator += [self.grid]
@@ -208,14 +217,19 @@ class BallooningTool(BaseTool):
                 pass
 
     def update_selection(self, *args):
-        # if self.is_edit and self.previous_foil:
-        #     self.previous_foil.apply_splines()
-        #     self.unset_edit_mode()
-        if self.QList_View.currentItem():
-            self.Qballooning_name.setText(self.QList_View.currentItem().text())
-            self.previous_foil = self.current_ballooning
-            self.update_ballooning()
-            self._apply_preview()
+        current = self.current_ballooning
+        if current is None:
+            return
+        self.Qballooning_name.setText(current.text())
+        if self.is_edit and self.edit_item is not current:
+            # stay in edit mode, but move the handles over to the new selection
+            if self.edit_item is not None:
+                self.edit_item.apply_splines()
+            self.unset_edit_mode()
+            self.set_edit_mode()
+        self.previous_foil = current
+        self.update_ballooning()
+        self._apply_preview()
 
     def _apply_preview(self):
         """Apply the currently selected ballooning to all cells and refresh the 3D view."""
@@ -234,33 +248,78 @@ class BallooningTool(BaseTool):
         self.current_ballooning.setText(name)
 
     def update_ballooning(self, *args):
+        """Redraw the reference curves and, outside edit mode, the current one."""
+        self.update_references()
+        if self.is_edit:
+            # the edited curves live in spline_sep and are kept up to date by
+            # the control point callbacks - leave them alone
+            return
         self.ballooning_sep.removeAllChildren()
-        selected_items = self.QList_View.selectedItems()
         current = self.current_ballooning
-        # Draw non-current selected items first (background)
-        color_idx = 0
-        for item in selected_items:
-            if item is current:
-                continue
-            color = self.COMPARE_COLORS[color_idx % len(self.COMPARE_COLORS)]
-            color_idx += 1
-            upper_sep = coin.SoSeparator()
-            lower_sep = coin.SoSeparator()
-            upper_sep += [Line_old(
-                vector3D(item.get_expl_upper_spline(70)),
-                color=color, width=2,
-            ).object]
-            lower_sep += [Line_old(
-                vector3D(item.get_expl_lower_spline(70)),
-                color=color, width=2,
-            ).object]
-            self.ballooning_sep += [upper_sep, lower_sep]
-        # Draw current item on top in red
         if current is not None:
             self.draw_lower_spline(70)
             self.draw_upper_spline(70)
             self.ballooning_sep += [self.upper_spline]
             self.ballooning_sep += [self.lower_spline]
+
+    def update_references(self):
+        """Draw the reference balloonings as colored overlays.
+
+        They live in their own separator so they stay on screen while the
+        current ballooning is being modified with handles.
+        """
+        self.reference_sep.removeAllChildren()
+        current = self.current_ballooning
+        legend = []
+        if current is not None:
+            legend.append((current.text(), "red"))
+        color_idx = 0
+        for item in self.reference_items():
+            color = self.COMPARE_COLORS[color_idx % len(self.COMPARE_COLORS)]
+            color_idx += 1
+            self.reference_sep += [Line_old(
+                vector3D(item.get_expl_upper_spline(70)),
+                color=color, width=2,
+            ).object]
+            self.reference_sep += [Line_old(
+                vector3D(item.get_expl_lower_spline(70)),
+                color=color, width=2,
+            ).object]
+            legend.append((item.text(), color))
+        if len(legend) > 1:
+            for index, (name, color) in enumerate(legend):
+                self.reference_sep += [
+                    self.legend_entry(name, color, index, len(legend))
+                ]
+
+    def reference_items(self):
+        """Balloonings to overlay: every ticked or multi-selected one but the
+        current, in list order."""
+        current = self.current_ballooning
+        items = []
+        for index in range(self.QList_View.count()):
+            item = self.QList_View.item(index)
+            if item is current:
+                continue
+            if item.checkState() == QtCore.Qt.Checked or item.isSelected():
+                items.append(item)
+        return items
+
+    def legend_entry(self, name, color, index, total):
+        """A colored name, stacked above the grid in list order."""
+        sep = coin.SoSeparator()
+        material = coin.SoMaterial()
+        material.diffuseColor = COLORS[color]
+        trans = coin.SoTranslation()
+        trans.translation = (
+            0.0,
+            0.1 * self.scale_y + (total - index) * 0.03 * self.scale_y,
+            0.0,
+        )
+        text = coin.SoText2()
+        text.string = name
+        sep += [material, trans, text]
+        return sep
 
     def spline_edit(self):
         if self.is_edit:
@@ -273,7 +332,12 @@ class BallooningTool(BaseTool):
     def set_edit_mode(self):
         if self.current_ballooning is not None:
             self.is_edit = True
+            self.edit_item = self.current_ballooning
+            self.Qfit_button.setText("finish editing")
+            # only the static copy of the current curve goes away, the
+            # reference overlays stay visible while dragging the handles
             self.ballooning_sep.removeAllChildren()
+            self.update_references()
             self.spline_sep.removeAllChildren()
             self.upper_cpc = ControlPointContainer(self.rm)
             self.upper_cpc.grid = [0.01, 0.01, 100]
@@ -406,7 +470,9 @@ class BallooningTool(BaseTool):
             self.upper_cpc.remove_callbacks()
             self.lower_cpc.remove_callbacks()
             self.Qcoord_label.setText("")
+            self.Qfit_button.setText("modify with handles")
             self.is_edit = False
+            self.edit_item = None
 
     def accept(self):
         self.unset_edit_mode()
@@ -434,7 +500,10 @@ class QBalooning(QtGui.QListWidgetItem):
             numpy.array([1.0, -self.scale_y])
             * self.ballooning.lower_spline.controlpoints
         )
-        self.setFlags(self.flags() | QtCore.Qt.ItemIsEditable)
+        self.setFlags(
+            self.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable
+        )
+        self.setCheckState(QtCore.Qt.Unchecked)
 
     def get_expl_lower_spline(self, num):
         # self.apply_splines()
