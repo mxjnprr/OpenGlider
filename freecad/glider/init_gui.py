@@ -31,6 +31,7 @@ class GliderWorkbench(Gui.Workbench):
         "BallooningMergeCommand",
         "LineCommand",
         "LineObserveCommand",
+        "TwistCommand",
         "CellCommand",
         "MiniRibsCommand",
         "AirfoilStructureCommand",
@@ -73,6 +74,7 @@ class GliderWorkbench(Gui.Workbench):
         Gui.addCommand("ShapeCommand", tools.ShapeCommand())
         Gui.addCommand("ArcCommand", tools.ArcCommand())
         Gui.addCommand("AoaCommand", tools.AoaCommand())
+        Gui.addCommand("TwistCommand", tools.TwistCommand())
         Gui.addCommand("BallooningCommand", tools.BallooningCommand())
         Gui.addCommand("MiniRibsCommand", tools.MiniRibsCommand())
         Gui.addCommand("LineCommand", tools.LineCommand())
