@@ -1,9 +1,9 @@
 """Twist (vrillage) tool.
 
 Extends the AoA tool with the per-rib "kite" diagnostic of
-:mod:`openglider.glider.twist` and a twist <-> sweep corrector.  See the
-in-tool "How to read this" panel for the meaning of every curve; the physics
-is documented in :mod:`openglider.glider.twist.model`.
+:mod:`openglider.glider.twist` and a twist <-> sweep corrector.  The panel
+is in French (the designer's language); the physics is documented in
+:mod:`openglider.glider.twist.model`.
 """
 
 import numpy as np
@@ -13,7 +13,7 @@ from PySide import QtCore, QtGui
 from openglider.glider.twist import TabulatedPolar, TwistModel, TwistObjective
 
 from .span_mapping import AoaTool
-from .tools import Line_old
+from .tools import Line_old, text_field
 
 HIDDEN = [[0.0, 0.0, 0.0]]  # a Line needs at least one point
 
@@ -37,55 +37,60 @@ def _swatch(rgb, text):
 
 
 HELP_HTML = """
-<p><b>What this tool shows</b></p>
-<p>Every rib is treated as a small kite hanging from its own lines.
-In flight the air pushes on the rib with one resultant force, applied at the
-rib's centre of pressure.  The lines can only hold that force if it points
-straight at the <i>apex</i> of the line cone (the riser).  When it does not,
-the rib wants to pitch: the distance between the force line and the apex is
-the <b>moment arm</b>.</p>
+<p><b>Ce que montre l'outil</b></p>
+<p>Chaque nervure est traitée comme un petit cerf-volant suspendu à ses
+propres suspentes.  En vol, l'air pousse sur la nervure avec une seule force
+résultante, appliquée à son centre de poussée.  Les suspentes ne peuvent tenir
+cette force que si elle pointe droit vers le <i>sommet</i> du cône de
+suspentes (l'élévateur).  Sinon la nervure veut tourner : la distance entre la
+ligne de la force et le sommet du cône est le <b>bras de moment</b>.</p>
 <ul>
-<li><b>arm &gt; 0</b>: force passes <i>ahead</i> of the apex &rarr; the rib
-wants to pitch <i>nose-up</i>; front (A) lines carry more, rear lines less.</li>
-<li><b>arm &lt; 0</b>: force passes <i>behind</i> the apex &rarr; the rib
-wants to pitch <i>nose-down</i>; rear lines carry more, A lines go slack
-first in a surge.</li>
+<li><b>bras &gt; 0</b> : la force passe <i>devant</i> le sommet &rarr; la
+nervure veut <i>cabrer</i> ; les A portent plus, les arrières moins.</li>
+<li><b>bras &lt; 0</b> : la force passe <i>derrière</i> le sommet &rarr; la
+nervure veut <i>piquer</i> ; les arrières portent plus, les A se détendent en
+premier dans une abattée.</li>
 </ul>
-<p>Only the <b>change of the arm along the span</b> is a twist matter.  If all
-ribs have the same arm, the wing as a whole is simply trimmed nose-up or
-nose-down: fix that with the riser position or the glide number, not with
-twist.  That is why the green curve is drawn <i>relative to the centre rib</i>
-and the common offset is printed as a number.</p>
+<p>Seule la <b>variation du bras le long de l'envergure</b> relève du
+vrillage.  Si toutes les nervures ont le même bras, l'aile entière est
+simplement réglée cabreuse ou piqueuse : ça se corrige par la position des
+élévateurs ou la finesse, pas par le vrillage.  C'est pourquoi la courbe verte
+est tracée <i>par rapport à la nervure centrale</i> et que le décalage commun
+est donné en chiffre.</p>
 
-<p><b>The two ways to correct it</b></p>
+<p><b>Les deux façons de corriger</b></p>
 <ul>
-<li><b>Twist</b> (change the AoA of the rib): the centre of pressure moves
-along the chord and the force tilts a little.  It is a <i>weak</i> lever:
-several degrees are often needed, and the rib's lift changes with it.</li>
-<li><b>Sweep</b> (slide the rib forward/backward, chord unchanged): moves the
-whole rib relative to its apex.  Direct and strong, but it changes the
-planform.</li>
+<li><b>Vrillage</b> (changer l'AoA de la nervure) : le centre de poussée se
+déplace le long de la corde et la force s'incline un peu.  C'est un levier
+<i>faible</i> : il faut souvent plusieurs degrés, et la portance de la nervure
+change avec.</li>
+<li><b>Flèche</b> (glisser la nervure vers l'avant ou l'arrière, corde
+inchangée) : déplace toute la nervure par rapport à son sommet de cône.
+Direct et puissant, mais la forme en plan change.</li>
 </ul>
-<p>The slider mixes the two.  The orange curve is the AoA after correction,
-the orange planform is the swept shape.  <i>Apply proposal</i> writes both
-into the model; OK saves the glider.</p>
+<p>Le curseur mélange les deux.  La courbe orange est l'AoA après correction,
+la forme en plan orange est la forme avec flèche.  <i>Appliquer la
+proposition</i> écrit les deux dans le modèle ; OK enregistre la voile.</p>
 
-<p><b>Design goals</b> (the "Design goals" box): with only <i>balance</i>
-active the tool solves each rib exactly.  Switch on <i>elliptic load</i>,
-<i>tip washout</i> or <i>tip-line tension</i> and the twist becomes a weighted
-compromise between all active goals (least squares, centre rib kept).  The
-sweep share of the slider still only closes the moment arm.  The weights are
-relative: 100/50 means balance counts twice as much as the other goal.</p>
+<p><b>Objectifs de conception</b> (boîte « Objectifs ») : avec seulement
+<i>équilibre</i> actif, l'outil résout chaque nervure exactement.  Activez
+<i>charge elliptique</i>, <i>vrillage négatif de bout</i> ou <i>tension des
+suspentes de bout</i> et le vrillage devient un compromis pondéré entre tous
+les objectifs actifs (moindres carrés, nervure centrale conservée).  La part
+« flèche » du curseur ne ferme toujours que le bras de moment.  Les poids sont
+relatifs : 100/50 signifie que l'équilibre compte deux fois plus que l'autre
+objectif.</p>
 
-<p><b>Assumptions</b>: section forces from a thin-airfoil polar of each rib's
-profile (camber only) unless XFoil polars are loaded; the wind direction
-comes from the glide number; lines are straight from the attachment points to
-the riser; ribs without lines borrow the cone of the nearest suspended rib.</p>
+<p><b>Hypothèses</b> : forces de section issues d'une polaire « profil mince »
+de chaque nervure (cambrure seule) sauf si des polaires XFoil sont chargées ;
+la direction du vent vient de la finesse ; les suspentes sont droites des
+points d'accrochage à l'élévateur ; les nervures sans suspentes empruntent le
+cône de la nervure suspendue la plus proche.</p>
 """
 
 
 class TwistTool(AoaTool):
-    widget_name = "Twist"
+    widget_name = "Vrillage"
 
     def __init__(self, obj):
         self.model = None
@@ -97,32 +102,45 @@ class TwistTool(AoaTool):
     # ------------------------------------------------------------------ #
     # widget                                                             #
     # ------------------------------------------------------------------ #
+    def _relabel(self, row, text):
+        """Rename a label the AoA tool created on ``row`` of the form layout."""
+        item = self.layout.itemAt(row, text_field)
+        if item is not None and item.widget() is not None:
+            item.widget().setText(text)
+
     def setup_widget(self):
         super().setup_widget()  # rows 0-1: num_points / spline type; row 3: glide
+        self._relabel(0, "points de contrôle")
+        self._relabel(1, "type de spline")
+        self._relabel(3, "finesse")
         self.QGlide.setToolTip(
-            "Glide number used for the wind direction (flight path angle = "
-            "atan(1 / glide)).\nIt sets the direction of the air force on every rib."
+            "Finesse utilisée pour la direction du vent (pente de trajectoire = "
+            "atan(1 / finesse)).\nElle fixe la direction de la force de l'air sur "
+            "chaque nervure."
         )
         row = 4
         span = QtGui.QFormLayout.SpanningRole
 
         # -- 1. legend ---------------------------------------------------- #
-        legend = QtGui.QGroupBox("Curves in the graph", self.base_widget)
+        legend = QtGui.QGroupBox("Courbes du graphique", self.base_widget)
         lay = QtGui.QVBoxLayout(legend)
         lines = [
-            _swatch((1, 0, 0), "<b>AoA you design</b> (drag the black points) - degrees"),
-            _swatch((0, 0, 1), "<b>absolute AoA</b>: chord vs horizontal, in the rib plane - degrees"),
-            _swatch(GREEN, "<b>moment arm, relative to the centre rib</b> - mm "
-                    "(scale below). 0 = same pitch balance as the centre. "
-                    "Up = nose-up tendency, down = nose-down."),
-            _swatch(ORANGE, "<b>AoA after correction</b> and, in the planform, the "
-                    "<b>swept ribs</b> (light orange)"),
-            _swatch(CYAN, "<b>section load</b> Cl&middot;chord (1 = elliptic at the centre); "
-                    "light cyan: the elliptic reference"),
-            _swatch(MAGENTA, "<b>cone lean</b>: angle of the line cone out of the rib plane - "
-                    "degrees. Not corrected here (arc / riser spacing); a fabric-tension hint"),
-            _swatch(DARK_GREY, "<b>hinge rib</b> (vertical line): arc angle 45&deg;. Inboard the "
-                    "twist is an aerodynamic choice, outboard it mostly sets tip-line tension"),
+            _swatch((1, 0, 0), "<b>AoA que vous dessinez</b> (déplacez les points noirs) - degrés"),
+            _swatch((0, 0, 1), "<b>AoA absolu</b> : corde par rapport à l'horizontale, dans le "
+                    "plan de la nervure - degrés"),
+            _swatch(GREEN, "<b>bras de moment, relatif à la nervure centrale</b> - mm "
+                    "(échelle plus bas). 0 = même équilibre en tangage que le centre. "
+                    "Vers le haut = tendance cabreuse, vers le bas = piqueuse."),
+            _swatch(ORANGE, "<b>AoA après correction</b> et, dans la forme en plan, les "
+                    "<b>nervures déplacées</b> (orange clair)"),
+            _swatch(CYAN, "<b>charge de section</b> Cl&middot;corde (1 = elliptique au centre) ; "
+                    "cyan clair : la référence elliptique"),
+            _swatch(MAGENTA, "<b>inclinaison du cône</b> : angle du cône de suspentes hors du plan "
+                    "de la nervure - degrés. Non corrigé ici (voûte / écartement des "
+                    "élévateurs) ; indice de tension du tissu"),
+            _swatch(DARK_GREY, "<b>nervure charnière</b> (trait vertical) : angle de voûte 45&deg;. "
+                    "En deçà le vrillage est un choix aérodynamique, au-delà il règle "
+                    "surtout la tension des suspentes de bout"),
         ]
         for text in lines:
             lbl = QtGui.QLabel(text)
@@ -133,7 +151,7 @@ class TwistTool(AoaTool):
         row += 1
 
         # -- 2. diagnosis ------------------------------------------------ #
-        diag = QtGui.QGroupBox("Diagnosis", self.base_widget)
+        diag = QtGui.QGroupBox("Diagnostic", self.base_widget)
         dlay = QtGui.QVBoxLayout(diag)
         self.Qinfo = QtGui.QLabel("")
         self.Qinfo.setWordWrap(True)
@@ -142,15 +160,18 @@ class TwistTool(AoaTool):
         self.Qtable = QtGui.QTableWidget()
         self.Qtable.setColumnCount(9)
         self.Qtable.setHorizontalHeaderLabels(
-            ["rib", "AoA °", "arm mm", "rel. mm", "arm % chord", "load", "lean °", "lines", "note"]
+            ["nerv.", "AoA °", "bras mm", "rel. mm", "bras % corde", "charge", "incl. °",
+             "suspentes", "note"]
         )
         self.Qtable.horizontalHeader().setToolTip(
-            "arm mm: moment arm of the rib (+ nose-up)\n"
-            "rel. mm: arm minus the centre rib's arm (what twist/sweep can change)\n"
-            "arm % chord: arm divided by the rib chord\n"
-            "load: Cl x chord, 1 = elliptic reference at the centre\n"
-            "lean °: line cone out of the rib plane, + = towards the centre\n"
-            "lines: attachment points found on this rib, or the rib whose cone is borrowed"
+            "bras mm : bras de moment de la nervure (+ = cabreur)\n"
+            "rel. mm : bras moins celui de la nervure centrale (ce que vrillage/flèche "
+            "peuvent changer)\n"
+            "bras % corde : bras divisé par la corde de la nervure\n"
+            "charge : Cl x corde, 1 = référence elliptique au centre\n"
+            "incl. ° : cône de suspentes hors du plan de nervure, + = vers le centre\n"
+            "suspentes : points d'accrochage trouvés sur cette nervure, ou la nervure "
+            "dont le cône est emprunté"
         )
         self.Qtable.verticalHeader().setVisible(False)
         self.Qtable.setEditTriggers(QtGui.QAbstractItemView.NoEditTriggers)
@@ -169,64 +190,68 @@ class TwistTool(AoaTool):
         self.Qmix.setTickInterval(25)
         self.Qmix.setTickPosition(QtGui.QSlider.TicksBelow)
         self.Qmix.setToolTip(
-            "How the spanwise variation of the arm is removed:\n"
-            "left (0 %): only by sweeping the ribs - planform changes, AoA unchanged\n"
-            "right (100 %): only by twisting the ribs - AoA changes, planform unchanged\n"
-            "in between: the twist share is applied first, sweep closes the rest"
+            "Comment la variation du bras en envergure est supprimée :\n"
+            "à gauche (0 %) : uniquement en déplaçant les nervures (flèche) - la forme en "
+            "plan change, l'AoA non\n"
+            "à droite (100 %) : uniquement en vrillant les nervures - l'AoA change, la "
+            "forme en plan non\n"
+            "entre les deux : la part vrillage est appliquée d'abord, la flèche ferme le reste"
         )
         self.Qmix_label = QtGui.QLabel()
         mix_widget = QtGui.QWidget()
         mix_layout = QtGui.QHBoxLayout(mix_widget)
         mix_layout.setContentsMargins(0, 0, 0, 0)
-        mix_layout.addWidget(QtGui.QLabel("sweep"))
+        mix_layout.addWidget(QtGui.QLabel("flèche"))
         mix_layout.addWidget(self.Qmix)
-        mix_layout.addWidget(QtGui.QLabel("twist"))
-        form.addRow("correct by", mix_widget)
+        mix_layout.addWidget(QtGui.QLabel("vrillage"))
+        form.addRow("corriger par", mix_widget)
         form.addRow("", self.Qmix_label)
 
         self.Qtarget = QtGui.QComboBox()
-        self.Qtarget.addItem("make every rib balance like the centre rib", "center")
-        self.Qtarget.addItem("make every rib moment-free (arm = 0)", "zero")
+        self.Qtarget.addItem("équilibrer chaque nervure comme la nervure centrale", "center")
+        self.Qtarget.addItem("rendre chaque nervure sans moment (bras = 0)", "zero")
         self.Qtarget.setToolTip(
-            "'like the centre rib' (recommended): remove only the spanwise variation "
-            "of the arm - the twist question.\n"
-            "'moment-free': also remove the common offset. Twist is weak for that and "
-            "the planform cannot shift as a whole (the centre rib is pinned at x = 0): "
-            "the tool then tells you how far to move the risers."
+            "« comme la nervure centrale » (recommandé) : ne supprime que la variation "
+            "du bras en envergure - la question du vrillage.\n"
+            "« sans moment » : supprime aussi le décalage commun. Le vrillage est faible "
+            "pour ça et la forme en plan ne peut pas se décaler en bloc (la nervure "
+            "centrale reste à x = 0) : l'outil indique alors de combien déplacer les "
+            "élévateurs."
         )
-        form.addRow("goal", self.Qtarget)
+        form.addRow("but", self.Qtarget)
 
         self.Qsmooth = QtGui.QSpinBox()
         self.Qsmooth.setRange(2, 9)
         self.Qsmooth.setValue(4)
         self.Qsmooth.setToolTip(
-            "Number of control points of the sweep curve along the span.\n"
-            "Fewer = smoother leading edge but a larger leftover arm; "
-            "more = follows every rib."
+            "Nombre de points de contrôle de la courbe de flèche le long de l'envergure.\n"
+            "Moins = bord d'attaque plus lisse mais bras résiduel plus grand ; "
+            "plus = suit chaque nervure."
         )
-        form.addRow("sweep smoothing", self.Qsmooth)
+        form.addRow("lissage de la flèche", self.Qsmooth)
 
         self.Qproposal = QtGui.QLabel("")
         self.Qproposal.setWordWrap(True)
         self.Qproposal.setTextFormat(QtCore.Qt.RichText)
         form.addRow(self.Qproposal)
 
-        self.Qapply = QtGui.QPushButton("Apply proposal")
+        self.Qapply = QtGui.QPushButton("Appliquer la proposition")
         self.Qapply.setToolTip(
-            "Write the orange AoA curve into the AoA spline (same number of control "
-            "points) and the orange planform into the shape's front/back curves.\n"
-            "You can still edit afterwards; nothing is saved until OK."
+            "Écrit la courbe AoA orange dans la spline AoA (même nombre de points de "
+            "contrôle) et la forme en plan orange dans les courbes BA/BF de la forme.\n"
+            "Vous pouvez encore modifier ensuite ; rien n'est enregistré avant OK."
         )
         form.addRow(self.Qapply)
         self.layout.setWidget(row, span, corr)
         row += 1
 
         # -- 3b. design goals (v2) ---------------------------------------- #
-        goals = QtGui.QGroupBox("Design goals for the twist", self.base_widget)
+        goals = QtGui.QGroupBox("Objectifs de conception du vrillage", self.base_widget)
         gform = QtGui.QFormLayout(goals)
         goals.setToolTip(
-            "Weights of the goals the twist has to satisfy. Only 'balance' on = "
-            "exact per-rib solve (v1). Any other goal on = weighted compromise."
+            "Poids des objectifs que le vrillage doit satisfaire. Seul « équilibre » "
+            "actif = résolution exacte nervure par nervure. Tout autre objectif actif = "
+            "compromis pondéré."
         )
 
         def weight_slider(value, tip):
@@ -243,78 +268,81 @@ class TwistTool(AoaTool):
             lay.addWidget(lab)
             return sl, w
 
-        self.Qw_arm, w = weight_slider(100, "Every rib balanced like the centre rib "
-                                            "(moment arm) - the line-load goal.")
-        gform.addRow("balance (arm)", w)
-        self.Qw_lift, w = weight_slider(0, "Section load Cl x chord follows an ellipse "
-                                           "- minimum induced drag.")
-        gform.addRow("elliptic load", w)
-        self.Qw_wash, w = weight_slider(0, "Tips at least 'washout' degrees below the "
-                                           "centre and AoA never rising outboard - "
-                                           "stall starts at the centre, tips keep flying.")
-        gform.addRow("tip washout", w)
+        self.Qw_arm, w = weight_slider(100, "Chaque nervure équilibrée comme la nervure "
+                                            "centrale (bras de moment) - l'objectif de "
+                                            "répartition de charge des suspentes.")
+        gform.addRow("équilibre (bras)", w)
+        self.Qw_lift, w = weight_slider(0, "La charge de section Cl x corde suit une "
+                                           "ellipse - traînée induite minimale.")
+        gform.addRow("charge elliptique", w)
+        self.Qw_wash, w = weight_slider(0, "Bouts au moins « n » degrés sous le centre et "
+                                           "AoA jamais croissant vers l'extérieur - le "
+                                           "décrochage commence au centre, les bouts "
+                                           "continuent de voler.")
+        gform.addRow("vrillage négatif de bout", w)
         self.Qwash_deg = QtGui.QDoubleSpinBox()
         self.Qwash_deg.setRange(0.0, 15.0)
         self.Qwash_deg.setValue(3.0)
         self.Qwash_deg.setSuffix(" °")
-        self.Qwash_deg.setToolTip("Minimum AoA difference centre minus tip.")
-        gform.addRow("    washout at least", self.Qwash_deg)
-        self.Qw_tens, w = weight_slider(0, "Outboard of the hinge rib keep Cl above the "
-                                           "minimum so the tip lines stay under load "
-                                           "(a tip that does not lift folds in).")
-        gform.addRow("tip-line tension", w)
+        self.Qwash_deg.setToolTip("Écart d'AoA minimal entre le centre et le bout.")
+        gform.addRow("    écart centre - bout au moins", self.Qwash_deg)
+        self.Qw_tens, w = weight_slider(0, "Au-delà de la nervure charnière, garder le Cl "
+                                           "au-dessus du minimum pour que les suspentes de "
+                                           "bout restent chargées (un bout qui ne porte "
+                                           "pas se replie).")
+        gform.addRow("tension des suspentes de bout", w)
         self.Qcl_min = QtGui.QDoubleSpinBox()
         self.Qcl_min.setRange(0.0, 1.5)
         self.Qcl_min.setSingleStep(0.05)
         self.Qcl_min.setValue(0.3)
-        self.Qcl_min.setToolTip("Minimum section Cl outboard of the hinge rib.")
-        gform.addRow("    tip Cl at least", self.Qcl_min)
+        self.Qcl_min.setToolTip("Cl de section minimal au-delà de la nervure charnière.")
+        gform.addRow("    Cl de bout au moins", self.Qcl_min)
         self.Qsmooth_aoa = QtGui.QDoubleSpinBox()
         self.Qsmooth_aoa.setRange(0.0, 5.0)
         self.Qsmooth_aoa.setSingleStep(0.1)
         self.Qsmooth_aoa.setValue(0.1)
-        self.Qsmooth_aoa.setToolTip("Penalty on zig-zag of the AoA between neighbouring ribs.")
-        gform.addRow("AoA smoothness", self.Qsmooth_aoa)
+        self.Qsmooth_aoa.setToolTip("Pénalise les zigzags d'AoA entre nervures voisines.")
+        gform.addRow("régularité de l'AoA", self.Qsmooth_aoa)
         self.layout.setWidget(row, span, goals)
         row += 1
 
         # -- 4. display / options ---------------------------------------- #
-        opts = QtGui.QGroupBox("Display and physics options", self.base_widget)
+        opts = QtGui.QGroupBox("Affichage et options physiques", self.base_widget)
         oform = QtGui.QFormLayout(opts)
 
         self.Qarm_scale = QtGui.QDoubleSpinBox()
         self.Qarm_scale.setRange(0.5, 500.0)
         self.Qarm_scale.setValue(self._arm_scale)
-        self.Qarm_scale.setSuffix(" mm per grid degree")
-        self.Qarm_scale.setToolTip("Vertical scale of the green arm curve on the AoA grid.")
-        oform.addRow("arm scale", self.Qarm_scale)
+        self.Qarm_scale.setSuffix(" mm par degré de grille")
+        self.Qarm_scale.setToolTip("Échelle verticale de la courbe verte (bras) sur la grille AoA.")
+        oform.addRow("échelle du bras", self.Qarm_scale)
 
-        self.Qshow_load = QtGui.QCheckBox("show section load (cyan)")
+        self.Qshow_load = QtGui.QCheckBox("afficher la charge de section (cyan)")
         self.Qshow_load.setChecked(True)
         self.Qshow_load.setToolTip(
-            "Cl x chord of every rib from the polar, compared with an elliptic "
-            "distribution of the same total. Plotted on the grid as 'degrees': "
-            "1.0 = 10 grid degrees."
+            "Cl x corde de chaque nervure d'après la polaire, comparé à une répartition "
+            "elliptique de même total. Tracé sur la grille en « degrés » : "
+            "1,0 = 10 degrés de grille."
         )
         oform.addRow(self.Qshow_load)
 
-        self.Qshow_span = QtGui.QCheckBox("show cone lean (magenta)")
+        self.Qshow_span = QtGui.QCheckBox("afficher l'inclinaison du cône (magenta)")
         self.Qshow_span.setChecked(False)
         oform.addRow(self.Qshow_span)
 
-        self.Qxfoil = QtGui.QPushButton("Load XFoil polars (slow)")
+        self.Qxfoil = QtGui.QPushButton("Charger les polaires XFoil (lent)")
         self.Qxfoil.setToolTip(
-            "Replace the thin-airfoil estimate by XFoil polars of each rib's profile "
-            "(needs the 'xfoil' binary in PATH; a few seconds per rib). "
-            "Changes Cl, Cd and the centre of pressure, hence the arm."
+            "Remplace l'estimation « profil mince » par des polaires XFoil du profil de "
+            "chaque nervure (nécessite le binaire « xfoil » dans le PATH ; quelques "
+            "secondes par nervure). Change Cl, Cd et le centre de poussée, donc le bras."
         )
-        self.Qpolar_status = QtGui.QLabel("polars: thin-airfoil (camber line)")
+        self.Qpolar_status = QtGui.QLabel("polaires : profil mince (ligne de cambrure)")
         oform.addRow(self.Qxfoil, self.Qpolar_status)
         self.layout.setWidget(row, span, opts)
         row += 1
 
         # -- 5. help ------------------------------------------------------ #
-        helpbox = QtGui.QGroupBox("How to read this", self.base_widget)
+        helpbox = QtGui.QGroupBox("Comment lire cet outil", self.base_widget)
         helpbox.setCheckable(True)
         helpbox.setChecked(False)
         hlay = QtGui.QVBoxLayout(helpbox)
@@ -368,7 +396,7 @@ class TwistTool(AoaTool):
             self.model = TwistModel(self.parametric_glider, polar_factory=self._polar_factory)
         except Exception as e:  # keep the AoA tool usable even if lines are odd
             self.model = None
-            self.Qinfo.setText("<b>twist model unavailable:</b> {}".format(e))
+            self.Qinfo.setText("<b>modèle de vrillage indisponible :</b> {}".format(e))
 
     def update_glide(self, *args):
         super().update_glide(*args)  # sets parametric_glider.glide, redraws aoa
@@ -399,7 +427,8 @@ class TwistTool(AoaTool):
         import shutil
 
         if shutil.which("xfoil") is None:
-            self.Qpolar_status.setText("polars: thin-airfoil - 'xfoil' binary not found in PATH")
+            self.Qpolar_status.setText(
+                "polaires : profil mince - binaire « xfoil » introuvable dans le PATH")
             return
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
@@ -414,11 +443,12 @@ class TwistTool(AoaTool):
 
             self._polar_factory = factory
             self.rebuild_model()
-            self.Qpolar_status.setText("polars: XFoil, Re 2.0e6")
+            self.Qpolar_status.setText("polaires : XFoil, Re 2,0e6")
         except Exception as e:
             self._polar_factory = None
             self.rebuild_model()
-            self.Qpolar_status.setText("polars: thin-airfoil - XFoil failed: {}".format(e))
+            self.Qpolar_status.setText(
+                "polaires : profil mince - échec XFoil : {}".format(e))
         finally:
             QtGui.QApplication.restoreOverrideCursor()
         self.update_proposal()
@@ -432,11 +462,11 @@ class TwistTool(AoaTool):
 
     def _on_mix_moved(self, value, solve=True):
         if value >= 100:
-            txt = "100 % twist: only the AoA changes"
+            txt = "100 % vrillage : seul l'AoA change"
         elif value <= 0:
-            txt = "100 % sweep: only the planform changes"
+            txt = "100 % flèche : seule la forme en plan change"
         else:
-            txt = "{} % of the correction by twist, the rest by sweep".format(value)
+            txt = "{} % de la correction par vrillage, le reste par flèche".format(value)
         self.Qmix_label.setText(txt)
         if solve and not self.Qmix.isSliderDown():
             self.update_proposal()
@@ -475,7 +505,7 @@ class TwistTool(AoaTool):
             )
         except Exception as e:
             self.proposal = None
-            self.Qproposal.setText("<b>solve failed:</b> {}".format(e))
+            self.Qproposal.setText("<b>échec de la résolution :</b> {}".format(e))
         self.update_curves()
 
     # ------------------------------------------------------------------ #
@@ -548,23 +578,24 @@ class TwistTool(AoaTool):
         dev = [(st.moment_arm - ref) * 1000.0 for st in states]
         i_min, i_max = int(np.argmin(dev)), int(np.argmax(dev))
         if ref > 0.005:
-            trim = "the whole wing tends <b>nose-up</b> (force ahead of the risers)"
+            trim = "l'aile entière tend à <b>cabrer</b> (force devant les élévateurs)"
         elif ref < -0.005:
-            trim = "the whole wing tends <b>nose-down</b> (force behind the risers)"
+            trim = "l'aile entière tend à <b>piquer</b> (force derrière les élévateurs)"
         else:
-            trim = "the wing is balanced about the risers"
+            trim = "l'aile est équilibrée autour des élévateurs"
         txt = [
-            "<b>Common offset</b> (centre rib arm): {:+.0f} mm - {}. "
-            "This part is pitch trim (riser position / glide number), not twist.".format(
-                ref * 1000.0, trim),
-            "<b>Spanwise variation</b> (what twist or sweep can fix): "
-            "{:+.0f} mm at rib {} to {:+.0f} mm at rib {}. "
-            "Ribs above the centre value pitch nose-up relative to it, ribs below nose-down."
-            .format(dev[i_min], i_min, dev[i_max], i_max),
+            "<b>Décalage commun</b> (bras de la nervure centrale) : {:+.0f} mm - {}. "
+            "Cette part relève du trim en tangage (position des élévateurs / finesse), "
+            "pas du vrillage.".format(ref * 1000.0, trim),
+            "<b>Variation en envergure</b> (ce que vrillage ou flèche peuvent corriger) : "
+            "de {:+.0f} mm à la nervure {} à {:+.0f} mm à la nervure {}. "
+            "Les nervures au-dessus de la valeur centrale cabrent par rapport à elle, "
+            "celles en dessous piquent.".format(dev[i_min], i_min, dev[i_max], i_max),
         ]
         if hinge is not None:
-            txt.append("<b>Hinge rib</b> at y = {:.2f} m (arc angle 45°): outboard of it the "
-                       "twist mainly sets how hard the tip lines are pulled.".format(hinge))
+            txt.append("<b>Nervure charnière</b> à y = {:.2f} m (angle de voûte 45°) : au-delà, "
+                       "le vrillage règle surtout la tension des suspentes de bout."
+                       .format(hinge))
         self.Qinfo.setText("<br>".join(txt))
 
     def _fill_proposal(self):
@@ -576,32 +607,34 @@ class TwistTool(AoaTool):
         after = [(a.moment_arm - sol.target) * 1000.0 for a in pr.after]
         parts = []
         if np.any(np.abs(sol.d_aoa) > 1e-9):
-            parts.append("twist from {:+.1f}° to {:+.1f}° (orange AoA curve)".format(
+            parts.append("vrillage de {:+.1f}° à {:+.1f}° (courbe AoA orange)".format(
                 np.degrees(sol.d_aoa.min()), np.degrees(sol.d_aoa.max())))
         if np.any(np.abs(pr.dx_values) > 1e-4):
-            parts.append("sweep from {:+.0f} mm to {:+.0f} mm, + = towards the trailing edge "
-                         "(orange planform)".format(pr.dx_values.min() * 1000.0,
-                                                    pr.dx_values.max() * 1000.0))
+            parts.append("flèche de {:+.0f} mm à {:+.0f} mm, + = vers le bord de fuite "
+                         "(forme en plan orange)".format(pr.dx_values.min() * 1000.0,
+                                                         pr.dx_values.max() * 1000.0))
         if not parts:
-            parts.append("nothing to change")
+            parts.append("rien à changer")
         obj = self.objective()
         if obj.active:
-            goals = [n for n, w in (("balance", obj.w_arm), ("elliptic load", obj.w_lift),
-                                    ("tip washout", obj.w_washout),
-                                    ("tip-line tension", obj.w_tension)) if w > 0]
-            mode = "weighted compromise between " + ", ".join(goals)
+            goals = [n for n, w in (("équilibre", obj.w_arm),
+                                    ("charge elliptique", obj.w_lift),
+                                    ("vrillage négatif de bout", obj.w_washout),
+                                    ("tension des suspentes de bout", obj.w_tension)) if w > 0]
+            mode = "compromis pondéré entre " + ", ".join(goals)
         else:
-            mode = "exact per-rib balance"
-        txt = ["<b>Proposal</b> ({}): {}.".format(mode, "; ".join(parts)),
-               "Leftover arm after smoothing: {:.0f} mm.".format(max(abs(a) for a in after))]
+            mode = "équilibre exact nervure par nervure"
+        txt = ["<b>Proposition</b> ({}) : {}.".format(mode, " ; ".join(parts)),
+               "Bras résiduel après lissage : {:.0f} mm.".format(max(abs(a) for a in after))]
         if abs(pr.riser_dx) > 1e-4:
-            txt.append("A common sweep of {:+.0f} mm cannot go into the planform (the centre "
-                       "rib stays at x = 0): <b>move the risers by {:+.0f} mm</b> instead."
+            txt.append("Une flèche commune de {:+.0f} mm ne peut pas entrer dans la forme en "
+                       "plan (la nervure centrale reste à x = 0) : <b>déplacez plutôt les "
+                       "élévateurs de {:+.0f} mm</b>."
                        .format(pr.riser_dx * 1000.0, -pr.riser_dx * 1000.0))
         if not np.all(sol.reachable):
             bad = ", ".join(str(s.index) for s, ok in zip(sol.stations, sol.reachable) if not ok)
-            txt.append("Twist alone cannot reach the goal on ribs {} (the polar runs out of "
-                       "range): sweep was added there.".format(bad))
+            txt.append("Le vrillage seul n'atteint pas le but sur les nervures {} (la polaire "
+                       "sort de sa plage) : de la flèche a été ajoutée là.".format(bad))
         self.Qproposal.setText("<br>".join(txt))
 
     def _fill_table(self, states, load):
@@ -613,11 +646,11 @@ class TwistTool(AoaTool):
             lines = ",".join(n for n, p in s.line_attachments) or "-"
             note = ""
             if s.apex_from is not None:
-                lines = "none"
-                note = "cone of rib {}".format(s.apex_from)
+                lines = "aucune"
+                note = "cône de la nervure {}".format(s.apex_from)
             rel = (st.moment_arm - ref) * 1000.0
             if i > 0 and abs(rel) > 5:
-                note = (note + "; " if note else "") + ("nose-up" if rel > 0 else "nose-down")
+                note = (note + " ; " if note else "") + ("cabreur" if rel > 0 else "piqueur")
             values = [
                 str(s.index),
                 "{:.2f}".format(np.degrees(st.aoa_rel)),

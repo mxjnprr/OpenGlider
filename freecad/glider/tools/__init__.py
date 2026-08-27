@@ -297,8 +297,8 @@ class TwistCommand(BaseCommand):
     def GetResources(self):
         return {
             "Pixmap": "twist_command.svg",
-            "MenuText": "twist",
-            "ToolTip": "per-rib moment balance: twist / sweep corrector",
+            "MenuText": "vrillage",
+            "ToolTip": "vrillage : équilibre de moment par nervure, correction vrillage / flèche",
         }
 
     def tool(self, obj):
