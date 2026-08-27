@@ -207,6 +207,47 @@ class TwistObjective:
         return any(w > 0 for w in (self.w_lift, self.w_washout, self.w_tension))
 
 
+@dataclass
+class WingPolarPoint:
+    d_alpha: float               # [rad] common AoA shift applied to every rib
+    cl: float                    # wing lift coefficient (vertical, weight-carrying)
+    cd_profile: float
+    cd_induced: float
+    cd_parasite: float
+    states: List[StationState]
+
+    @property
+    def cd(self):
+        return self.cd_profile + self.cd_induced + self.cd_parasite
+
+    @property
+    def glide(self):
+        return self.cl / self.cd if self.cd > 0 else 0.0
+
+
+@dataclass
+class TrimResult:
+    """Base trim at best glide: common AoA shift, glide number, pilot x."""
+
+    d_alpha: float               # [rad] shift to add to the whole AoA curve
+    glide: float                 # estimated best L/D
+    cl: float
+    polar: List[WingPolarPoint]
+    pilot_dx: float              # [m] shift of the lower attachment points (+ = aft)
+    pilot_x: float               # [m] resulting riser x (mean of lower nodes)
+    arm_mean: float              # [m] load-weighted mean arm before the shift
+
+    def apply_to(self, parametric_glider):
+        """Shift the AoA curve, set the glide number, move the risers."""
+        curve = parametric_glider.aoa
+        curve.controlpoints = [[x, y + self.d_alpha] for x, y in curve.controlpoints]
+        parametric_glider.glide = float(self.glide)
+        for node in parametric_glider.lineset.get_lower_attachment_points():
+            pos = list(node.pos_3D)
+            pos[0] = pos[0] + self.pilot_dx
+            node.pos_3D = pos
+
+
 # --------------------------------------------------------------------------- #
 # model                                                                       #
 # --------------------------------------------------------------------------- #
@@ -477,6 +518,101 @@ class TwistModel:
         return TwistSolution(
             mix=mix, target=goal, stations=self.stations, before=before, after=after,
             d_aoa=np.array(d_aoa), dx=np.array(dx), reachable=np.array(reach),
+        )
+
+    # ------------------------------------------------------------------ #
+    # wing polar / base trim                                             #
+    # ------------------------------------------------------------------ #
+    def station_widths(self):
+        """Tributary width of every station along the arc [m]."""
+        pos = np.array([s.arc_pos for s in self.stations])
+        if len(pos) < 2:
+            return np.ones(len(pos))
+        d = np.linalg.norm(np.diff(pos, axis=0), axis=1)
+        w = np.zeros(len(pos))
+        w[:-1] += d / 2
+        w[1:] += d / 2
+        if not self.parametric.shape.has_center_cell:
+            w[0] += w[0]  # centre rib: mirrored half counts once more
+        return w
+
+    def wing_polar_point(self, d_alpha=0.0, cda=0.0, oswald=0.85):
+        """Wing coefficients for a common AoA shift ``d_alpha``.
+
+        Profile forces per rib from the section polar, induced drag from the
+        lifting-line estimate ``CL^2 / (pi AR e)``, parasite drag from the drag
+        area ``cda`` [m^2] of pilot + lines.  Reference area = half-wing area
+        (the polar is symmetric, ratios are what matter).
+        """
+        states = [self.state(s, s.aoa_rel + d_alpha) for s in self.stations]
+        w = self.station_widths()
+        chords = np.array([s.chord for s in self.stations])
+        area = float((chords * w).sum())
+        if area <= 0:
+            return WingPolarPoint(d_alpha, 0.0, 0.0, 0.0, 0.0, states)
+        cos_arc = np.array([np.cos(s.arcang) for s in self.stations])
+        cl_sec = np.array([st.cl for st in states])
+        cd_sec = np.array([st.cd for st in states])
+        cl = float((cl_sec * chords * w * cos_arc).sum() / area)
+        cd_p = float((cd_sec * chords * w).sum() / area)
+        span_proj = 2.0 * self.stations[-1].arc_pos[0]
+        ar = span_proj ** 2 / (2.0 * area) if area > 0 else 1.0
+        cd_i = cl ** 2 / (np.pi * ar * oswald) if ar > 0 else 0.0
+        cd_par = cda / (2.0 * area)
+        return WingPolarPoint(d_alpha, cl, cd_p, cd_i, cd_par, states)
+
+    def wing_polar(self, cda=0.0, oswald=0.85, d_range=np.radians(10.0), num=41):
+        return [self.wing_polar_point(d, cda, oswald)
+                for d in np.linspace(-d_range, d_range, num)]
+
+    def pilot_shift(self, states=None):
+        """Riser x shift that zeroes the load-weighted mean moment arm.
+
+        Returns ``(dx, arm_mean)``; ``dx > 0`` moves the risers aft.
+        """
+        states = states or self.diagnose()
+        w = self.station_widths()
+        load = np.array([max(st.lift, 0.0) for st in states]) * w
+        arms = np.array([st.moment_arm for st in states])
+        if load.sum() <= 0:
+            return 0.0, 0.0
+        arm_mean = float((load * arms).sum() / load.sum())
+        # moving the apex aft by dx raises every arm by ~dx (cross(x, R) ~ 1)
+        gains = []
+        for s, st in zip(self.stations, states):
+            _, e_c, e_t, _, _ = st.frame
+            w2 = np.array([self.wind @ e_c, self.wind @ e_t])
+            n2 = _unit(np.array([-w2[1], w2[0]]))
+            r2 = _unit(st.cl * n2 + st.cd * _unit(w2))
+            x2 = np.array([X_AXIS @ e_c, X_AXIS @ e_t])
+            gains.append(_cross2(x2, r2))
+        gain = float((load * np.array(gains)).sum() / load.sum())
+        if abs(gain) < 1e-9:
+            return 0.0, arm_mean
+        return -arm_mean / gain, arm_mean
+
+    def trim_max_glide(self, cda=0.0, oswald=0.85, d_range=np.radians(10.0), num=81):
+        """Base trim: common AoA shift at best glide + riser position.
+
+        The section AoAs are relative to the wind, so the wing polar does not
+        depend on the current glide number; the best L/D found becomes the new
+        glide number, and the risers are moved so the wing is moment-free at
+        that point.
+        """
+        polar = self.wing_polar(cda, oswald, d_range, num)
+        best = max(polar, key=lambda p: p.glide)
+        # arms at the trim point must be evaluated with the trim glide (wind
+        # direction) -- rebuild a shifted, re-glided model for that
+        shifted = self.parametric.copy()
+        shifted.aoa.controlpoints = [[x, y + best.d_alpha] for x, y in shifted.aoa.controlpoints]
+        shifted.glide = float(best.glide) if best.glide > 0.5 else self.glide
+        model = TwistModel(shifted, polar_factory=self.polar_factory)
+        dx, arm_mean = model.pilot_shift()
+        lowers = self.parametric.lineset.get_lower_attachment_points()
+        x_now = float(np.mean([n.pos_3D[0] for n in lowers])) if lowers else 0.0
+        return TrimResult(
+            d_alpha=float(best.d_alpha), glide=float(shifted.glide), cl=best.cl,
+            polar=polar, pilot_dx=float(dx), pilot_x=x_now + float(dx), arm_mean=arm_mean,
         )
 
     # ------------------------------------------------------------------ #

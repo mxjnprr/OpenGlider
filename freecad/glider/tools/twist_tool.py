@@ -58,7 +58,15 @@ simplement réglée cabreuse ou piqueuse : ça se corrige par la position des
 est tracée <i>par rapport à la nervure centrale</i> et que le décalage commun
 est donné en chiffre.</p>
 
-<p><b>La correction</b></p>
+<p><b>Réglage de base à finesse max</b> : l'outil calcule une polaire
+d'aile (portance et traînée de profil de chaque nervure, traînée induite
+Cl²/(π·λ·e), traînée parasite pilote + suspentes = surface CdA que vous
+donnez), cherche le décalage d'incidence commun qui donne la meilleure
+finesse, prend cette finesse comme nouvelle valeur du modèle et place les
+élévateurs (x) là où l'aile n'a plus de moment.  La valeur absolue de finesse
+est approximative ; l'angle du maximum, lui, est robuste.</p>
+
+<p><b>La correction du vrillage</b></p>
 <p>Le vrillage (changer l'AoA de la nervure) déplace le centre de poussée le
 long de la corde et incline un peu la force.  C'est un levier <i>faible</i> :
 il faut souvent plusieurs degrés, et la portance de la nervure change avec.
@@ -173,6 +181,53 @@ class TwistTool(AoaTool):
         dlay.addWidget(self.Qtable)
         self.layout.setWidget(row, span, diag)
         row += 1
+
+        # -- 2b. base trim ----------------------------------------------- #
+        trim = QtGui.QGroupBox("Réglage de base à finesse max", self.base_widget)
+        tform = QtGui.QFormLayout(trim)
+        self.Qcda = QtGui.QDoubleSpinBox()
+        self.Qcda.setRange(0.0, 2.0)
+        self.Qcda.setDecimals(3)
+        self.Qcda.setSingleStep(0.01)
+        self.Qcda.setValue(0.10)
+        self.Qcda.setSuffix(" m²")
+        self.Qcda.setToolTip(
+            "Surface de traînée (Cd x S) du pilote, de la sellette et des suspentes.\n"
+            "Ordre de grandeur parapente : 0,10 à 0,25 m² ; plus elle est grande, plus "
+            "la finesse max se trouve à forte incidence."
+        )
+        tform.addRow("traînée parasite CdA", self.Qcda)
+        self.Qoswald = QtGui.QDoubleSpinBox()
+        self.Qoswald.setRange(0.3, 1.0)
+        self.Qoswald.setDecimals(2)
+        self.Qoswald.setSingleStep(0.05)
+        self.Qoswald.setValue(0.85)
+        self.Qoswald.setToolTip("Facteur d'Oswald de la traînée induite (1 = elliptique parfait).")
+        tform.addRow("rendement induit e", self.Qoswald)
+        self.Qtrim_btn = QtGui.QPushButton("Calculer le réglage")
+        self.Qtrim_btn.setToolTip(
+            "Cherche l'incidence commune de finesse max et la position des élévateurs "
+            "qui annule le moment de l'aile."
+        )
+        self.Qtrim_apply = QtGui.QPushButton("Appliquer le réglage")
+        self.Qtrim_apply.setEnabled(False)
+        self.Qtrim_apply.setToolTip(
+            "Décale toute la courbe AoA, remplace la finesse du modèle et déplace les "
+            "points bas des suspentes (élévateurs) en x."
+        )
+        btns = QtGui.QWidget()
+        blay = QtGui.QHBoxLayout(btns)
+        blay.setContentsMargins(0, 0, 0, 0)
+        blay.addWidget(self.Qtrim_btn)
+        blay.addWidget(self.Qtrim_apply)
+        tform.addRow(btns)
+        self.Qtrim_info = QtGui.QLabel("")
+        self.Qtrim_info.setWordWrap(True)
+        self.Qtrim_info.setTextFormat(QtCore.Qt.RichText)
+        tform.addRow(self.Qtrim_info)
+        self.layout.setWidget(row, span, trim)
+        row += 1
+        self.trim = None
 
         # -- 3. correction ----------------------------------------------- #
         corr = QtGui.QGroupBox("Correction", self.base_widget)
@@ -315,6 +370,10 @@ class TwistTool(AoaTool):
         self.layout.setWidget(row, span, helpbox)
 
         self.Qtarget.currentIndexChanged.connect(self.update_proposal)
+        self.Qtrim_btn.clicked.connect(self.compute_trim)
+        self.Qtrim_apply.clicked.connect(self.apply_trim)
+        self.Qcda.valueChanged.connect(lambda *a: self.Qtrim_apply.setEnabled(False))
+        self.Qoswald.valueChanged.connect(lambda *a: self.Qtrim_apply.setEnabled(False))
         self.Qarm_scale.valueChanged.connect(self._on_scale)
         self.Qshow_load.toggled.connect(self.update_curves)
         self.Qshow_span.toggled.connect(self.update_curves)
@@ -406,6 +465,65 @@ class TwistTool(AoaTool):
         finally:
             QtGui.QApplication.restoreOverrideCursor()
         self.update_proposal()
+
+    # ------------------------------------------------------------------ #
+    # base trim                                                          #
+    # ------------------------------------------------------------------ #
+    def compute_trim(self):
+        if self.model is None:
+            return
+        QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self.trim = self.model.trim_max_glide(
+                cda=self.Qcda.value(), oswald=self.Qoswald.value())
+        except Exception as e:
+            self.trim = None
+            self.Qtrim_info.setText("<b>échec du calcul :</b> {}".format(e))
+            return
+        finally:
+            QtGui.QApplication.restoreOverrideCursor()
+        t = self.trim
+        now = self.parametric_glider.glide
+        lowers = self.parametric_glider.lineset.get_lower_attachment_points()
+        x_now = np.mean([n.pos_3D[0] for n in lowers]) if lowers else 0.0
+        best = max(t.polar, key=lambda p: p.glide)
+        txt = [
+            "<b>Finesse max estimée : {:.1f}</b> (modèle actuel : {:.1f}) à CL = {:.2f} - "
+            "profil {:.3f} + induit {:.3f} + parasite {:.3f}.".format(
+                t.glide, now, t.cl, best.cd_profile, best.cd_induced, best.cd_parasite),
+            "<b>Incidence</b> : décaler toute la courbe AoA de <b>{:+.2f}°</b> "
+            "(centre {:.2f}° → {:.2f}°).".format(
+                np.degrees(t.d_alpha), np.degrees(self.model.stations[0].aoa_rel),
+                np.degrees(self.model.stations[0].aoa_rel + t.d_alpha)),
+            "<b>Point pilote</b> : déplacer les élévateurs de <b>{:+.0f} mm</b> en x "
+            "(x = {:.3f} m → {:.3f} m, + = vers le bord de fuite) pour annuler le "
+            "moment de l'aile (bras moyen actuel {:+.0f} mm).".format(
+                t.pilot_dx * 1000.0, x_now, t.pilot_x, t.arm_mean * 1000.0),
+            "<i>La finesse absolue est approximative ; l'angle du maximum est fiable.</i>",
+        ]
+        self.Qtrim_info.setText("<br>".join(txt))
+        self.Qtrim_apply.setEnabled(True)
+
+    def apply_trim(self):
+        if self.trim is None:
+            return
+        self.trim.apply_to(self.parametric_glider)
+        self.trim = None
+        self.Qtrim_apply.setEnabled(False)
+        # control points moved with the curve
+        self.spline_controlpoints.control_pos = (
+            np.array(self.spline.controlpoints) * self.scale
+        )
+        self.spline_controlpoints.control_points[-1].constrained = [0.0, 1.0, 0.0]
+        # new glide number -> update_glide rebuilds the model and redraws
+        self.QGlide.blockSignals(True)
+        self.QGlide.setValue(self.parametric_glider.glide)
+        self.QGlide.blockSignals(False)
+        self.update_glide()
+        self.update_grid(drag_release=True)
+        self.Qtrim_info.setText("Réglage appliqué : courbe AoA décalée, finesse = {:.2f}, "
+                                "élévateurs déplacés. Recalculez pour vérifier (le bras "
+                                "moyen doit être ~0).".format(self.parametric_glider.glide))
 
     # ------------------------------------------------------------------ #
     # proposal                                                           #

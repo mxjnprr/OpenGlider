@@ -238,6 +238,39 @@ class TestTwistModel(TestCase):
         full = self.model.propose(1.0, objective=obj)
         self.assertTrue(np.all(full.solution.dx == 0))
 
+    # ------------------------------------------------------------------ #
+    # base trim                                                          #
+    # ------------------------------------------------------------------ #
+    def test_wing_polar_shape(self):
+        polar = self.model.wing_polar(cda=0.05, num=21)
+        cl = [p.cl for p in polar]
+        self.assertTrue(np.all(np.diff(cl) >= -1e-9))  # CL rises with alpha
+        glides = [p.glide for p in polar]
+        best = int(np.argmax(glides))
+        self.assertGreater(best, 0)
+        self.assertLess(best, len(polar) - 1)  # interior maximum
+
+    def test_trim_max_glide_apply(self):
+        trim = self.model.trim_max_glide(cda=0.05)
+        target = self.parametric.copy()
+        trim.apply_to(target)
+        self.assertAlmostEqual(target.glide, trim.glide)
+        new = TwistModel(target)
+        # wing is moment-free about the moved risers
+        _, arm_mean = new.pilot_shift()
+        self.assertAlmostEqual(arm_mean, 0.0, places=6)
+        # and sits at its best glide: no further common shift improves L/D
+        here = new.wing_polar_point(0.0, cda=0.05).glide
+        for d in (np.radians(-1), np.radians(1)):
+            self.assertLessEqual(new.wing_polar_point(d, cda=0.05).glide, here + 1e-6)
+        target.get_glider_3d()
+
+    def test_more_parasite_drag_means_higher_aoa(self):
+        low = self.model.trim_max_glide(cda=0.0)
+        high = self.model.trim_max_glide(cda=0.2)
+        self.assertGreater(high.d_alpha, low.d_alpha)
+        self.assertLess(high.glide, low.glide)
+
     def test_table(self):
         rows = self.model.table()
         self.assertEqual(len(rows), len(self.model.stations))
