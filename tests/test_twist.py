@@ -111,6 +111,13 @@ class TestTwistModel(TestCase):
                 # sweep only where twist alone could not reach the target
                 self.assertTrue(np.all(sol.dx[sol.reachable] == 0))
 
+    def test_no_sweep_fallback(self):
+        sol = self.model.solve(1.0, sweep_fallback=False)
+        self.assertTrue(np.all(sol.dx == 0))
+        self.assertFalse(np.all(sol.reachable))  # demokite: some ribs out of range
+        pr = self.model.propose(1.0, sweep_fallback=False)
+        self.assertIsNone(pr.front_curve)
+
     def test_center_target_keeps_center_rib(self):
         sol = self.model.solve(1.0, target="center")
         self.assertAlmostEqual(sol.d_aoa[0], 0.0, places=9)

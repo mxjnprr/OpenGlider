@@ -440,13 +440,15 @@ class TwistModel:
                 a, fa = m, fm
         return float(0.5 * (a + b)), True
 
-    def solve(self, mix=1.0, target="center", objective=None):
+    def solve(self, mix=1.0, target="center", objective=None, sweep_fallback=True):
         """Per-station solve.
 
         ``mix``: 1 = all twist, 0 = all sweep.  ``target``: see :meth:`target_arm`.
         ``objective``: a :class:`TwistObjective`; when it has goals beyond the
         arm, the twist share comes from the weighted least-squares solve and the
-        sweep share only closes the arm.
+        sweep share only closes the arm.  ``sweep_fallback``: at 100 % twist,
+        add sweep where twist alone cannot reach the target (else leave the
+        rib short and report it through ``reachable``).
         """
         mix = float(np.clip(mix, 0.0, 1.0))
         goal = self.target_arm(target)
@@ -464,10 +466,8 @@ class TwistModel:
                 da = mix * (a_star - s.aoa_rel)
             else:
                 da, ok = 0.0, True
-            if mix >= 1.0 and ok and aoa_obj is None:
+            if mix >= 1.0 and (ok or aoa_obj is not None or not sweep_fallback):
                 d = 0.0
-            elif aoa_obj is not None and mix >= 1.0:
-                d = 0.0  # objective mode at 100 % twist: no sweep at all
             else:
                 d = self.sweep_for_arm(s, s.aoa_rel + da, target=goal)
             d_aoa.append(da)
@@ -541,9 +541,9 @@ class TwistModel:
     # smoothing / proposal                                               #
     # ------------------------------------------------------------------ #
     def propose(self, mix=1.0, target="center", dx_numpoints=4, aoa_numpoints=None,
-                objective=None):
+                objective=None, sweep_fallback=True):
         """Solve, then fit smooth spanwise curves and re-evaluate the arm."""
-        sol = self.solve(mix, target, objective)
+        sol = self.solve(mix, target, objective, sweep_fallback)
         pg = self.parametric
         x = sol.x
 

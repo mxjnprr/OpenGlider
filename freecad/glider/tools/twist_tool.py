@@ -1,13 +1,14 @@
 """Twist (vrillage) tool.
 
 Extends the AoA tool with the per-rib "kite" diagnostic of
-:mod:`openglider.glider.twist` and a twist <-> sweep corrector.  The panel
+:mod:`openglider.glider.twist` and a twist corrector (the model's sweep
+lever is deliberately not exposed: the resulting planforms were judged
+unusable).  The panel
 is in French (the designer's language); the physics is documented in
 :mod:`openglider.glider.twist.model`.
 """
 
 import numpy as np
-from pivy import coin
 from PySide import QtCore, QtGui
 
 from openglider.glider.twist import TabulatedPolar, TwistModel, TwistObjective
@@ -21,7 +22,6 @@ HIDDEN = [[0.0, 0.0, 0.0]]  # a Line needs at least one point
 GREEN = (0.10, 0.60, 0.10)
 MAGENTA = (0.70, 0.10, 0.70)
 ORANGE = (0.95, 0.55, 0.05)
-LIGHT_ORANGE = (1.00, 0.75, 0.40)
 CYAN = (0.05, 0.60, 0.75)
 LIGHT_CYAN = (0.55, 0.80, 0.90)
 DARK_GREY = (0.35, 0.35, 0.35)
@@ -58,26 +58,19 @@ simplement réglée cabreuse ou piqueuse : ça se corrige par la position des
 est tracée <i>par rapport à la nervure centrale</i> et que le décalage commun
 est donné en chiffre.</p>
 
-<p><b>Les deux façons de corriger</b></p>
-<ul>
-<li><b>Vrillage</b> (changer l'AoA de la nervure) : le centre de poussée se
-déplace le long de la corde et la force s'incline un peu.  C'est un levier
-<i>faible</i> : il faut souvent plusieurs degrés, et la portance de la nervure
-change avec.</li>
-<li><b>Flèche</b> (glisser la nervure vers l'avant ou l'arrière, corde
-inchangée) : déplace toute la nervure par rapport à son sommet de cône.
-Direct et puissant, mais la forme en plan change.</li>
-</ul>
-<p>Le curseur mélange les deux.  La courbe orange est l'AoA après correction,
-la forme en plan orange est la forme avec flèche.  <i>Appliquer la
-proposition</i> écrit les deux dans le modèle ; OK enregistre la voile.</p>
+<p><b>La correction</b></p>
+<p>Le vrillage (changer l'AoA de la nervure) déplace le centre de poussée le
+long de la corde et incline un peu la force.  C'est un levier <i>faible</i> :
+il faut souvent plusieurs degrés, et la portance de la nervure change avec.
+Quand la polaire sort de sa plage, l'outil le signale et laisse la nervure en
+l'état.  La courbe orange est l'AoA après correction ; <i>Appliquer la
+proposition</i> l'écrit dans la spline AoA, OK enregistre la voile.</p>
 
 <p><b>Objectifs de conception</b> (boîte « Objectifs ») : avec seulement
 <i>équilibre</i> actif, l'outil résout chaque nervure exactement.  Activez
 <i>charge elliptique</i>, <i>vrillage négatif de bout</i> ou <i>tension des
 suspentes de bout</i> et le vrillage devient un compromis pondéré entre tous
-les objectifs actifs (moindres carrés, nervure centrale conservée).  La part
-« flèche » du curseur ne ferme toujours que le bras de moment.  Les poids sont
+les objectifs actifs (moindres carrés, nervure centrale conservée).  Les poids sont
 relatifs : 100/50 signifie que l'équilibre compte deux fois plus que l'autre
 objectif.</p>
 
@@ -125,14 +118,15 @@ class TwistTool(AoaTool):
         legend = QtGui.QGroupBox("Courbes du graphique", self.base_widget)
         lay = QtGui.QVBoxLayout(legend)
         lines = [
-            _swatch((1, 0, 0), "<b>AoA que vous dessinez</b> (déplacez les points noirs) - degrés"),
+            _swatch((1, 0, 0), "<b>AoA que vous dessinez</b> (déplacez les points noirs) : corde "
+                    "par rapport au vent relatif local, l'angle aérodynamique - degrés"),
             _swatch((0, 0, 1), "<b>AoA absolu</b> : corde par rapport à l'horizontale, dans le "
-                    "plan de la nervure - degrés"),
+                    "plan de la nervure, l'angle géométrique réellement construit - degrés. "
+                    "= AoA dessiné &minus; arctan(cos(angle de voûte) / finesse)"),
             _swatch(GREEN, "<b>bras de moment, relatif à la nervure centrale</b> - mm "
                     "(échelle plus bas). 0 = même équilibre en tangage que le centre. "
                     "Vers le haut = tendance cabreuse, vers le bas = piqueuse."),
-            _swatch(ORANGE, "<b>AoA après correction</b> et, dans la forme en plan, les "
-                    "<b>nervures déplacées</b> (orange clair)"),
+            _swatch(ORANGE, "<b>AoA après correction</b> (proposition)"),
             _swatch(CYAN, "<b>charge de section</b> Cl&middot;corde (1 = elliptique au centre) ; "
                     "cyan clair : la référence elliptique"),
             _swatch(MAGENTA, "<b>inclinaison du cône</b> : angle du cône de suspentes hors du plan "
@@ -165,8 +159,8 @@ class TwistTool(AoaTool):
         )
         self.Qtable.horizontalHeader().setToolTip(
             "bras mm : bras de moment de la nervure (+ = cabreur)\n"
-            "rel. mm : bras moins celui de la nervure centrale (ce que vrillage/flèche "
-            "peuvent changer)\n"
+            "rel. mm : bras moins celui de la nervure centrale (ce que le vrillage "
+            "peut changer)\n"
             "bras % corde : bras divisé par la corde de la nervure\n"
             "charge : Cl x corde, 1 = référence elliptique au centre\n"
             "incl. ° : cône de suspentes hors du plan de nervure, + = vers le centre\n"
@@ -184,29 +178,6 @@ class TwistTool(AoaTool):
         corr = QtGui.QGroupBox("Correction", self.base_widget)
         form = QtGui.QFormLayout(corr)
 
-        self.Qmix = QtGui.QSlider(QtCore.Qt.Horizontal)
-        self.Qmix.setRange(0, 100)
-        self.Qmix.setValue(100)
-        self.Qmix.setTickInterval(25)
-        self.Qmix.setTickPosition(QtGui.QSlider.TicksBelow)
-        self.Qmix.setToolTip(
-            "Comment la variation du bras en envergure est supprimée :\n"
-            "à gauche (0 %) : uniquement en déplaçant les nervures (flèche) - la forme en "
-            "plan change, l'AoA non\n"
-            "à droite (100 %) : uniquement en vrillant les nervures - l'AoA change, la "
-            "forme en plan non\n"
-            "entre les deux : la part vrillage est appliquée d'abord, la flèche ferme le reste"
-        )
-        self.Qmix_label = QtGui.QLabel()
-        mix_widget = QtGui.QWidget()
-        mix_layout = QtGui.QHBoxLayout(mix_widget)
-        mix_layout.setContentsMargins(0, 0, 0, 0)
-        mix_layout.addWidget(QtGui.QLabel("flèche"))
-        mix_layout.addWidget(self.Qmix)
-        mix_layout.addWidget(QtGui.QLabel("vrillage"))
-        form.addRow("corriger par", mix_widget)
-        form.addRow("", self.Qmix_label)
-
         self.Qtarget = QtGui.QComboBox()
         self.Qtarget.addItem("équilibrer chaque nervure comme la nervure centrale", "center")
         self.Qtarget.addItem("rendre chaque nervure sans moment (bras = 0)", "zero")
@@ -214,21 +185,10 @@ class TwistTool(AoaTool):
             "« comme la nervure centrale » (recommandé) : ne supprime que la variation "
             "du bras en envergure - la question du vrillage.\n"
             "« sans moment » : supprime aussi le décalage commun. Le vrillage est faible "
-            "pour ça et la forme en plan ne peut pas se décaler en bloc (la nervure "
-            "centrale reste à x = 0) : l'outil indique alors de combien déplacer les "
-            "élévateurs."
+            "pour ça : ce décalage se corrige normalement par la position des "
+            "élévateurs ou la finesse."
         )
         form.addRow("but", self.Qtarget)
-
-        self.Qsmooth = QtGui.QSpinBox()
-        self.Qsmooth.setRange(2, 9)
-        self.Qsmooth.setValue(4)
-        self.Qsmooth.setToolTip(
-            "Nombre de points de contrôle de la courbe de flèche le long de l'envergure.\n"
-            "Moins = bord d'attaque plus lisse mais bras résiduel plus grand ; "
-            "plus = suit chaque nervure."
-        )
-        form.addRow("lissage de la flèche", self.Qsmooth)
 
         self.Qproposal = QtGui.QLabel("")
         self.Qproposal.setWordWrap(True)
@@ -238,7 +198,7 @@ class TwistTool(AoaTool):
         self.Qapply = QtGui.QPushButton("Appliquer la proposition")
         self.Qapply.setToolTip(
             "Écrit la courbe AoA orange dans la spline AoA (même nombre de points de "
-            "contrôle) et la forme en plan orange dans les courbes BA/BF de la forme.\n"
+            "contrôle).\n"
             "Vous pouvez encore modifier ensuite ; rien n'est enregistré avant OK."
         )
         form.addRow(self.Qapply)
@@ -354,11 +314,7 @@ class TwistTool(AoaTool):
         helpbox.toggled.connect(self.Qhelp.setVisible)
         self.layout.setWidget(row, span, helpbox)
 
-        self._on_mix_moved(self.Qmix.value(), solve=False)
-        self.Qmix.valueChanged.connect(self._on_mix_moved)
-        self.Qmix.sliderReleased.connect(self.update_proposal)
         self.Qtarget.currentIndexChanged.connect(self.update_proposal)
-        self.Qsmooth.valueChanged.connect(self.update_proposal)
         self.Qarm_scale.valueChanged.connect(self._on_scale)
         self.Qshow_load.toggled.connect(self.update_curves)
         self.Qshow_span.toggled.connect(self.update_curves)
@@ -380,11 +336,9 @@ class TwistTool(AoaTool):
         self.load_ref_curve = Line_old([], color=LIGHT_CYAN, width=1)
         self.proposed_aoa_curve = Line_old([], color=ORANGE, width=2)
         self.hinge_line = Line_old([], color=DARK_GREY, width=1)
-        self.ghost = coin.SoSeparator()
         for curve in (self.arm_curve, self.span_curve, self.load_curve,
                       self.load_ref_curve, self.proposed_aoa_curve, self.hinge_line):
             self.task_separator.addChild(curve.object)
-        self.task_separator.addChild(self.ghost)
         super().setup_pivy()  # draws shape, red/blue curves, calls update_glide
         self.update_proposal()
 
@@ -401,7 +355,7 @@ class TwistTool(AoaTool):
     def update_glide(self, *args):
         super().update_glide(*args)  # sets parametric_glider.glide, redraws aoa
         self.rebuild_model()
-        if hasattr(self, "Qmix"):
+        if hasattr(self, "Qtarget"):
             self.update_proposal()
 
     def update_aoa(self):
@@ -456,21 +410,6 @@ class TwistTool(AoaTool):
     # ------------------------------------------------------------------ #
     # proposal                                                           #
     # ------------------------------------------------------------------ #
-    @property
-    def mix(self):
-        return self.Qmix.value() / 100.0
-
-    def _on_mix_moved(self, value, solve=True):
-        if value >= 100:
-            txt = "100 % vrillage : seul l'AoA change"
-        elif value <= 0:
-            txt = "100 % flèche : seule la forme en plan change"
-        else:
-            txt = "{} % de la correction par vrillage, le reste par flèche".format(value)
-        self.Qmix_label.setText(txt)
-        if solve and not self.Qmix.isSliderDown():
-            self.update_proposal()
-
     def _on_weight_changed(self, *args):
         if not any(sl.isSliderDown() for sl in
                    (self.Qw_arm, self.Qw_lift, self.Qw_wash, self.Qw_tens)):
@@ -498,10 +437,10 @@ class TwistTool(AoaTool):
             return
         try:
             self.proposal = self.model.propose(
-                mix=self.mix,
+                mix=1.0,
                 target=self.Qtarget.currentData(),
-                dx_numpoints=self.Qsmooth.value(),
                 objective=self.objective(),
+                sweep_fallback=False,
             )
         except Exception as e:
             self.proposal = None
@@ -521,7 +460,6 @@ class TwistTool(AoaTool):
         if self.model is None:
             for curve in curves:
                 curve.update(HIDDEN)
-            self.ghost.removeAllChildren()
             return
 
         states = self.model.diagnose()
@@ -553,22 +491,11 @@ class TwistTool(AoaTool):
         else:
             self.hinge_line.update(HIDDEN)
 
-        self.ghost.removeAllChildren()
         self.proposed_aoa_curve.update(HIDDEN)
-        if self.proposal is not None:
-            pr = self.proposal
-            if pr.aoa_curve is not None:
-                self.proposed_aoa_curve.update(
-                    pr.aoa_curve.get_sequence(num=self.num_on_drag) * self.scale
-                )
-            if pr.front_curve is not None:
-                num = self.num_on_drag
-                front = [p for p in pr.front_curve.get_sequence(num=num) if p[0] >= 0]
-                back = [p for p in pr.back_curve.get_sequence(num=num) if p[0] >= 0]
-                self.ghost += [Line_old(front, color=ORANGE, width=2).object]
-                self.ghost += [Line_old(back, color=ORANGE, width=2).object]
-                for rib in pr.ribs_2d():
-                    self.ghost += [Line_old(rib, color=LIGHT_ORANGE).object]
+        if self.proposal is not None and self.proposal.aoa_curve is not None:
+            self.proposed_aoa_curve.update(
+                self.proposal.aoa_curve.get_sequence(num=self.num_on_drag) * self.scale
+            )
 
         self._fill_table(states, load)
         self._fill_info(states, ref, hinge)
@@ -587,7 +514,7 @@ class TwistTool(AoaTool):
             "<b>Décalage commun</b> (bras de la nervure centrale) : {:+.0f} mm - {}. "
             "Cette part relève du trim en tangage (position des élévateurs / finesse), "
             "pas du vrillage.".format(ref * 1000.0, trim),
-            "<b>Variation en envergure</b> (ce que vrillage ou flèche peuvent corriger) : "
+            "<b>Variation en envergure</b> (ce que le vrillage peut corriger) : "
             "de {:+.0f} mm à la nervure {} à {:+.0f} mm à la nervure {}. "
             "Les nervures au-dessus de la valeur centrale cabrent par rapport à elle, "
             "celles en dessous piquent.".format(dev[i_min], i_min, dev[i_max], i_max),
@@ -609,10 +536,6 @@ class TwistTool(AoaTool):
         if np.any(np.abs(sol.d_aoa) > 1e-9):
             parts.append("vrillage de {:+.1f}° à {:+.1f}° (courbe AoA orange)".format(
                 np.degrees(sol.d_aoa.min()), np.degrees(sol.d_aoa.max())))
-        if np.any(np.abs(pr.dx_values) > 1e-4):
-            parts.append("flèche de {:+.0f} mm à {:+.0f} mm, + = vers le bord de fuite "
-                         "(forme en plan orange)".format(pr.dx_values.min() * 1000.0,
-                                                         pr.dx_values.max() * 1000.0))
         if not parts:
             parts.append("rien à changer")
         obj = self.objective()
@@ -626,15 +549,10 @@ class TwistTool(AoaTool):
             mode = "équilibre exact nervure par nervure"
         txt = ["<b>Proposition</b> ({}) : {}.".format(mode, " ; ".join(parts)),
                "Bras résiduel après lissage : {:.0f} mm.".format(max(abs(a) for a in after))]
-        if abs(pr.riser_dx) > 1e-4:
-            txt.append("Une flèche commune de {:+.0f} mm ne peut pas entrer dans la forme en "
-                       "plan (la nervure centrale reste à x = 0) : <b>déplacez plutôt les "
-                       "élévateurs de {:+.0f} mm</b>."
-                       .format(pr.riser_dx * 1000.0, -pr.riser_dx * 1000.0))
         if not np.all(sol.reachable):
             bad = ", ".join(str(s.index) for s, ok in zip(sol.stations, sol.reachable) if not ok)
-            txt.append("Le vrillage seul n'atteint pas le but sur les nervures {} (la polaire "
-                       "sort de sa plage) : de la flèche a été ajoutée là.".format(bad))
+            txt.append("Le vrillage n'atteint pas le but sur les nervures {} (la polaire "
+                       "sort de sa plage) : l'AoA le plus proche a été retenu.".format(bad))
         self.Qproposal.setText("<br>".join(txt))
 
     def _fill_table(self, states, load):
@@ -683,11 +601,6 @@ class TwistTool(AoaTool):
         self.Qnum_aoa.blockSignals(True)
         self.Qnum_aoa.setValue(len(self.spline.controlpoints))
         self.Qnum_aoa.blockSignals(False)
-        # shape may have changed: redraw the grey planform
-        self.ribs = self.parametric_glider.shape.ribs
-        self.front = [rib[0] for rib in self.ribs]
-        self.back = [rib[1] for rib in self.ribs]
-        self.draw_shape()
         self.rebuild_model()
         self.update_aoa()
         self.update_grid(drag_release=True)
