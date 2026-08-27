@@ -43,16 +43,16 @@ propres suspentes.  En vol, l'air pousse sur la nervure avec une seule force
 résultante, appliquée à son centre de poussée.  Les suspentes ne peuvent tenir
 cette force que si elle pointe droit vers le <i>sommet</i> du cône de
 suspentes (l'élévateur).  Sinon la nervure veut tourner : la distance entre la
-ligne de la force et le sommet du cône est le <b>bras de moment</b>.</p>
+ligne de la force et le sommet du cône est le <b>déport</b> de la résultante.</p>
 <ul>
-<li><b>bras &gt; 0</b> : la force passe <i>devant</i> le sommet &rarr; la
+<li><b>déport &gt; 0</b> : la force passe <i>devant</i> le sommet &rarr; la
 nervure veut <i>cabrer</i> ; les A portent plus, les arrières moins.</li>
-<li><b>bras &lt; 0</b> : la force passe <i>derrière</i> le sommet &rarr; la
+<li><b>déport &lt; 0</b> : la force passe <i>derrière</i> le sommet &rarr; la
 nervure veut <i>piquer</i> ; les arrières portent plus, les A se détendent en
 premier dans une abattée.</li>
 </ul>
-<p>Seule la <b>variation du bras le long de l'envergure</b> relève du
-vrillage.  Si toutes les nervures ont le même bras, l'aile entière est
+<p>Seule la <b>variation du déport le long de l'envergure</b> relève du
+vrillage.  Si toutes les nervures ont le même déport, l'aile entière est
 simplement réglée cabreuse ou piqueuse : ça se corrige par la position des
 élévateurs ou la finesse, pas par le vrillage.  C'est pourquoi la courbe verte
 est tracée <i>par rapport à la nervure centrale</i> et que le décalage commun
@@ -131,7 +131,7 @@ class TwistTool(AoaTool):
             _swatch((0, 0, 1), "<b>AoA absolu</b> : corde par rapport à l'horizontale, dans le "
                     "plan de la nervure, l'angle géométrique réellement construit - degrés. "
                     "= AoA dessiné &minus; arctan(cos(angle de voûte) / finesse)"),
-            _swatch(GREEN, "<b>bras de moment, relatif à la nervure centrale</b> - mm "
+            _swatch(GREEN, "<b>déport de la résultante, relatif à la nervure centrale</b> - mm "
                     "(échelle plus bas). 0 = même équilibre en tangage que le centre. "
                     "Vers le haut = tendance cabreuse, vers le bas = piqueuse."),
             _swatch(ORANGE, "<b>AoA après correction</b> (proposition)"),
@@ -162,14 +162,14 @@ class TwistTool(AoaTool):
         self.Qtable = QtGui.QTableWidget()
         self.Qtable.setColumnCount(9)
         self.Qtable.setHorizontalHeaderLabels(
-            ["nerv.", "AoA °", "bras mm", "rel. mm", "bras % corde", "charge", "incl. °",
+            ["nerv.", "AoA °", "déport mm", "rel. mm", "déport % corde", "charge", "incl. °",
              "suspentes", "note"]
         )
         self.Qtable.horizontalHeader().setToolTip(
-            "bras mm : bras de moment de la nervure (+ = cabreur)\n"
-            "rel. mm : bras moins celui de la nervure centrale (ce que le vrillage "
+            "déport mm : déport de la résultante par rapport au point pilote (+ = passe devant = cabreur)\n"
+            "rel. mm : déport moins celui de la nervure centrale (ce que le vrillage "
             "peut changer)\n"
-            "bras % corde : bras divisé par la corde de la nervure\n"
+            "déport % corde : déport divisé par la corde de la nervure\n"
             "charge : Cl x corde, 1 = référence elliptique au centre\n"
             "incl. ° : cône de suspentes hors du plan de nervure, + = vers le centre\n"
             "suspentes : points d'accrochage trouvés sur cette nervure, ou la nervure "
@@ -235,10 +235,10 @@ class TwistTool(AoaTool):
 
         self.Qtarget = QtGui.QComboBox()
         self.Qtarget.addItem("équilibrer chaque nervure comme la nervure centrale", "center")
-        self.Qtarget.addItem("rendre chaque nervure sans moment (bras = 0)", "zero")
+        self.Qtarget.addItem("rendre chaque nervure sans moment (déport = 0)", "zero")
         self.Qtarget.setToolTip(
             "« comme la nervure centrale » (recommandé) : ne supprime que la variation "
-            "du bras en envergure - la question du vrillage.\n"
+            "du déport en envergure - la question du vrillage.\n"
             "« sans moment » : supprime aussi le décalage commun. Le vrillage est faible "
             "pour ça : ce décalage se corrige normalement par la position des "
             "élévateurs ou la finesse."
@@ -284,9 +284,9 @@ class TwistTool(AoaTool):
             return sl, w
 
         self.Qw_arm, w = weight_slider(100, "Chaque nervure équilibrée comme la nervure "
-                                            "centrale (bras de moment) - l'objectif de "
+                                            "centrale (déport) - l'objectif de "
                                             "répartition de charge des suspentes.")
-        gform.addRow("équilibre (bras)", w)
+        gform.addRow("équilibre (déport)", w)
         self.Qw_lift, w = weight_slider(0, "La charge de section Cl x corde suit une "
                                            "ellipse - traînée induite minimale.")
         gform.addRow("charge elliptique", w)
@@ -329,8 +329,8 @@ class TwistTool(AoaTool):
         self.Qarm_scale.setRange(0.5, 500.0)
         self.Qarm_scale.setValue(self._arm_scale)
         self.Qarm_scale.setSuffix(" mm par degré de grille")
-        self.Qarm_scale.setToolTip("Échelle verticale de la courbe verte (bras) sur la grille AoA.")
-        oform.addRow("échelle du bras", self.Qarm_scale)
+        self.Qarm_scale.setToolTip("Échelle verticale de la courbe verte (déport) sur la grille AoA.")
+        oform.addRow("échelle du déport", self.Qarm_scale)
 
         self.Qshow_load = QtGui.QCheckBox("afficher la charge de section (cyan)")
         self.Qshow_load.setChecked(True)
@@ -497,7 +497,7 @@ class TwistTool(AoaTool):
                 np.degrees(self.model.stations[0].aoa_rel + t.d_alpha)),
             "<b>Point pilote</b> : déplacer les élévateurs de <b>{:+.0f} mm</b> en x "
             "(x = {:.3f} m → {:.3f} m, + = vers le bord de fuite) pour annuler le "
-            "moment de l'aile (bras moyen actuel {:+.0f} mm).".format(
+            "moment de l'aile (déport moyen actuel {:+.0f} mm).".format(
                 t.pilot_dx * 1000.0, x_now, t.pilot_x, t.arm_mean * 1000.0),
             "<i>La finesse absolue est approximative ; l'angle du maximum est fiable.</i>",
         ]
@@ -522,7 +522,7 @@ class TwistTool(AoaTool):
         self.update_glide()
         self.update_grid(drag_release=True)
         self.Qtrim_info.setText("Réglage appliqué : courbe AoA décalée, finesse = {:.2f}, "
-                                "élévateurs déplacés. Recalculez pour vérifier (le bras "
+                                "élévateurs déplacés. Recalculez pour vérifier (le déport "
                                 "moyen doit être ~0).".format(self.parametric_glider.glide))
 
     # ------------------------------------------------------------------ #
@@ -629,7 +629,7 @@ class TwistTool(AoaTool):
         else:
             trim = "l'aile est équilibrée autour des élévateurs"
         txt = [
-            "<b>Décalage commun</b> (bras de la nervure centrale) : {:+.0f} mm - {}. "
+            "<b>Décalage commun</b> (déport de la nervure centrale) : {:+.0f} mm - {}. "
             "Cette part relève du trim en tangage (position des élévateurs / finesse), "
             "pas du vrillage.".format(ref * 1000.0, trim),
             "<b>Variation en envergure</b> (ce que le vrillage peut corriger) : "
@@ -666,7 +666,7 @@ class TwistTool(AoaTool):
         else:
             mode = "équilibre exact nervure par nervure"
         txt = ["<b>Proposition</b> ({}) : {}.".format(mode, " ; ".join(parts)),
-               "Bras résiduel après lissage : {:.0f} mm.".format(max(abs(a) for a in after))]
+               "Déport résiduel après lissage : {:.0f} mm.".format(max(abs(a) for a in after))]
         if not np.all(sol.reachable):
             bad = ", ".join(str(s.index) for s, ok in zip(sol.stations, sol.reachable) if not ok)
             txt.append("Le vrillage n'atteint pas le but sur les nervures {} (la polaire "
