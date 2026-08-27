@@ -349,7 +349,7 @@ class TwistTool(AoaTool):
         self.Qxfoil.setToolTip(
             "Remplace l'estimation « profil mince » par des polaires XFoil du profil de "
             "chaque nervure (nécessite le binaire « xfoil » dans le PATH ; quelques "
-            "secondes par nervure). Change Cl, Cd et le centre de poussée, donc le bras."
+            "secondes par nervure). Change Cl, Cd et le centre de poussée, donc le déport."
         )
         self.Qpolar_status = QtGui.QLabel("polaires : profil mince (ligne de cambrure)")
         oform.addRow(self.Qxfoil, self.Qpolar_status)
