@@ -176,6 +176,20 @@ class TestTwistModel(TestCase):
         for b, s in zip(before, self.model.stations):
             self.assertAlmostEqual(s.aoa_rel - b, np.radians(2), places=3)
 
+    def test_lift_distribution(self):
+        load, ref = self.model.lift_distribution()
+        self.assertEqual(len(load), len(self.model.stations))
+        self.assertAlmostEqual(ref[0], 1.0)
+        self.assertTrue(np.all(np.diff(ref) <= 1e-12))  # elliptic decreases outboard
+        self.assertTrue(np.all(load > 0))
+
+    def test_hinge_station(self):
+        hinge = self.model.hinge_station()
+        x = [s.x for s in self.model.stations]
+        self.assertIsNotNone(hinge)  # demokite reaches 60 deg of arc
+        self.assertGreater(hinge, x[0])
+        self.assertLess(hinge, x[-1])
+
     def test_table(self):
         rows = self.model.table()
         self.assertEqual(len(rows), len(self.model.stations))

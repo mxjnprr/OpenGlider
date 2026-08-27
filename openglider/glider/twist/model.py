@@ -491,6 +491,36 @@ class TwistModel:
         )
 
     # ------------------------------------------------------------------ #
+    # spanwise indicators                                                #
+    # ------------------------------------------------------------------ #
+    def lift_distribution(self, states=None):
+        """Relative section load ``Cl * chord`` per station and its elliptic
+        reference (same total, over the projected span).  Both normalised to
+        the centre value of the reference, so 1.0 = elliptic at the centre."""
+        states = states or self.diagnose()
+        y = np.array([s.arc_pos[0] for s in self.stations])      # projected span
+        load = np.array([st.lift for st in states])
+        span = y[-1] if y[-1] > 0 else 1.0
+        ellipse = np.sqrt(np.clip(1.0 - (y / span) ** 2, 0.0, 1.0))
+        w = np.gradient(y) if len(y) > 1 else np.ones(1)
+        scale = (load * w).sum() / max((ellipse * w).sum(), 1e-9)
+        ref = ellipse * scale
+        norm = ref[0] if ref[0] > 0 else 1.0
+        return load / norm, ref / norm
+
+    def hinge_station(self):
+        """Span position where a rib carries as much as it tensions the arc
+        (arc angle 45 deg): inboard the criterion is aerodynamic, outboard
+        it is the tip-line tension.  ``None`` if the arc never reaches 45 deg."""
+        ang = np.array([s.arcang for s in self.stations])
+        x = np.array([s.x for s in self.stations])
+        above = np.where(np.abs(ang) >= np.pi / 4)[0]
+        if len(above) == 0 or above[0] == 0:
+            return None
+        i = above[0]
+        return float(np.interp(np.pi / 4, [abs(ang[i - 1]), abs(ang[i])], [x[i - 1], x[i]]))
+
+    # ------------------------------------------------------------------ #
     # reporting                                                          #
     # ------------------------------------------------------------------ #
     def table(self, states=None):
