@@ -178,6 +178,35 @@ class TwistProposal:
             self._assign(parametric_glider.shape, "back_curve", self.back_curve)
 
 
+@dataclass
+class TwistObjective:
+    """Weighted design goals for the twist distribution (v2).
+
+    All weights are relative; a weight of 0 switches a goal off.
+
+    * ``w_arm``      per-rib moment arm equal to the centre rib's (or to ``target``)
+    * ``w_lift``     section load ``Cl * chord`` following an elliptic distribution
+    * ``w_washout``  tips at least ``washout_deg`` below the centre AoA, and the
+                     AoA never increasing outboard
+    * ``w_tension``  outboard of the hinge rib (arc > 45 deg) keep ``Cl >= cl_min``
+                     so the tip lines stay loaded
+    * ``smooth``     penalty on the second difference of the AoA (avoids zig-zag)
+    """
+
+    w_arm: float = 1.0
+    w_lift: float = 0.0
+    w_washout: float = 0.0
+    w_tension: float = 0.0
+    washout_deg: float = 3.0
+    cl_min: float = 0.3
+    smooth: float = 0.1
+    max_delta_deg: float = 12.0        # search box around the current AoA
+
+    @property
+    def active(self):
+        return any(w > 0 for w in (self.w_lift, self.w_washout, self.w_tension))
+
+
 # --------------------------------------------------------------------------- #
 # model                                                                       #
 # --------------------------------------------------------------------------- #
@@ -411,24 +440,34 @@ class TwistModel:
                 a, fa = m, fm
         return float(0.5 * (a + b)), True
 
-    def solve(self, mix=1.0, target="center"):
-        """Per-station exact solve.
+    def solve(self, mix=1.0, target="center", objective=None):
+        """Per-station solve.
 
         ``mix``: 1 = all twist, 0 = all sweep.  ``target``: see :meth:`target_arm`.
+        ``objective``: a :class:`TwistObjective`; when it has goals beyond the
+        arm, the twist share comes from the weighted least-squares solve and the
+        sweep share only closes the arm.
         """
         mix = float(np.clip(mix, 0.0, 1.0))
         goal = self.target_arm(target)
+        aoa_obj = None
+        if mix > 0.0 and objective is not None and objective.active:
+            aoa_obj = self.solve_objective(objective, target)
         before, after, d_aoa, dx, reach = [], [], [], [], []
-        for s in self.stations:
+        for i, s in enumerate(self.stations):
             st0 = self.state(s)
             before.append(st0)
-            if mix > 0.0:
+            if aoa_obj is not None:
+                da, ok = mix * (aoa_obj[i] - s.aoa_rel), True
+            elif mix > 0.0:
                 a_star, ok = self.twist_for_arm(s, target=goal)
                 da = mix * (a_star - s.aoa_rel)
             else:
                 da, ok = 0.0, True
-            if mix >= 1.0 and ok:
+            if mix >= 1.0 and ok and aoa_obj is None:
                 d = 0.0
+            elif aoa_obj is not None and mix >= 1.0:
+                d = 0.0  # objective mode at 100 % twist: no sweep at all
             else:
                 d = self.sweep_for_arm(s, s.aoa_rel + da, target=goal)
             d_aoa.append(da)
@@ -441,11 +480,70 @@ class TwistModel:
         )
 
     # ------------------------------------------------------------------ #
+    # objective (v2)                                                     #
+    # ------------------------------------------------------------------ #
+    def objective_terms(self, aoa, objective, target):
+        """Residual vector of the weighted goals for AoA vector ``aoa`` [rad]."""
+        states = [self.state(s, a) for s, a in zip(self.stations, aoa)]
+        chords = np.array([s.chord for s in self.stations])
+        res = []
+        if objective.w_arm > 0:
+            arm = np.array([st.moment_arm for st in states])
+            res.append(np.sqrt(objective.w_arm) * (arm - target) / chords)
+        if objective.w_lift > 0:
+            load, ref = self.lift_distribution(states)
+            res.append(np.sqrt(objective.w_lift) * (load - ref))
+        if objective.w_washout > 0:
+            wash = np.radians(objective.washout_deg)
+            # tip must sit at least `wash` below the centre
+            tip = max(0.0, aoa[-1] - (aoa[0] - wash))
+            # never increasing outboard
+            rise = np.maximum(0.0, np.diff(aoa))
+            res.append(np.sqrt(objective.w_washout) * np.concatenate([[tip], rise]) * 10.0)
+        if objective.w_tension > 0:
+            hinge = self.hinge_station()
+            cl = np.array([st.cl for st in states])
+            outboard = np.array([s.x >= hinge for s in self.stations]) if hinge else np.zeros(len(cl), bool)
+            short = np.maximum(0.0, objective.cl_min - cl) * outboard
+            res.append(np.sqrt(objective.w_tension) * short)
+        if objective.smooth > 0 and len(aoa) > 2:
+            res.append(np.sqrt(objective.smooth) * np.diff(aoa, 2) * 10.0)
+        return np.concatenate(res) if res else np.zeros(1)
+
+    def solve_objective(self, objective, target="center"):
+        """Twist distribution minimising the weighted goals (least squares).
+
+        The centre rib's AoA is kept.  Returns the AoA vector [rad].
+        """
+        from scipy.optimize import least_squares
+
+        goal = self.target_arm(target)
+        aoa0 = np.array([s.aoa_rel for s in self.stations])
+        box = np.radians(objective.max_delta_deg)
+        lo = np.maximum(aoa0 - box, [s.polar.alpha_min for s in self.stations])
+        hi = np.minimum(aoa0 + box, [s.polar.alpha_max for s in self.stations])
+        free = np.arange(1, len(aoa0))  # centre rib fixed
+
+        def fun(v):
+            a = aoa0.copy()
+            a[free] = v
+            return self.objective_terms(a, objective, goal)
+
+        if len(free) == 0:
+            return aoa0
+        result = least_squares(fun, aoa0[free], bounds=(lo[free], hi[free]),
+                               diff_step=1e-4, max_nfev=200)
+        aoa = aoa0.copy()
+        aoa[free] = result.x
+        return aoa
+
+    # ------------------------------------------------------------------ #
     # smoothing / proposal                                               #
     # ------------------------------------------------------------------ #
-    def propose(self, mix=1.0, target="center", dx_numpoints=4, aoa_numpoints=None):
+    def propose(self, mix=1.0, target="center", dx_numpoints=4, aoa_numpoints=None,
+                objective=None):
         """Solve, then fit smooth spanwise curves and re-evaluate the arm."""
-        sol = self.solve(mix, target)
+        sol = self.solve(mix, target, objective)
         pg = self.parametric
         x = sol.x
 

@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from common import TestCase
-from openglider.glider.twist import ThinAirfoilPolar, TwistModel
+from openglider.glider.twist import ThinAirfoilPolar, TwistModel, TwistObjective
 from openglider.glider.twist.model import shift_curve
 
 
@@ -189,6 +189,47 @@ class TestTwistModel(TestCase):
         self.assertIsNotNone(hinge)  # demokite reaches 60 deg of arc
         self.assertGreater(hinge, x[0])
         self.assertLess(hinge, x[-1])
+
+    # ------------------------------------------------------------------ #
+    # objective (v2)                                                     #
+    # ------------------------------------------------------------------ #
+    def test_objective_inactive_equals_exact_solve(self):
+        exact = self.model.solve(1.0)
+        same = self.model.solve(1.0, objective=TwistObjective(w_arm=1.0))
+        self.assertTrue(np.allclose(exact.d_aoa, same.d_aoa))
+
+    def test_objective_elliptic_load(self):
+        obj = TwistObjective(w_arm=0.0, w_lift=1.0, smooth=0.0)
+        aoa = self.model.solve_objective(obj)
+        self.assertAlmostEqual(aoa[0], self.model.stations[0].aoa_rel)  # centre kept
+        states = [self.model.state(s, a) for s, a in zip(self.model.stations, aoa)]
+        load, ref = self.model.lift_distribution(states)
+        load0, ref0 = self.model.lift_distribution()
+        self.assertLess(np.abs(load - ref).max(), np.abs(load0 - ref0).max())
+
+    def test_objective_washout(self):
+        obj = TwistObjective(w_arm=0.2, w_washout=1.0, washout_deg=4.0)
+        aoa = self.model.solve_objective(obj)
+        self.assertLessEqual(aoa[-1], aoa[0] - np.radians(3.9))
+        self.assertTrue(np.all(np.diff(aoa) <= 1e-3))
+
+    def test_objective_tension(self):
+        obj = TwistObjective(w_arm=0.0, w_tension=1.0, cl_min=0.8, smooth=0.0)
+        aoa = self.model.solve_objective(obj)
+        hinge = self.model.hinge_station()
+        for s, a in zip(self.model.stations, aoa):
+            if s.x >= hinge:
+                self.assertGreaterEqual(self.model.state(s, a).cl, 0.79)
+
+    def test_propose_with_objective(self):
+        obj = TwistObjective(w_arm=1.0, w_lift=1.0)
+        pr = self.model.propose(0.5, objective=obj)
+        self.assertIsNotNone(pr.aoa_curve)
+        # half the twist applied, the sweep closes the arm (unsmoothed solve)
+        for a in pr.solution.after:
+            self.assertAlmostEqual(a.moment_arm, pr.solution.target, places=5)
+        full = self.model.propose(1.0, objective=obj)
+        self.assertTrue(np.all(full.solution.dx == 0))
 
     def test_table(self):
         rows = self.model.table()

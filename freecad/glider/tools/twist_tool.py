@@ -10,7 +10,7 @@ import numpy as np
 from pivy import coin
 from PySide import QtCore, QtGui
 
-from openglider.glider.twist import TabulatedPolar, TwistModel
+from openglider.glider.twist import TabulatedPolar, TwistModel, TwistObjective
 
 from .span_mapping import AoaTool
 from .tools import Line_old
@@ -69,6 +69,13 @@ planform.</li>
 <p>The slider mixes the two.  The orange curve is the AoA after correction,
 the orange planform is the swept shape.  <i>Apply proposal</i> writes both
 into the model; OK saves the glider.</p>
+
+<p><b>Design goals</b> (the "Design goals" box): with only <i>balance</i>
+active the tool solves each rib exactly.  Switch on <i>elliptic load</i>,
+<i>tip washout</i> or <i>tip-line tension</i> and the twist becomes a weighted
+compromise between all active goals (least squares, centre rib kept).  The
+sweep share of the slider still only closes the moment arm.  The weights are
+relative: 100/50 means balance counts twice as much as the other goal.</p>
 
 <p><b>Assumptions</b>: section forces from a thin-airfoil polar of each rib's
 profile (camber only) unless XFoil polars are loaded; the wind direction
@@ -214,6 +221,63 @@ class TwistTool(AoaTool):
         self.layout.setWidget(row, span, corr)
         row += 1
 
+        # -- 3b. design goals (v2) ---------------------------------------- #
+        goals = QtGui.QGroupBox("Design goals for the twist", self.base_widget)
+        gform = QtGui.QFormLayout(goals)
+        goals.setToolTip(
+            "Weights of the goals the twist has to satisfy. Only 'balance' on = "
+            "exact per-rib solve (v1). Any other goal on = weighted compromise."
+        )
+
+        def weight_slider(value, tip):
+            sl = QtGui.QSlider(QtCore.Qt.Horizontal)
+            sl.setRange(0, 100)
+            sl.setValue(value)
+            sl.setToolTip(tip)
+            lab = QtGui.QLabel(str(value))
+            sl.valueChanged.connect(lambda v, lab=lab: lab.setText(str(v)))
+            w = QtGui.QWidget()
+            lay = QtGui.QHBoxLayout(w)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.addWidget(sl)
+            lay.addWidget(lab)
+            return sl, w
+
+        self.Qw_arm, w = weight_slider(100, "Every rib balanced like the centre rib "
+                                            "(moment arm) - the line-load goal.")
+        gform.addRow("balance (arm)", w)
+        self.Qw_lift, w = weight_slider(0, "Section load Cl x chord follows an ellipse "
+                                           "- minimum induced drag.")
+        gform.addRow("elliptic load", w)
+        self.Qw_wash, w = weight_slider(0, "Tips at least 'washout' degrees below the "
+                                           "centre and AoA never rising outboard - "
+                                           "stall starts at the centre, tips keep flying.")
+        gform.addRow("tip washout", w)
+        self.Qwash_deg = QtGui.QDoubleSpinBox()
+        self.Qwash_deg.setRange(0.0, 15.0)
+        self.Qwash_deg.setValue(3.0)
+        self.Qwash_deg.setSuffix(" °")
+        self.Qwash_deg.setToolTip("Minimum AoA difference centre minus tip.")
+        gform.addRow("    washout at least", self.Qwash_deg)
+        self.Qw_tens, w = weight_slider(0, "Outboard of the hinge rib keep Cl above the "
+                                           "minimum so the tip lines stay under load "
+                                           "(a tip that does not lift folds in).")
+        gform.addRow("tip-line tension", w)
+        self.Qcl_min = QtGui.QDoubleSpinBox()
+        self.Qcl_min.setRange(0.0, 1.5)
+        self.Qcl_min.setSingleStep(0.05)
+        self.Qcl_min.setValue(0.3)
+        self.Qcl_min.setToolTip("Minimum section Cl outboard of the hinge rib.")
+        gform.addRow("    tip Cl at least", self.Qcl_min)
+        self.Qsmooth_aoa = QtGui.QDoubleSpinBox()
+        self.Qsmooth_aoa.setRange(0.0, 5.0)
+        self.Qsmooth_aoa.setSingleStep(0.1)
+        self.Qsmooth_aoa.setValue(0.1)
+        self.Qsmooth_aoa.setToolTip("Penalty on zig-zag of the AoA between neighbouring ribs.")
+        gform.addRow("AoA smoothness", self.Qsmooth_aoa)
+        self.layout.setWidget(row, span, goals)
+        row += 1
+
         # -- 4. display / options ---------------------------------------- #
         opts = QtGui.QGroupBox("Display and physics options", self.base_widget)
         oform = QtGui.QFormLayout(opts)
@@ -272,6 +336,11 @@ class TwistTool(AoaTool):
         self.Qshow_span.toggled.connect(self.update_curves)
         self.Qapply.clicked.connect(self.apply_proposal)
         self.Qxfoil.clicked.connect(self.load_xfoil_polars)
+        for sl in (self.Qw_arm, self.Qw_lift, self.Qw_wash, self.Qw_tens):
+            sl.sliderReleased.connect(self.update_proposal)
+            sl.valueChanged.connect(self._on_weight_changed)
+        for sp in (self.Qwash_deg, self.Qcl_min, self.Qsmooth_aoa):
+            sp.valueChanged.connect(self.update_proposal)
 
     # ------------------------------------------------------------------ #
     # scene                                                              #
@@ -372,6 +441,22 @@ class TwistTool(AoaTool):
         if solve and not self.Qmix.isSliderDown():
             self.update_proposal()
 
+    def _on_weight_changed(self, *args):
+        if not any(sl.isSliderDown() for sl in
+                   (self.Qw_arm, self.Qw_lift, self.Qw_wash, self.Qw_tens)):
+            self.update_proposal()
+
+    def objective(self):
+        return TwistObjective(
+            w_arm=self.Qw_arm.value() / 100.0,
+            w_lift=self.Qw_lift.value() / 100.0,
+            w_washout=self.Qw_wash.value() / 100.0,
+            w_tension=self.Qw_tens.value() / 100.0,
+            washout_deg=self.Qwash_deg.value(),
+            cl_min=self.Qcl_min.value(),
+            smooth=self.Qsmooth_aoa.value(),
+        )
+
     def _on_scale(self, value):
         self._arm_scale = float(value)
         self.update_curves()
@@ -386,6 +471,7 @@ class TwistTool(AoaTool):
                 mix=self.mix,
                 target=self.Qtarget.currentData(),
                 dx_numpoints=self.Qsmooth.value(),
+                objective=self.objective(),
             )
         except Exception as e:
             self.proposal = None
@@ -498,7 +584,15 @@ class TwistTool(AoaTool):
                                                     pr.dx_values.max() * 1000.0))
         if not parts:
             parts.append("nothing to change")
-        txt = ["<b>Proposal:</b> " + "; ".join(parts) + ".",
+        obj = self.objective()
+        if obj.active:
+            goals = [n for n, w in (("balance", obj.w_arm), ("elliptic load", obj.w_lift),
+                                    ("tip washout", obj.w_washout),
+                                    ("tip-line tension", obj.w_tension)) if w > 0]
+            mode = "weighted compromise between " + ", ".join(goals)
+        else:
+            mode = "exact per-rib balance"
+        txt = ["<b>Proposal</b> ({}): {}.".format(mode, "; ".join(parts)),
                "Leftover arm after smoothing: {:.0f} mm.".format(max(abs(a) for a in after))]
         if abs(pr.riser_dx) > 1e-4:
             txt.append("A common sweep of {:+.0f} mm cannot go into the planform (the centre "
