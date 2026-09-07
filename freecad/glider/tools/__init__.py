@@ -21,6 +21,7 @@ from . import (
     miniribs_tool,
     le_panel_split_tool,
     singleskin_tool,
+    twist_tool,
 )
 from . import panel_method as pm
 from . import shape_tool, span_mapping
@@ -290,6 +291,18 @@ class AoaCommand(BaseCommand):
 
     def tool(self, obj):
         return span_mapping.AoaTool(obj)
+
+
+class TwistCommand(BaseCommand):
+    def GetResources(self):
+        return {
+            "Pixmap": "twist_command.svg",
+            "MenuText": "vrillage",
+            "ToolTip": "vrillage : équilibre de moment par nervure, correction vrillage / flèche",
+        }
+
+    def tool(self, obj):
+        return twist_tool.TwistTool(obj)
 
 
 class ZrotCommand(BaseCommand):
