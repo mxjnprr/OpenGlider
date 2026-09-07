@@ -29,6 +29,11 @@ class MiniRibsTool(BaseTool):
         self.miniribs_button.clicked.connect(self.miniribs_table.show)
         self.layout.setWidget(0, input_field, self.miniribs_button)
 
+        # Live preview: any edit in the miniribs table (transition, starts,
+        # LE settings, ...) is applied to the parametric glider and redrawn.
+        # itemChanged fires when a cell edit is committed, not on every keystroke.
+        self.miniribs_table.table.itemChanged.connect(self.on_table_changed)
+
         # Minirib hole settings section
         self.layout.addRow(QtGui.QLabel("<b>Minirib Hole Settings</b>"))
         
@@ -96,6 +101,10 @@ class MiniRibsTool(BaseTool):
         except:
             return 1
 
+    def on_table_changed(self, *args):
+        """Re-apply the miniribs table to the glider and refresh the 2D preview."""
+        self.apply_elements()
+
     def on_hole_settings_changed(self, *args):
         """Update parametric glider with new hole settings."""
         self.parametric_glider.minirib_holes = self.holesCheckBox.isChecked()
@@ -128,8 +137,12 @@ class MiniRibsTool(BaseTool):
             "cells": all_cells
         }
         
-        self.miniribs_table.table.setRowCount(1)
-        self.miniribs_table.set_row(0, default_row)
+        self.miniribs_table.table.blockSignals(True)
+        try:
+            self.miniribs_table.table.setRowCount(1)
+            self.miniribs_table.set_row(0, default_row)
+        finally:
+            self.miniribs_table.table.blockSignals(False)
 
     def draw_glider(self):
         # Don't remove all children - the preview_root is also a child
@@ -286,24 +299,31 @@ class miniribs_table(base_table_widget):
     def get_from_ParametricGlider(self, ParametricGlider):
         if "miniribs" in ParametricGlider.elements:
             miniribs = ParametricGlider.elements["miniribs"]
-            for row, element in enumerate(miniribs):
-                end_dist_cm = (element.get("end_distance") or 0.02) * 100
-                transition_pct = (element.get("transition_length") or 0.05) * 100  # Convert to %
-                le_start_cm = (element.get("le_start_distance") or 0.01) * 100
-                entries = [
-                    element.get("yvalue", 0.5),
-                    element.get("count", 1),
-                    element.get("intrados_start", 0.8),
-                    element.get("extrados_start", 0.75),
-                    end_dist_cm,
-                    transition_pct,  # NEW
-                    1 if element.get("le_enabled", False) else 0,
-                    le_start_cm,
-                    element.get("le_extrados_end", 0.05),
-                    element.get("le_intrados_end", 0.04),
-                ]
-                entries.append(element.get("cells", [0]))
-                self.table.setRow(row, entries)
+            self.table.blockSignals(True)
+            try:
+                self._fill_from_elements(miniribs)
+            finally:
+                self.table.blockSignals(False)
+
+    def _fill_from_elements(self, miniribs):
+        for row, element in enumerate(miniribs):
+            end_dist_cm = (element.get("end_distance") or 0.02) * 100
+            transition_pct = (element.get("transition_length") or 0.05) * 100  # Convert to %
+            le_start_cm = (element.get("le_start_distance") or 0.01) * 100
+            entries = [
+                element.get("yvalue", 0.5),
+                element.get("count", 1),
+                element.get("intrados_start", 0.8),
+                element.get("extrados_start", 0.75),
+                end_dist_cm,
+                transition_pct,  # NEW
+                1 if element.get("le_enabled", False) else 0,
+                le_start_cm,
+                element.get("le_extrados_end", 0.05),
+                element.get("le_intrados_end", 0.04),
+            ]
+            entries.append(element.get("cells", [0]))
+            self.table.setRow(row, entries)
 
     def set_row(self, row_idx, data):
         entries = [
