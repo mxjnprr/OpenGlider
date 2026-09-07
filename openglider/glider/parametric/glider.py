@@ -2248,6 +2248,97 @@ class ParametricGlider:
                 out.append(c)
         return out
 
+    @staticmethod
+    def _add_trailing_edge_cuts(cuts):
+        """Append the implicit trailing-edge seams to a cut list (in place).
+
+        The seam is only skipped when a cut already lies *fully* on the
+        trailing edge (left == right == +-1).  A cut that merely touches +-1
+        at one end (e.g. a design curve snapped onto the trailing edge at one
+        rib) still needs the trailing edge as the other boundary, otherwise
+        the panel between them vanishes.
+        """
+        if not any(c["left"] == -1 and c["right"] == -1 for c in cuts):
+            cuts.append({"type": "parallel", "left": -1, "right": -1})
+        if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
+            cuts.append({"type": "parallel", "left": 1, "right": 1})
+
+    # ------------------------------------------------------------------
+    # Leading-edge panel split
+    #
+    # elements["le_panel_splits"] = [{"cells": [...], "material_code": ""}]
+    # For every listed half-cell the leading-edge panel -- the extrados strip
+    # bounded by the design's LE cut and the air intake -- is halved spanwise
+    # with a seam at mid-cell.  No cut is created for this: the LE cut must
+    # exist in elements["cuts"] (Design tool).  Legacy entries may carry a
+    # "cut_limit" key; it is ignored, the LE panel is always detected from the
+    # actual cuts of the cell.
+    # ------------------------------------------------------------------
+    LE_PANEL_MAX_FRONT = 0.5  # the LE cut may sit at most this far back
+    LE_PANEL_ENTRY_TOL = 0.03  # the back cut must reach the nose within this
+
+    @staticmethod
+    def _cut_mean(cut):
+        return (cut["left"] + cut["right"]) / 2.0
+
+    @staticmethod
+    def _is_entry_pair(cut1, cut2):
+        """Two consecutive folded/singleskin cuts enclose the air intake, not
+        a panel (mirrors the skip in _build_cell_panels)."""
+        return (
+            cut1["type"] == cut2["type"] == "folded"
+            or cut1["type"] == cut2["type"] == "singleskin"
+        )
+
+    @classmethod
+    def is_le_panel(cls, cut_front, cut_back):
+        """True when the strip between two consecutive (sorted) cuts is the
+        leading-edge panel: it starts on the extrados, no further back than
+        LE_PANEL_MAX_FRONT, and ends at or past the nose."""
+        front = cls._cut_mean(cut_front)
+        back = cls._cut_mean(cut_back)
+        return -cls.LE_PANEL_MAX_FRONT <= front < 0 and back > -cls.LE_PANEL_ENTRY_TOL
+
+    def le_split_cells(self):
+        """Half-cell indices carrying a leading-edge split (any entry format)."""
+        cells = set()
+        for entry in self.elements.get("le_panel_splits", []):
+            cells.update(int(c) for c in entry.get("cells", []))
+        return cells
+
+    def set_le_split_cells(self, cells):
+        """Store the LE-split cells as one normalised entry.  Indices outside
+        the current cell range are dropped; an empty set removes the key."""
+        n = self.shape.half_cell_num
+        valid = sorted({int(c) for c in cells if 0 <= int(c) < n})
+        if valid:
+            self.elements["le_panel_splits"] = [{"cells": valid, "material_code": ""}]
+        else:
+            self.elements.pop("le_panel_splits", None)
+
+    def get_le_panel_bounds(self, cell_no, side=None):
+        """(front, back) mean rib positions of the leading-edge panel of a
+        half-cell, or None when the cell cannot be split: no LE cut on the
+        extrados (the panel would be the whole upper surface), or crossing
+        cuts (the cell is tiled by regions, see _build_cell_panels)."""
+        from openglider.glider.cell.cut_arrangement import Cut, find_crossings
+
+        cuts = [c.copy() for c in self._cuts_for_cell(cell_no, side)]
+        self._add_trailing_edge_cuts(cuts)
+        cut_objs = [
+            Cut(c["left"], c["right"], c.get("type", "orthogonal"), i)
+            for i, c in enumerate(cuts)
+        ]
+        if find_crossings(cut_objs):
+            return None
+        cuts.sort(key=self._cut_mean)
+        for cut1, cut2 in ZipCmp(cuts):
+            if self._is_entry_pair(cut1, cut2):
+                continue
+            if self.is_le_panel(cut1, cut2):
+                return self._cut_mean(cut1), self._cut_mean(cut2)
+        return None
+
     def _materials_by_name_for_side(self, side):
         """Per-name colour lookup for a wing: base palette overlaid with the
         side-specific overrides used for asymmetric decoupe."""
@@ -2269,16 +2360,7 @@ class ParametricGlider:
         panel_lst = []
         cuts = [cut.copy() for cut in cuts]
 
-        # add trailing edge (2x)
-        # The implicit trailing-edge seam is only skipped when a cut already
-        # lies *fully* on the trailing edge (left == right == ±1).  A cut
-        # that merely touches ±1 at one end (e.g. a design curve snapped
-        # onto the trailing edge at one rib) still needs the trailing edge
-        # as the other boundary, otherwise the panel between them vanishes.
-        if not any(c["left"] == -1 and c["right"] == -1 for c in cuts):
-            cuts.append({"type": "parallel", "left": -1, "right": -1})
-        if not any(c["left"] == 1 and c["right"] == 1 for c in cuts):
-            cuts.append({"type": "parallel", "left": 1, "right": 1})
+        self._add_trailing_edge_cuts(cuts)
 
         # Crossing cuts: the strip decomposition below (ZipCmp of sorted
         # cuts) cannot tile a cell where two cuts cross at an interior point.
@@ -2334,7 +2416,12 @@ class ParametricGlider:
         # Sort cuts by their average chord position (left+right)/2
         # This handles polylines that fold back and might have
         # cut1.left < cut2.left but cut1.right > cut2.right
-        cuts.sort(key=lambda cut: (cut["left"] + cut["right"]) / 2.0)
+        cuts.sort(key=self._cut_mean)
+
+        # Leading-edge split (see is_le_panel): for a selected cell, the first
+        # strip that qualifies as the LE panel is halved spanwise.
+        le_split_active = cell_no in self.le_split_cells()
+        le_split_done = False
 
         for cut1, cut2 in ZipCmp(cuts):
             part_no = len(panel_lst)
@@ -2382,32 +2469,14 @@ class ParametricGlider:
                 material_code=material_code,
             )
 
-            # Check if this is an LE panel that should be split chordwise
-            le_splits = self.elements.get("le_panel_splits", [])
-            should_split = False
-
-            for le_split in le_splits:
-                if cell_no in le_split.get("cells", []):
-                    cut_limit = le_split.get("cut_limit", 0.1)
-                    # The LE panel is the one where:
-                    # - cut_front (cut1) is at -cut_limit (our cut_3d on extrados)
-                    # - cut_back (cut2) is at the LE entry (close to 0 or slightly positive)
-                    front_left = cut1.get("left", 0)
-                    back_left = cut2.get("left", 0)
-
-                    # Only match extrados (front_left negative) panels
-                    # Match if:
-                    # 1. front is near -cut_limit
-                    # 2. back is at LE entry (close to 0 or positive, i.e. > -0.02)
-                    is_extrados = front_left < 0
-                    front_matches = abs(abs(front_left) - cut_limit) < 0.02
-                    back_at_le_entry = back_left > -0.02  # At or past the leading edge
-
-                    if is_extrados and front_matches and back_at_le_entry:
-                        should_split = True
-                        break
+            should_split = (
+                le_split_active
+                and not le_split_done
+                and self.is_le_panel(cut1, cut2)
+            )
 
             if should_split:
+                le_split_done = True
                 # Split into 2 panels at y=0.5 using y_start/y_end
                 # Lookup colors by panel name if available
                 name_L = f"c{cell_no + 1}p{part_no + 1}_L"
@@ -2764,25 +2833,26 @@ class ParametricGlider:
             for cell_no in data.pop("cells"):
                 glider.cells[cell_no].rigidfoils.append(PanelRigidFoil(**data))
 
-        # LE Panel Splits - create LeadingEdgeClosure for spanwise split
-        for le_split in self.elements.get("le_panel_splits", []):
-            cut_limit = le_split.get("cut_limit", 0.1)
-            material = le_split.get("material_code", "")
-            cells = le_split.get("cells", [])
-            
-            for cell_no in cells:
-                if 0 <= cell_no < len(glider.cells):
-                    # Initialize le_closures list if needed
-                    if not hasattr(glider.cells[cell_no], 'le_closures'):
-                        glider.cells[cell_no].le_closures = []
-                    
-                    closure = LeadingEdgeClosure(
-                        cut_back_x=cut_limit,
-                        y_position=0.5,  # Center split
-                        material_code=material,
-                        name=f"le_split_c{cell_no+1}"
-                    )
-                    glider.cells[cell_no].le_closures.append(closure)
+        # LE panel splits: one LeadingEdgeClosure per split cell (helper kept
+        # for the flattening code); its chord limit follows the cell's LE cut.
+        for cell_no in sorted(self.le_split_cells()):
+            if not 0 <= cell_no < len(glider.cells):
+                continue
+            bounds = self.get_le_panel_bounds(
+                cell_no, "right" if asymmetric else None
+            )
+            if bounds is None:
+                continue
+            cell = glider.cells[cell_no]
+            if not hasattr(cell, "le_closures"):
+                cell.le_closures = []
+            cell.le_closures.append(
+                LeadingEdgeClosure(
+                    cut_back_x=abs(bounds[0]),
+                    y_position=0.5,
+                    name=f"le_split_c{cell_no + 1}",
+                )
+            )
 
         # RIB-ELEMENTS
 

@@ -473,7 +473,7 @@ class LEPanelSplitCommand(BaseCommand):
         return {
             "Pixmap": "le_panel_split.svg",
             "MenuText": "LE Panel Split",
-            "ToolTip": "Split leading edge panels in half along the chord",
+            "ToolTip": "Halve the leading-edge panel of chosen cells spanwise (needs an LE cut from the Design tool)",
         }
 
     def tool(self, obj):
