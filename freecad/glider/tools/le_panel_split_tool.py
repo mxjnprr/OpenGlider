@@ -1,254 +1,229 @@
 #! /usr/bin/python
 """
-LE Panel Split Tool - Tool for splitting leading edge panels.
+LE Panel Split Tool - halve the leading-edge panel of chosen cells spanwise.
 
-This tool creates 3D cuts at a specified chord percentage, creating a 
-leading edge panel that is then split spanwise for manufacturing.
+The leading-edge (LE) panel of a cell is the extrados panel bounded by the
+design's LE cut (drawn in the Design tool) and the air intake.  For every
+ticked cell that panel is split into two half-panels (_L / _R) with a seam
+at mid-cell.  The tool never creates cuts: the LE cut must already exist.
 
-The cut created is a "3d" type cut visible in the Design and Colors tools.
+Storage: ParametricGlider.elements["le_panel_splits"], read and written
+through ParametricGlider.le_split_cells() / set_le_split_cells().
 """
 
 from pivy import coin
-from PySide import QtGui
+from PySide import QtCore, QtGui
 
 from .glider import draw_glider
-from .tools import BaseTool, input_field
+from .tools import BaseTool
+
+# Preview colours of the two half-panels (inner half / outer half).
+SPLIT_COLOR_INNER = "#ff7f0e"
+SPLIT_COLOR_OUTER = "#ffd92f"
+
+CHECKABLE = (
+    QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsUserCheckable
+)
 
 
 class LEPanelSplitTool(BaseTool):
-    """
-    Tool for creating leading edge panel cuts and splitting them spanwise.
-    
-    Creates real "3d" type cuts that appear in Design tool and Colors.
-    """
+    """One checkbox per half-cell: ticked = the LE panel of that cell is split."""
+
     hide = True
     turn = False
+    widget_name = "LE Panel Split"
 
     def __init__(self, obj):
         super().__init__(obj)
-        
-        # Get number of cells
         self.num_cells = self.parametric_glider.shape.half_cell_num
-        
-        # Description label
+        self._dropped = set()  # stored splits that cannot apply (see _fill_cells_list)
+
         description = QtGui.QLabel(
-            "Crée une coupe 3D au bord d'attaque.\n"
-            "Le panneau créé sera visible dans Design et Colors."
+            "Fractionne le panneau de bord d'attaque (extrados, entre la coupe BA "
+            "et l'entrée d'air) en deux moitiés avec une couture à mi-cellule.\n"
+            "La coupe BA doit exister dans l'outil Design : aucune coupe n'est "
+            "créée ici.\n"
+            "Cellules numérotées de 1 (centre) à N (bout d'aile). Positions en % "
+            "de corde : négatif = extrados, positif = intrados.\n"
+            "Preview : moitié interne en orange, moitié externe en jaune."
         )
         description.setWordWrap(True)
-        self.layout.setWidget(0, input_field, description)
-        
-        # Cut percentage (how far from LE the cut goes)
-        self.layout.setWidget(1, QtGui.QFormLayout.LabelRole, QtGui.QLabel("Limite (%):"))
-        self.cut_percentage = QtGui.QDoubleSpinBox()
-        self.cut_percentage.setRange(1, 50)
-        self.cut_percentage.setValue(10.0)
-        self.cut_percentage.setSuffix(" % corde")
-        self.cut_percentage.setDecimals(1)
-        self.layout.setWidget(1, input_field, self.cut_percentage)
-        
-        # Cell range - start
-        self.layout.setWidget(2, QtGui.QFormLayout.LabelRole, QtGui.QLabel("Cellule début:"))
-        self.cell_start = QtGui.QSpinBox()
-        self.cell_start.setRange(0, self.num_cells - 1)
-        self.cell_start.setValue(0)
-        self.layout.setWidget(2, input_field, self.cell_start)
-        
-        # Cell range - end
-        self.layout.setWidget(3, QtGui.QFormLayout.LabelRole, QtGui.QLabel("Cellule fin:"))
-        self.cell_end = QtGui.QSpinBox()
-        self.cell_end.setRange(0, self.num_cells - 1)
-        self.cell_end.setValue(self.num_cells - 1)
-        self.layout.setWidget(3, input_field, self.cell_end)
-        
-        # Cut type selector
-        self.layout.setWidget(4, QtGui.QFormLayout.LabelRole, QtGui.QLabel("Type de coupe:"))
-        self.cut_type = QtGui.QComboBox()
-        # Valid types: folded, parallel, orthogonal, singleskin, cut_3d
-        self.cut_type.addItems(["cut_3d", "folded", "parallel", "orthogonal", "singleskin"])
-        self.cut_type.setCurrentIndex(0)  # Default to "cut_3d"
-        self.layout.setWidget(4, input_field, self.cut_type)
-        
-        # Add cut button
-        self.add_cut_button = QtGui.QPushButton("Ajouter la coupe BA")
-        self.add_cut_button.clicked.connect(self.add_le_cut)
-        self.layout.setWidget(5, input_field, self.add_cut_button)
-        
-        # Preview button
+        self.layout.addRow(description)
+
+        self.cells_list = QtGui.QListWidget()
+        self.cells_list.setMinimumHeight(220)
+        self.layout.addRow(self.cells_list)
+
+        range_widget = QtGui.QWidget()
+        range_layout = QtGui.QHBoxLayout(range_widget)
+        range_layout.setContentsMargins(0, 0, 0, 0)
+        self.range_start = QtGui.QSpinBox()
+        self.range_end = QtGui.QSpinBox()
+        for spin in (self.range_start, self.range_end):
+            spin.setRange(1, max(1, self.num_cells))
+            spin.setValue(self.num_cells)
+        self.check_range_button = QtGui.QPushButton("Cocher")
+        self.uncheck_range_button = QtGui.QPushButton("Décocher")
+        range_layout.addWidget(QtGui.QLabel("de C"))
+        range_layout.addWidget(self.range_start)
+        range_layout.addWidget(QtGui.QLabel("à C"))
+        range_layout.addWidget(self.range_end)
+        range_layout.addWidget(self.check_range_button)
+        range_layout.addWidget(self.uncheck_range_button)
+        self.layout.addRow("Plage :", range_widget)
+
+        self.clear_button = QtGui.QPushButton("Supprimer tous les LE splits")
+        self.layout.addRow(self.clear_button)
+
         self.preview_button = QtGui.QPushButton("Actualiser la preview")
+        self.layout.addRow(self.preview_button)
+
+        self.status_label = QtGui.QLabel()
+        self.status_label.setWordWrap(True)
+        self.layout.addRow(self.status_label)
+
+        self._fill_cells_list()
+        self._sync_elements()  # normalise legacy entries, drop orphans
+        self._update_status()
+
+        self.cells_list.itemChanged.connect(self._on_item_changed)
+        self.check_range_button.clicked.connect(lambda: self._set_range(True))
+        self.uncheck_range_button.clicked.connect(lambda: self._set_range(False))
+        self.clear_button.clicked.connect(self.clear_all)
         self.preview_button.clicked.connect(self.update_preview)
-        self.layout.setWidget(6, input_field, self.preview_button)
-        
-        # List of existing LE cuts
-        self.layout.setWidget(7, QtGui.QFormLayout.LabelRole, QtGui.QLabel("Coupes BA existantes:"))
-        self.cuts_list = QtGui.QListWidget()
-        self.cuts_list.setMaximumHeight(120)
-        self.layout.setWidget(7, input_field, self.cuts_list)
-        
-        # Delete selected cut button
-        self.delete_cut_button = QtGui.QPushButton("Supprimer coupe sélectionnée")
-        self.delete_cut_button.clicked.connect(self.delete_selected_cut)
-        self.layout.setWidget(8, input_field, self.delete_cut_button)
-        
-        # Load existing cuts
-        self._load_existing_cuts()
-        
-        # Draw preview with panels
+
         self.draw_preview()
 
-    def _load_existing_cuts(self):
-        """Load and display existing cuts from ParametricGlider."""
-        self.cuts_list.clear()
-        cuts = self.parametric_glider.elements.get("cuts", [])
-        for i, cut in enumerate(cuts):
-            # Show as percentage (convert from absolute rib_pos)
-            left_pct = abs(cut["left"]) * 100
-            right_pct = abs(cut["right"]) * 100
-            cells_str = ",".join(map(str, cut["cells"]))
-            side = "upper" if cut["left"] < 0 else "lower"
-            text = f"{cut['type']}: {left_pct:.1f}%-{right_pct:.1f}% ({side}) [C{cells_str}]"
-            item = QtGui.QListWidgetItem(text)
-            item.setData(QtGui.Qt.UserRole, i)  # Store index
-            self.cuts_list.addItem(item)
+    # ------------------------------------------------------------------
+    # model <-> widget
+    # ------------------------------------------------------------------
+    def _le_bounds(self, cell_no):
+        """(front, back) of the cell's LE panel, or None if it cannot be split."""
+        glider = self.parametric_glider
+        bounds = glider.get_le_panel_bounds(cell_no)
+        if bounds is None and glider.is_asymmetric:
+            bounds = glider.get_le_panel_bounds(cell_no, "right") or glider.get_le_panel_bounds(
+                cell_no, "left"
+            )
+        return bounds
 
-    def add_le_cut(self):
-        """Add a new leading edge cut."""
-        percentage = self.cut_percentage.value() / 100.0  # Convert to 0-1
-        cell_start = self.cell_start.value()
-        cell_end = self.cell_end.value()
-        cut_type = self.cut_type.currentText()
-        
-        # Ensure start <= end
-        if cell_start > cell_end:
-            cell_start, cell_end = cell_end, cell_start
-        
-        cells = list(range(cell_start, cell_end + 1))
-        
-        # Create the cut entry
-        # negative rib_pos = upper (extrados) side
-        new_cut = {
-            "cells": cells,
-            "left": -percentage,   # Upper side (negative)
-            "right": -percentage,  # Same position on both ribs
-            "type": cut_type
-        }
-        
-        # Add to existing cuts
-        if "cuts" not in self.parametric_glider.elements:
-            self.parametric_glider.elements["cuts"] = []
-        
-        # Check if a similar cut already exists for these cells
-        existing_cuts = self.parametric_glider.elements["cuts"]
-        
-        # Try to merge with existing cut at same position
-        merged = False
-        for cut in existing_cuts:
-            if (abs(cut["left"] - new_cut["left"]) < 0.001 and 
-                abs(cut["right"] - new_cut["right"]) < 0.001 and
-                cut["type"] == new_cut["type"]):
-                # Merge cells
-                for c in cells:
-                    if c not in cut["cells"]:
-                        cut["cells"].append(c)
-                cut["cells"].sort()
-                merged = True
-                break
-        
-        if not merged:
-            existing_cuts.append(new_cut)
-        
-        # Also store in le_panel_splits for spanwise split generation
-        if "le_panel_splits" not in self.parametric_glider.elements:
-            self.parametric_glider.elements["le_panel_splits"] = []
-        
-        # Add or merge le_panel_split entry
-        le_splits = self.parametric_glider.elements["le_panel_splits"]
-        le_merged = False
-        for le_split in le_splits:
-            if abs(le_split.get("cut_limit", 0) - percentage) < 0.001:
-                for c in cells:
-                    if c not in le_split["cells"]:
-                        le_split["cells"].append(c)
-                le_split["cells"].sort()
-                le_merged = True
-                break
-        
-        if not le_merged:
-            le_splits.append({
-                "cut_limit": percentage,
-                "material_code": "",
-                "cells": cells.copy()
-            })
-        
-        # Refresh UI
-        self._load_existing_cuts()
+    def _fill_cells_list(self):
+        stored = self.parametric_glider.le_split_cells()
+        self._dropped = {c for c in stored if not 0 <= c < self.num_cells}
+        self.cells_list.blockSignals(True)
+        self.cells_list.clear()
+        for cell_no in range(self.num_cells):
+            bounds = self._le_bounds(cell_no)
+            item = QtGui.QListWidgetItem()
+            item.setData(QtCore.Qt.UserRole, cell_no)
+            if bounds is None:
+                item.setText(f"C{cell_no + 1} : pas de coupe BA sur l'extrados")
+                item.setFlags(QtCore.Qt.NoItemFlags)
+                item.setCheckState(QtCore.Qt.Unchecked)
+                if cell_no in stored:
+                    self._dropped.add(cell_no)
+            else:
+                front, back = bounds
+                item.setText(
+                    f"C{cell_no + 1} : panneau BA de {front * 100:+.1f} % à {back * 100:+.1f} %"
+                )
+                item.setFlags(CHECKABLE)
+                item.setCheckState(
+                    QtCore.Qt.Checked if cell_no in stored else QtCore.Qt.Unchecked
+                )
+            self.cells_list.addItem(item)
+        self.cells_list.blockSignals(False)
+
+    def checked_cells(self):
+        cells = []
+        for i in range(self.cells_list.count()):
+            item = self.cells_list.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                cells.append(int(item.data(QtCore.Qt.UserRole)))
+        return cells
+
+    def _sync_elements(self):
+        self.parametric_glider.set_le_split_cells(self.checked_cells())
+
+    def _update_status(self):
+        cells = self.checked_cells()
+        if cells:
+            text = f"{len(cells)} cellule(s) avec LE split : " + ", ".join(
+                f"C{c + 1}" for c in cells
+            )
+        else:
+            text = "Aucun LE split."
+        if self._dropped:
+            text += "\nEntrées ignorées (pas de coupe BA ou cellule inexistante), supprimées à la validation : " + ", ".join(
+                f"C{c + 1}" for c in sorted(self._dropped)
+            )
+        self.status_label.setText(text)
+
+    def _after_change(self):
+        self._sync_elements()
+        self._update_status()
         self.update_preview()
-        
-        QtGui.QMessageBox.information(
-            None, "Coupe ajoutée",
-            f"Coupe {cut_type} à {percentage*100:.1f}% ajoutée pour cellules {cell_start}-{cell_end}"
-        )
 
-    def delete_selected_cut(self):
-        """Delete the selected cut from the list."""
-        current = self.cuts_list.currentItem()
-        if not current:
-            return
-        
-        index = current.data(QtGui.Qt.UserRole)
-        cuts = self.parametric_glider.elements.get("cuts", [])
-        if 0 <= index < len(cuts):
-            cut_to_delete = cuts[index]
-            cut_limit = abs(cut_to_delete["left"])
-            cut_cells = set(cut_to_delete["cells"])
-            
-            # Delete the cut
-            del cuts[index]
-            
-            # Also delete matching le_panel_splits entry
-            le_splits = self.parametric_glider.elements.get("le_panel_splits", [])
-            for i, split in enumerate(le_splits[:]):  # Iterate on copy
-                if abs(split.get("cut_limit", 0) - cut_limit) < 0.001:
-                    # Check if cells overlap
-                    split_cells = set(split.get("cells", []))
-                    if split_cells & cut_cells:  # Intersection
-                        # Remove the matching cells
-                        remaining_cells = split_cells - cut_cells
-                        if remaining_cells:
-                            split["cells"] = sorted(list(remaining_cells))
-                        else:
-                            le_splits.remove(split)
-            
-            self._load_existing_cuts()
-            self.update_preview()
+    def _on_item_changed(self, item):
+        self._after_change()
 
+    def _set_range(self, checked):
+        first, last = sorted((self.range_start.value(), self.range_end.value()))
+        state = QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked
+        self.cells_list.blockSignals(True)
+        for i in range(first - 1, last):
+            item = self.cells_list.item(i)
+            if item.flags() & QtCore.Qt.ItemIsEnabled:
+                item.setCheckState(state)
+        self.cells_list.blockSignals(False)
+        self._after_change()
+
+    def clear_all(self):
+        self.cells_list.blockSignals(True)
+        for i in range(self.cells_list.count()):
+            self.cells_list.item(i).setCheckState(QtCore.Qt.Unchecked)
+        self.cells_list.blockSignals(False)
+        self._dropped = set()
+        self._after_change()
+
+    # ------------------------------------------------------------------
+    # preview
+    # ------------------------------------------------------------------
     def draw_preview(self):
-        """Draw preview showing glider with panels."""
+        """Draw the glider panels; the two halves of every split LE panel are
+        recoloured so the seam is visible."""
         _rot = coin.SbRotation()
         _rot.setValue(coin.SbVec3f(0, 1, 0), coin.SbVec3f(1, 0, 0))
         rot = coin.SoRotation()
         rot.rotation.setValue(_rot)
         self.task_separator += rot
-        
-        # Draw with panels visible
+
+        glider = self.parametric_glider.get_glider_3d()
+        for cell in glider.cells:
+            for panel in cell.panels:
+                y_start = getattr(panel, "y_start", 0.0)
+                y_end = getattr(panel, "y_end", 1.0)
+                if (y_start, y_end) != (0.0, 1.0):
+                    panel.material_code = (
+                        SPLIT_COLOR_INNER if y_start == 0.0 else SPLIT_COLOR_OUTER
+                    )
+
         draw_glider(
-            self.parametric_glider.get_glider_3d(),
+            glider,
             self.task_separator,
-            hull="panels",  # Show panels
+            hull="panels",
             ribs=True,
             fill_ribs=False,
         )
 
     def update_preview(self):
-        """Update the 3D preview."""
         self.task_separator.removeAllChildren()
         self.draw_preview()
 
     def accept(self):
-        """Accept changes."""
+        self._sync_elements()
         super().accept()
         self.update_view_glider()
 
     def reject(self):
-        """Cancel changes."""
         super().reject()
