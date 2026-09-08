@@ -867,21 +867,36 @@ class AirfoilControlTool(BaseTool):
         self.last_airfoil_type_group.addButton(self.last_airfoil_line, 0)
         self.last_airfoil_type_group.addButton(self.last_airfoil_thin, 1)
         self.last_airfoil_type_group.addButton(self.last_airfoil_custom, 2)
+        # Rounded rib-less tip: extrados and intrados sewn together along a
+        # curve from the previous rib's nose, tangent to the tip station,
+        # back to its trailing edge (see openglider TipCurveRib).
+        self.last_airfoil_curve = QtGui.QRadioButton("Rounded tip (curve, no rib)")
+        self.last_airfoil_curve.setToolTip(
+            "Bout arrondi sans nervure : extrados et intrados sont cousus le long\n"
+            "d'une courbe qui part du nez de l'avant-dernier profil, tangente la\n"
+            "position du dernier profil et revient à son bord de fuite ;\n"
+            "les deux peaux sont gonflées avec la loi de ballooning d'extrados."
+        )
+        self.last_airfoil_type_group.addButton(self.last_airfoil_curve, 3)
         
         last_type = getattr(self.parametric_glider, 'last_profile_type', 'line')
         if last_type == 'line':
             self.last_airfoil_line.setChecked(True)
         elif last_type == 'thin':
             self.last_airfoil_thin.setChecked(True)
+        elif last_type == 'curve':
+            self.last_airfoil_curve.setChecked(True)
         else:
             self.last_airfoil_custom.setChecked(True)
         
         type_layout.addWidget(self.last_airfoil_line)
         type_layout.addWidget(self.last_airfoil_thin)
         type_layout.addWidget(self.last_airfoil_custom)
+        type_layout.addWidget(self.last_airfoil_curve)
         layout.addRow("Type:", type_widget)
         
-        for btn in [self.last_airfoil_line, self.last_airfoil_thin, self.last_airfoil_custom]:
+        for btn in [self.last_airfoil_line, self.last_airfoil_thin,
+                    self.last_airfoil_custom, self.last_airfoil_curve]:
             btn.toggled.connect(self._update_last_airfoil)
         
         # Relative thickness (for thin type)
@@ -894,6 +909,35 @@ class AirfoilControlTool(BaseTool):
         )
         self.last_airfoil_thickness.valueChanged.connect(self._update_last_airfoil)
         layout.addRow("Relative thickness:", self.last_airfoil_thickness)
+
+        # Rounded tip curve: where it touches the tip station, and how round
+        self.tip_curve_position = QtGui.QDoubleSpinBox()
+        self.tip_curve_position.setRange(0.05, 0.95)
+        self.tip_curve_position.setSingleStep(0.05)
+        self.tip_curve_position.setDecimals(2)
+        self.tip_curve_position.setToolTip(
+            "Position (en % de corde, 0 = nez, 1 = bord de fuite) du point de la\n"
+            "courbe qui tangente la position du dernier profil."
+        )
+        self.tip_curve_position.setValue(
+            getattr(self.parametric_glider, 'tip_curve_position', 0.5) or 0.5
+        )
+        self.tip_curve_position.valueChanged.connect(self._update_last_airfoil)
+        layout.addRow("Curve tangent position:", self.tip_curve_position)
+
+        self.tip_curve_power = QtGui.QDoubleSpinBox()
+        self.tip_curve_power.setRange(0.2, 2.0)
+        self.tip_curve_power.setSingleStep(0.1)
+        self.tip_curve_power.setDecimals(2)
+        self.tip_curve_power.setToolTip(
+            "Forme de la courbe : 0,5 = elliptique (ronde), 1 = parabolique\n"
+            "(plus pointue), plus petit = plus carrée."
+        )
+        self.tip_curve_power.setValue(
+            getattr(self.parametric_glider, 'tip_curve_power', 0.5) or 0.5
+        )
+        self.tip_curve_power.valueChanged.connect(self._update_last_airfoil)
+        layout.addRow("Curve roundness (0.5 ellipse):", self.tip_curve_power)
         
         # Custom profile selector
         self.last_airfoil_import = QtGui.QPushButton("Import .dat file...")
@@ -2287,13 +2331,15 @@ class AirfoilControlTool(BaseTool):
             profile_type = 'line'
         elif self.last_airfoil_thin.isChecked():
             profile_type = 'thin'
+        elif self.last_airfoil_curve.isChecked():
+            profile_type = 'curve'
         else:
             profile_type = 'custom'
         
         # Auto-enable when user selects thin or custom (not line)
         # If they select line, respect the checkbox state
         is_enabled = self.last_airfoil_enabled.isChecked()
-        if profile_type in ('thin', 'custom') and not is_enabled:
+        if profile_type in ('thin', 'custom', 'curve') and not is_enabled:
             # Auto-enable
             self.last_airfoil_enabled.setChecked(True)
             is_enabled = True
@@ -2301,6 +2347,8 @@ class AirfoilControlTool(BaseTool):
         self.parametric_glider.last_profile_enabled = is_enabled
         self.parametric_glider.last_profile_type = profile_type
         self.parametric_glider.last_profile_thickness = self.last_airfoil_thickness.value()
+        self.parametric_glider.tip_curve_position = self.tip_curve_position.value()
+        self.parametric_glider.tip_curve_power = self.tip_curve_power.value()
         
         print(f"[DEBUG UI] _update_last_airfoil: enabled={is_enabled}, type={profile_type}, thickness={self.last_airfoil_thickness.value()}")
         

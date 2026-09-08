@@ -20,6 +20,8 @@ from openglider.glider.parametric.import_ods import import_ods_2d
 from openglider.glider.parametric.lines import LineSet2D, UpperNode2D
 from openglider.glider.parametric.shape import ParametricShape
 from openglider.glider.rib import MiniRib, Rib, RibHole, RigidFoil
+from openglider.glider.cell.tip_pocket import TipPocketCell
+from openglider.glider.rib.rib import TipCurveRib
 from openglider.utils import ZipCmp
 from openglider.utils.distribution import Distribution
 from openglider.utils.table import Table
@@ -291,6 +293,11 @@ class ParametricGlider:
         self.last_profile_type = kwargs.get('last_profile_type', 'line')  # 'line', 'thin', 'custom'
         self.last_profile_thickness = kwargs.get('last_profile_thickness', 0.3)  # Relative thickness (0.3 = 30% of original)
         self.last_profile_custom = kwargs.get('last_profile_custom', None)  # Custom Profile2D
+        # last_profile_type 'curve': rounded rib-less tip (see TipCurveRib).
+        # Chord fraction where the tip curve touches the tip station, and the
+        # outline exponent (0.5 elliptic, 1 parabolic).
+        self.tip_curve_position = kwargs.get('tip_curve_position', 0.5)
+        self.tip_curve_power = kwargs.get('tip_curve_power', 0.5)
 
         # Trailing-edge truncation: cut the profile tip at the trailing edge by
         # an absolute length (millimetres) so the rib does not reach all the way
@@ -1857,6 +1864,8 @@ class ParametricGlider:
             "last_profile_type": getattr(self, "last_profile_type", "line"),
             "last_profile_thickness": getattr(self, "last_profile_thickness", 0.3),
             "last_profile_custom": getattr(self, "last_profile_custom", None),
+            "tip_curve_position": getattr(self, "tip_curve_position", 0.5),
+            "tip_curve_power": getattr(self, "tip_curve_power", 0.5),
             # Trailing-edge truncation (sand-drain opening)
             "te_cut_enabled": getattr(self, "te_cut_enabled", False),
             "te_cut_mm": getattr(self, "te_cut_mm", 15.0),
@@ -2201,6 +2210,14 @@ class ParametricGlider:
         new_profile.data = new_data
         return new_profile
     
+    @property
+    def tip_curve_enabled(self):
+        """Rounded rib-less wingtip (last_profile_type 'curve')."""
+        return (
+            bool(getattr(self, "last_profile_enabled", False))
+            and getattr(self, "last_profile_type", "line") == "curve"
+        )
+
     def _get_last_profile(self, base_profile):
         """Get the profile to use for the last rib (stabilo/wingtip).
         
@@ -2211,7 +2228,9 @@ class ParametricGlider:
         """
         last_profile_type = getattr(self, 'last_profile_type', 'line')
         
-        if last_profile_type == 'line':
+        if last_profile_type in ('line', 'curve'):
+            # 'curve' (rounded rib-less tip, TipCurveRib): the virtual last rib
+            # is a zero-thickness line; the curve itself is built in 3d.
             return self._create_line_profile(base_profile)
         elif last_profile_type == 'thin':
             relative_thickness = getattr(self, 'last_profile_thickness', 0.3)  # 30% of original
@@ -2755,27 +2774,39 @@ class ParametricGlider:
                 if rib_no in rigid["ribs"]
             ]
 
-            ribs.append(
-                Rib(
-                    profile_2d=profile,
-                    startpoint=startpoint,
-                    chord=chord,
-                    arcang=rib_angles[rib_no],
-                    glide=self.glide,
-                    aoa_absolute=aoa_int(pos),
-                    zrot=zrot_int(pos),
-                    holes=this_rib_holes,
-                    rigidfoils=this_rigid_foils,
-                    name=f"rib{rib_no}",
-                    material_code=rib_material,
-                )
+            rib_kwargs = dict(
+                profile_2d=profile,
+                startpoint=startpoint,
+                chord=chord,
+                arcang=rib_angles[rib_no],
+                glide=self.glide,
+                aoa_absolute=aoa_int(pos),
+                zrot=zrot_int(pos),
+                holes=this_rib_holes,
+                rigidfoils=this_rigid_foils,
+                name=f"rib{rib_no}",
+                material_code=rib_material,
             )
+            if rib_no == last_rib_index and self.tip_curve_enabled and ribs:
+                # Rounded rib-less tip: the last "rib" is the closing curve
+                # from the previous rib's nose to its trailing edge.
+                ribs.append(
+                    TipCurveRib(
+                        previous_rib=ribs[-1],
+                        curve_position=getattr(self, "tip_curve_position", 0.5),
+                        curve_power=getattr(self, "tip_curve_power", 0.5),
+                        **rib_kwargs,
+                    )
+                )
+            else:
+                ribs.append(Rib(**rib_kwargs))
             ribs[-1].aoa_relative = aoa_int(pos)
 
             # Trailing-edge truncation length (model units = metres). Stored on the
-            # rib; the actual cut is applied lazily in Rib.get_hull / Rib.profile_3d
-            # (see Rib._get_truncated_profile) so it survives any later resampling
-            # of profile_2d and propagates to both the 3d hull and 2d templates.
+            # rib; the cut is applied lazily in Rib.get_hull (rib template and rib
+            # 3d mesh, see Rib._get_truncated_profile) so it survives any later
+            # resampling of profile_2d.  The skins (profile_3d, panels, patterns)
+            # are never truncated: the fabric runs to the trailing edge.
             if getattr(self, "te_cut_enabled", False) and chord > 0:
                 ribs[-1].trailing_edge_cut = getattr(self, "te_cut_mm", 15.0) / 1000.0
             else:
@@ -2794,7 +2825,14 @@ class ParametricGlider:
             ballooning_factor = ballooning_merge_curve(cell_centers[cell_no])
             ballooning = self.merge_ballooning(ballooning_factor)
 
-            cell = Cell(rib1, rib2, ballooning, name=f"c{cell_no + 1}")
+            if isinstance(rib2, TipCurveRib):
+                # rounded rib-less tip: both skins meet on the seam, the cell
+                # is swept by shrinking sections and inflated with one
+                # symmetric law (the extrados one)
+                ballooning = ballooning.symmetric()
+                cell = TipPocketCell(rib1, rib2, ballooning, name=f"c{cell_no + 1}")
+            else:
+                cell = Cell(rib1, rib2, ballooning, name=f"c{cell_no + 1}")
 
             glider.cells.append(cell)
 
@@ -2945,6 +2983,8 @@ class ParametricGlider:
         for cell_no, cell in enumerate(glider3d.cells):
             ballooning_factor = ballooning_merge_curve(cell_centers[cell_no])
             ballooning = self.merge_ballooning(ballooning_factor)
+            if isinstance(cell.rib2, TipCurveRib):
+                ballooning = ballooning.symmetric()
             cell.ballooning = ballooning
 
         return glider3d

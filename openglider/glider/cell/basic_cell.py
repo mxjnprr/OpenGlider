@@ -155,9 +155,16 @@ class BasicCell(CachedObject):
             t_dst = np.linspace(0, 1, len(prof2))
             p2 = np.array([np.interp(t_dst, t_src, p2[:, k]) for k in range(3)]).T
         # cross differenzvektor, tangentialvektor
-        normal_vec = np.cross(p1 + p2, prof1 - prof2, axis=1).T
-        normal_vec /= np.linalg.norm(normal_vec, axis=0)
-        return normal_vec.T
+        normal_vec = np.cross(p1 + p2, prof1 - prof2, axis=1)
+        length = np.linalg.norm(normal_vec, axis=1)
+        # Degenerate where both profiles share a point (the seam ends of a
+        # rounded rib-less tip, TipCurveRib): there is no ballooning direction
+        # and no ballooning width either, so a zero vector is the right answer
+        # (a NaN would poison the whole midrib).
+        ok = length > 1e-12
+        normal_vec[ok] /= length[ok][:, None]
+        normal_vec[~ok] = 0.0
+        return normal_vec
 
     @cached_property("ballooning_phi")
     def ballooning_cos_phi(self):

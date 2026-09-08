@@ -18,6 +18,8 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 import math
 
+import numpy as np
+
 from openglider.vector.functions import norm, normalize, rotation_2d
 from openglider.vector.polyline import PolyLine2D
 
@@ -77,12 +79,33 @@ class DesignCut:
 
         return indices
 
+    def _normvector(self, p1, p2, inner_lists):
+        """Unit normal of the cut line p1-p2 (the seam-allowance direction).
+
+        A zero-width cut -- both rails share the point, e.g. the trailing-edge
+        or nose end of a rounded rib-less tip pocket -- has no direction of its
+        own; take the rail separation a little further along the rails, which
+        keeps the left/right orientation convention of the caller.
+        """
+        diff = p1 - p2
+        if norm(diff) > 1e-9:
+            return normalize(rotation_2d(math.pi / 2).dot(diff))
+        line1, ik1 = inner_lists[0]
+        line2, ik2 = inner_lists[-1]
+        for delta in (0.5, 1.0, 2.0, 4.0, -0.5, -1.0, -2.0, -4.0):
+            j1 = min(max(ik1 + delta, 0), len(line1) - 1)
+            j2 = min(max(ik2 + delta, 0), len(line2) - 1)
+            diff = line1[j1] - line2[j2]
+            if norm(diff) > 1e-9:
+                return normalize(rotation_2d(math.pi / 2).dot(diff))
+        return np.array([0.0, -1.0])
+
     def apply(self, inner_lists, outer_left, outer_right, amount_3d=None):
         # p1 = inner_lists[0][0][inner_lists[0][1]]  # [[list1,pos1],[list2,pos2],...]
         # p2 = inner_lists[-1][0][inner_lists[-1][1]]
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
         indices = self._get_indices(inner_lists, amount_3d)
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         newlist = []
         # todo: sort by distance
@@ -125,7 +148,7 @@ class SimpleCut(DesignCut):
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
         indices = self._get_indices(inner_lists, amount_3d)
 
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
         rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)
@@ -177,7 +200,7 @@ class Cut3D(DesignCut):
         :return:
         """
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         inner_ik = []
         point_list = []
@@ -226,7 +249,7 @@ class Cut3D_2(DesignCut):
             inner_new.append([curve, ik_new])
 
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
         rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)
@@ -261,7 +284,7 @@ class FoldedCut(DesignCut):
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
         indices = self._get_indices(inner_lists, amount_3d)
 
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         left_start_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)[0]
         right_start_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)[0]
@@ -311,7 +334,7 @@ class ParallelCut(DesignCut):
         p1, p2 = self.get_p1_p2(inner_lists, amount_3d)
         indices = self._get_indices(inner_lists, amount_3d)
 
-        normvector = normalize(rotation_2d(math.pi / 2).dot(p1 - p2))
+        normvector = self._normvector(p1, p2, inner_lists)
 
         leftcut_index = robust_cut(outer_left, p1, p2, inner_lists[0][1], p1)
         rightcut_index = robust_cut(outer_right, p1, p2, inner_lists[-1][1], p2)

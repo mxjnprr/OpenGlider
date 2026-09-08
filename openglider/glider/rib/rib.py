@@ -174,9 +174,13 @@ class Rib(CachedObject):
         editing ``profile_2d`` in place: any resampling of ``profile_2d`` (e.g.
         the 3d preview setting ``profile_numpoints``) would otherwise restore
         the full-chord tip. The x-distribution is simply compressed to
-        ``[-cut_x, cut_x]`` so the point count stays constant, keeping cell and
-        panel meshing index-consistent. Returns an untouched copy when no
-        truncation applies.
+        ``[-cut_x, cut_x]`` so the point count stays constant. Returns an
+        untouched copy when no truncation applies.
+
+        Only the rib *piece* is truncated (``get_hull``: 2d template and 3d
+        rib mesh).  The skins (``profile_3d``, hence cells, panels and their
+        patterns) always run to the trailing edge -- otherwise the whole
+        trailing edge would be open.
         """
         profile = copy.deepcopy(self.profile_2d)
         cut_x = self._te_cut_x()
@@ -186,7 +190,9 @@ class Rib(CachedObject):
 
     @cached_property("self")
     def profile_3d(self):
-        profile = self._get_truncated_profile()
+        # full profile: the skins run to the trailing edge (the trailing-edge
+        # truncation only shortens the rib piece, see _get_truncated_profile)
+        profile = self.profile_2d
         if profile.data is not None:
             return Profile3D(self.align_all(profile.data))
         else:
@@ -422,10 +428,8 @@ class SingleSkinRib(Rib):
         """
         aero = getattr(self, '_aero_profile_2d', None) or self.profile_2d
         if aero.data is not None:
-            cut_x = self._te_cut_x()
-            if cut_x < 1.0:
-                aero = copy.deepcopy(aero)
-                aero.x_values = np.array(aero.x_values) * cut_x
+            # full profile: the trailing-edge truncation only shortens the rib
+            # piece (get_hull), the skins run to the trailing edge
             return Profile3D(self.align_all(aero.data))
         raise ValueError(f"no 2d-profile present for rib {self.name}")
 
@@ -631,3 +635,98 @@ def rib_transformation(aoa, arc, zrot, xrot, scale, pos):
     move = Translation(pos)
     rot = rib_rotation(aoa, arc, zrot, xrot)
     return scale * rot * move
+
+
+class TipCurveRib(Rib):
+    """Virtual last rib of a rounded, rib-less wingtip.
+
+    The tip cell is closed by a *curve* instead of a rib: it starts at the
+    nose of the previous rib, bulges spanwise until it touches the tip station
+    (the straight chord line this rib would have) tangentially, and comes back
+    to the previous rib's trailing edge.  The extrados skin is stretched
+    between the previous rib's upper surface and that curve, the intrados skin
+    between the lower surface and the same curve, so both skins are sewn
+    together along it.  There is no rib piece: the 2d profile is a
+    zero-thickness line, so the rib is "closed" (no rib mesh, no rib pattern).
+    The cell's (symmetric) ballooning then inflates both skins.
+
+    The curve is exposed as this rib's ``profile_3d``, so every consumer of the
+    cell (midribs, panels, flattening, hull views) sees it as the outer
+    boundary: point ``i`` of the curve pairs with point ``i`` of the previous
+    rib, the upper and lower points of one chord position sharing one 3d point.
+
+    ``curve_position``: chord fraction (0 = nose, 1 = trailing edge) where the
+    curve touches the tip station.  ``curve_power`` shapes the outline:
+    0.5 = elliptic (round), 1 = parabolic (pointier), smaller = squarer.
+    Without ``previous_rib`` (e.g. a rib restored from json) the curve
+    degenerates to the plain chord line.
+    """
+
+    def __init__(self, *args, previous_rib=None, curve_position=0.5,
+                 curve_power=0.5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.previous_rib = previous_rib
+        self.curve_position = float(curve_position)
+        self.curve_power = float(curve_power)
+
+    def __json__(self):
+        data = super().__json__()
+        data["curve_position"] = self.curve_position
+        data["curve_power"] = self.curve_power
+        return data
+
+    def curve_fraction(self, chord_fraction):
+        """Spanwise position of the tip curve (0 = previous rib, 1 = tip
+        station) for chord fractions in [0, 1]: 0 at both ends, 1 with a
+        horizontal tangent at ``curve_position``."""
+        c = np.clip(np.asarray(chord_fraction, dtype=float), 0.0, 1.0)
+        cs = min(max(self.curve_position, 0.01), 0.99)
+        u = np.where(c <= cs, (cs - c) / cs, (c - cs) / (1.0 - cs))
+        return np.clip(1.0 - u * u, 0.0, 1.0) ** max(self.curve_power, 1e-3)
+
+    @property
+    def profile_3d(self):
+        """The tip curve, sampled like a profile (not cached: it depends on
+        the previous rib, which is not part of this rib's hash)."""
+        # straight chord line at the tip station (what Rib.profile_3d gives)
+        line = Profile3D(self.align_all(self.profile_2d.data))
+        prev = self.previous_rib
+        if prev is None:
+            return line
+        p1 = np.array(prev.profile_3d.data, dtype=float)
+        p2 = np.array(line.data, dtype=float)
+        if len(p1) != len(p2) or len(p1) < 3:
+            return line
+        nose1 = p1[prev.profile_2d.noseindex]
+        te1 = 0.5 * (p1[0] + p1[-1])
+        nose2 = p2[self.profile_2d.noseindex]
+        te2 = 0.5 * (p2[0] + p2[-1])
+        # chord fraction of every point on the chord lines
+        c = np.abs(np.array(self.profile_2d.x_values, dtype=float))
+        f = self.curve_fraction(c)[:, None]
+        on_prev = nose1 + c[:, None] * (te1 - nose1)
+        on_tip = nose2 + c[:, None] * (te2 - nose2)
+        return Profile3D((1.0 - f) * on_prev + f * on_tip)
+
+    def seam_branches(self, t):
+        """Chord fractions (front, back) where the seam crosses the spanwise
+        parameter ``t`` (0 = previous rib, 1 = tip station): the two solutions
+        of ``curve_fraction(c) == t``.  (0, 1) at t=0, both ``curve_position``
+        at t=1."""
+        t = min(max(float(t), 0.0), 1.0)
+        cs = min(max(self.curve_position, 0.01), 0.99)
+        power = max(self.curve_power, 1e-3)
+        u = np.sqrt(max(0.0, 1.0 - t ** (1.0 / power)))
+        return cs * (1.0 - u), cs + (1.0 - cs) * u
+
+    def tip_line(self):
+        """3d nose and trailing-edge (mid) points of the straight tip station."""
+        line = np.array(self.align_all(self.profile_2d.data), dtype=float)
+        return line[self.profile_2d.noseindex], 0.5 * (line[0] + line[-1])
+
+    @property
+    def apex(self):
+        """3d point where the seam touches the tip station."""
+        nose, te = self.tip_line()
+        cs = min(max(self.curve_position, 0.01), 0.99)
+        return nose + cs * (te - nose)
