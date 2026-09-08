@@ -249,105 +249,140 @@ class LineSet2D:
         spanwise_exponent=1.0,
         chordwise="airfoil",
         normalize="max",
+        total_load=None,
         spanwise_floor=0.05,
         min_force=0.02,
+        span_samples=400,
+        chord_samples=50,
     ):
         """
-        Automatically assign a *relative* force to every upper attachment
-        point from an analytical lift distribution, instead of setting them
-        by hand.
+        Automatically assign a force to every upper attachment point from an
+        analytical lift distribution, instead of setting them by hand.
 
-        The force of a point is the share of lift it carries::
+        The half wing (span x chord) is sampled on a fine grid and every
+        element of lift is handed to the *nearest* attachment point (distances
+        measured in metres, span-wise and chord-wise). The force of a point is
+        therefore the lift of its tributary area::
 
-            force = (span-wise load of its rib station)
-                    x (chord-wise share of that station)
+            force = integral over the tributary area of  l(y) * g(x)
+
+        with ``l(y)`` the span-wise load per unit span and ``g(x)`` the
+        chord-wise load share. This handles any line layout: rows with a
+        different span-wise spacing (A/B/C every 3rd rib, brakes every 2nd
+        rib), rows ending before the tip, stabilo points, points on cells...
+        A rib that only carries a brake point hands its A/B/C load to the
+        neighbouring ribs instead of dumping it on the brake.
 
         Because :meth:`LineSet.calc_forces` already sums the branches of every
         "patte d'oie" from top to bottom, only these top forces need to be
         right -- the whole cascade then balances itself.
 
         :param parametric_glider: the ParametricGlider (needs ``.shape`` and
-            ``.arc``); the projected span from the arc is used when available.
+            ``.arc``); the projected span and rib angles come from the arc
+            when available.
         :param spanwise: span-wise loading law
             ``"elliptical"`` -> ``l(eta) = (1 - eta**2) ** (exponent/2)``,
             ``"chord"`` -> proportional to local chord (constant-Cl),
             ``"uniform"`` -> constant load per unit span.
         :param spanwise_exponent: exponent for the elliptical law (1.0 = pure
             ellipse; >1 loads the center more, <1 loads the tips more).
-        :param chordwise: chord-wise loading law used to split a rib's load
-            between its points (A/B/C/D)
+        :param chordwise: chord-wise loading law
             ``"airfoil"`` -> thin-airfoil loading ``dcp(x) ~ sqrt((1-x)/x)``
             (strong near the leading edge, so front rows carry more),
             ``"uniform"`` -> constant load per unit chord (pure tributary).
-        :param normalize: ``"max"`` (largest force = 1.0), ``"mean"`` (mean
-            force = 1.0) or ``None`` (keep raw relative values).
+        :param normalize:
+            ``"load"`` -> newtons at 1 g: the vertical components of the
+            forces of this half wing sum to ``total_load * g / 2`` (this is
+            what the line-strength / max-g-force display expects),
+            ``"max"`` -> largest force = 1.0,
+            ``"mean"`` -> mean force = 1.0,
+            ``None`` -> keep raw relative values.
+        :param total_load: all-up weight (pilot + glider, kg) for
+            ``normalize="load"``.
         :param spanwise_floor: minimum span-wise loading factor so wing-tip and
             stabilo points keep a small non-zero force (a zero force would
             degenerate in :meth:`LineSet.calc_forces`).
         :param min_force: every force is floored to ``min_force`` times the peak
             force, so no point ends up with a near-zero (numerically singular)
             force.
+        :param span_samples: span-wise resolution of the integration grid.
+        :param chord_samples: chord-wise resolution of the integration grid.
         :return: ``dict`` mapping each ``UpperNode2D`` to its new force.
         """
-        upper_nodes = self.get_upper_nodes()
+        upper_nodes = list(self.get_upper_nodes())
         if not upper_nodes:
             return {}
 
         shape = parametric_glider.shape
-        x_values = list(shape.rib_x_values)
+        x_values = [float(x) for x in shape.rib_x_values]
         n_ribs = len(x_values)
+        rib_index = np.arange(n_ribs, dtype=float)
 
-        # span-wise projected position of every rib (arc -> flat fallback)
-        try:
-            arc_pos = list(parametric_glider.arc.get_arc_positions(x_values))
-            y_rib = [abs(float(p[0])) for p in arc_pos]
-        except Exception:
-            y_rib = [abs(float(x)) for x in x_values]
-        if len(y_rib) < 2 or y_rib[-1] <= 0:
-            y_rib = list(range(n_ribs)) or [0.0]
-        span = y_rib[-1] or 1.0
+        # projected span-wise position and inclination (cos) of every rib
+        y_rib = None
+        cos_rib = None
+        arc = getattr(parametric_glider, "arc", None)
+        if arc is not None and n_ribs > 1:
+            try:
+                arc_pos = list(arc.get_arc_positions(x_values))
+                y_rib = [abs(float(p[0])) for p in arc_pos]
+                cos_rib = [
+                    abs(math.cos(float(a))) for a in arc.get_rib_angles(x_values)
+                ]
+            except Exception:
+                y_rib = None
+                cos_rib = None
+        if (
+            y_rib is None
+            or len(y_rib) != n_ribs
+            or any(b <= a for a, b in zip(y_rib, y_rib[1:]))
+        ):
+            y_rib = [abs(x) for x in x_values]  # flat fallback
+        if cos_rib is None or len(cos_rib) != n_ribs:
+            cos_rib = [1.0] * n_ribs
+        if n_ribs < 2 or y_rib[-1] <= 0:
+            y_rib = list(range(n_ribs)) if n_ribs > 1 else [0.0, 1.0]
+            cos_rib = [1.0] * len(y_rib)
+            rib_index = np.arange(len(y_rib), dtype=float)
+        y_rib = np.asarray(y_rib, dtype=float)
+        cos_rib = np.asarray(cos_rib, dtype=float)
+        span = float(y_rib[-1])
 
         # chord length of every rib
         try:
-            chord_rib = [abs(float(ba[1] - fr[1])) for fr, ba in shape.ribs]
+            chord_rib = np.array(
+                [abs(float(ba[1] - fr[1])) for fr, ba in shape.ribs], dtype=float
+            )
         except Exception:
-            chord_rib = [1.0] * n_ribs
-        max_chord = max(chord_rib) or 1.0
+            chord_rib = np.ones(n_ribs)
+        if len(chord_rib) != len(y_rib) or not np.all(np.isfinite(chord_rib)):
+            chord_rib = np.ones(len(y_rib))
+        max_chord = float(chord_rib.max()) or 1.0
 
-        # span-wise tributary width of every rib (half-way to its neighbours).
-        # The inner edge of the first rib is the symmetry plane (y=0).
-        edges = [0.0] * (n_ribs + 1)
-        edges[0] = 0.0
-        edges[-1] = y_rib[-1]
-        for i in range(1, n_ribs):
-            edges[i] = 0.5 * (y_rib[i - 1] + y_rib[i])
-        width_rib = [max(edges[i + 1] - edges[i], 1e-9) for i in range(n_ribs)]
-        # a rib sitting on the symmetry plane (no center cell) carries a strip
-        # on both sides -> count its tributary symmetrically
-        if not getattr(shape, "has_center_cell", False):
-            width_rib[0] *= 2.0
+        # attachment points in metres (span) / chord fraction
+        node_idx = np.array(
+            [float(n.cell_no + (getattr(n, "cell_pos", 0) or 0)) for n in upper_nodes]
+        )
+        node_y = np.interp(node_idx, rib_index, y_rib)
+        node_x = np.clip([float(n.rib_pos) for n in upper_nodes], 0.0, 1.0)
+        node_cos = np.interp(node_idx, rib_index, cos_rib)
 
-        def interp(arr, idx):
-            if idx <= 0:
-                return arr[0]
-            if idx >= len(arr) - 1:
-                return arr[-1]
-            lo = int(idx)
-            frac = idx - lo
-            return arr[lo] * (1 - frac) + arr[lo + 1] * frac
+        # span-wise integration strips
+        ny = max(int(span_samples), 2 * len(y_rib))
+        y_s = (np.arange(ny) + 0.5) / ny * span
+        dy = span / ny
+        chord_s = np.interp(y_s, y_rib, chord_rib)
+        eta = y_s / span
+        if spanwise == "chord":
+            base = chord_s / max_chord
+        elif spanwise == "uniform":
+            base = np.ones(ny)
+        else:  # elliptical
+            base = np.clip(1.0 - eta * eta, 0.0, None) ** (spanwise_exponent / 2.0)
+        # keep tip strips lightly loaded instead of exactly zero
+        load_y = np.maximum(base, spanwise_floor) * dy
 
-        def spanwise_load(rib_idx):
-            eta = min(max(interp(y_rib, rib_idx) / span, 0.0), 1.0)
-            if spanwise == "chord":
-                base = interp(chord_rib, rib_idx) / max_chord
-            elif spanwise == "uniform":
-                base = 1.0
-            else:  # elliptical
-                base = max(1.0 - eta * eta, 0.0) ** (spanwise_exponent / 2.0)
-            # keep tip points lightly loaded instead of exactly zero
-            base = max(base, spanwise_floor)
-            return base * interp(width_rib, rib_idx)
-
+        # chord-wise cells: share of the chord-wise loading of every cell
         def chord_cumulative(x):
             # integral of the chord-wise loading from 0 to x
             x = min(max(x, 0.0), 1.0)
@@ -357,42 +392,47 @@ class LineSet2D:
             sx = math.sqrt(x)
             return math.asin(sx) + sx * math.sqrt(max(1.0 - x, 0.0))
 
-        # group points by rib station, split each station along the chord
-        stations = {}
-        for node in upper_nodes:
-            rib_idx = node.cell_no + getattr(node, "cell_pos", 0)
-            stations.setdefault(round(rib_idx, 6), []).append(node)
+        nx = max(int(chord_samples), 2)
+        x_edges = np.linspace(0.0, 1.0, nx + 1)
+        x_s = 0.5 * (x_edges[:-1] + x_edges[1:])
+        w_x = np.diff([chord_cumulative(x) for x in x_edges])
+        w_x = w_x / w_x.sum()
 
-        raw = {}
-        for rib_idx, nodes in stations.items():
-            nodes_sorted = sorted(nodes, key=lambda n: n.rib_pos)
-            span_load = spanwise_load(rib_idx)
-            n = len(nodes_sorted)
-            for i, node in enumerate(nodes_sorted):
-                pos = nodes_sorted[i].rib_pos
-                lo = 0.0 if i == 0 else 0.5 * (nodes_sorted[i - 1].rib_pos + pos)
-                hi = 1.0 if i == n - 1 else 0.5 * (pos + nodes_sorted[i + 1].rib_pos)
-                chord_share = chord_cumulative(hi) - chord_cumulative(lo)
-                raw[node] = span_load * max(chord_share, 0.0)
+        # hand every element to the nearest attachment point (metres)
+        d_span = (y_s[:, None, None] - node_y[None, None, :]) ** 2
+        d_chord = (
+            (x_s[None, :, None] - node_x[None, None, :]) * chord_s[:, None, None]
+        ) ** 2
+        nearest = np.argmin(d_span + d_chord, axis=2)  # (ny, nx)
+        element_load = load_y[:, None] * w_x[None, :]
+        raw = np.bincount(
+            nearest.ravel(), weights=element_load.ravel(), minlength=len(upper_nodes)
+        )
 
         # normalise
-        values = list(raw.values())
         factor = 1.0
-        if values and normalize == "max" and max(values) > 0:
-            factor = 1.0 / max(values)
-        elif values and normalize == "mean":
-            mean = sum(values) / len(values)
+        if normalize == "load":
+            if total_load is None:
+                raise ValueError("normalize='load' needs total_load (kg)")
+            vertical = float(np.dot(raw, node_cos))
+            if vertical > 0:
+                factor = float(total_load) * 9.81 / 2.0 / vertical
+        elif normalize == "max":
+            if raw.max() > 0:
+                factor = 1.0 / float(raw.max())
+        elif normalize == "mean":
+            mean = float(raw.mean())
             if mean > 0:
                 factor = 1.0 / mean
 
-        scaled = {node: value * factor for node, value in raw.items()}
+        scaled = raw * factor
         # floor every force to a fraction of the peak so tip/stabilo points keep
         # a small non-zero force (avoids singular force projection downstream)
-        peak = max(scaled.values()) if scaled else 0.0
+        peak = float(scaled.max()) if len(scaled) else 0.0
         floor = min_force * peak
         result = {}
-        for node, value in scaled.items():
-            node.force = round(max(value, floor), 4)
+        for node, value in zip(upper_nodes, scaled):
+            node.force = round(float(max(value, floor)), 4)
             result[node] = node.force
         return result
 

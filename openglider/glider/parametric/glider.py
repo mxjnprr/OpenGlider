@@ -181,6 +181,9 @@ class ParametricGlider:
         self.intrados_sleeve_te_angle_ns = kwargs.get('intrados_sleeve_te_angle_ns', 100.0)
         self.intrados_sleeve_te_length_ns = kwargs.get('intrados_sleeve_te_length_ns', 0.03)
         
+        # Lines - last parameters of the "Distribute forces..." dialog
+        self.force_distribution_config = kwargs.get('force_distribution_config', None)
+
         # Airfoil Structure - Reinforcements (suspended only)
         self.reinforcement_enabled_s = kwargs.get('reinforcement_enabled_s', True)  # Enabled by default
         self.reinforcement_apply_all_s = kwargs.get('reinforcement_apply_all_s', False)  # Individual config by default
@@ -1788,6 +1791,7 @@ class ParametricGlider:
             "intrados_sleeve_le_length_ns": getattr(self, "intrados_sleeve_le_length_ns", 0.03),
             "intrados_sleeve_te_angle_ns": getattr(self, "intrados_sleeve_te_length_ns", 100.0),
             "intrados_sleeve_te_length_ns": getattr(self, "intrados_sleeve_te_length_ns", 0.03),
+            "force_distribution_config": getattr(self, "force_distribution_config", None),
             # Airfoil Structure - Reinforcements (suspended only)
             "reinforcement_enabled_s": getattr(self, "reinforcement_enabled_s", True),
             "reinforcement_apply_all_s": getattr(self, "reinforcement_apply_all_s", False),

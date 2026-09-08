@@ -58,5 +58,52 @@ class GliderTestCase2D(TestCase):
         forces = [l.force for l in glider.lineset.lines]
         self.assertTrue(all(f is not None for f in forces))
 
+    def test_distribute_forces_nearest_point_tributary(self):
+        """A brake point alone on its rib must not carry the whole rib's lift:
+        the A/B/C share of that rib goes to the neighbouring ribs' points."""
+        from openglider.glider.parametric.lines import Line2D, UpperNode2D
+
+        lineset = self.glider2d.lineset
+        # the demo glider has no attachment point on rib 5 -> add a lone
+        # trailing-edge (brake) point there
+        brake = UpperNode2D(5, 1.0, force=1.0, name="brake5", layer="brake")
+        knot = lineset.lines[0].lower_node
+        lineset.lines.append(Line2D(knot, brake, name="brake5", layer="brake"))
+
+        result = lineset.distribute_forces(self.glider2d)
+        by_name = {node.name: force for node, force in result.items()}
+        self.assertIn("brake5", by_name)
+        # far from the peak (the old per-rib grouping gave it ~1.0)
+        self.assertLess(by_name["brake5"], 0.2)
+        # the rear point of the neighbouring rib still carries more than the
+        # trailing-edge point, and the front point of that rib much more
+        self.assertLess(by_name["brake5"], by_name["D5"])
+        self.assertLess(by_name["brake5"], by_name["A5"] / 3)
+
+    def test_distribute_forces_total_load(self):
+        """normalize="load": forces in newtons, the half wing carries half of
+        the all-up weight (vertical components)."""
+        lineset = self.glider2d.lineset
+        result = lineset.distribute_forces(
+            self.glider2d, normalize="load", total_load=100.0
+        )
+        total = sum(result.values())
+        half_weight = 100.0 * 9.81 / 2
+        # rib inclination (arc) only increases the sum, the floor adds a bit
+        self.assertGreaterEqual(total, half_weight - 1)
+        self.assertLess(total, half_weight * 1.5)
+        self.assertGreater(max(result.values()), 10.0)
+        with self.assertRaises(ValueError):
+            lineset.distribute_forces(self.glider2d, normalize="load")
+
+    def test_force_distribution_config_roundtrip(self):
+        self.glider2d.force_distribution_config = {
+            "spanwise": "chord", "normalize": "load", "total_load": 95.0,
+        }
+        exp = jsonify.dumps(self.glider2d)
+        imp = jsonify.loads(exp)["data"]
+        self.assertEqual(imp.force_distribution_config["total_load"], 95.0)
+        self.assertEqual(imp.force_distribution_config["spanwise"], "chord")
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
