@@ -303,6 +303,12 @@ class Glider:
                     for panel in cell.panels:
                         panel.mirror()
 
+        # remember the wing each cell belongs to (pattern labels, marks)
+        for cell in other2.cells:
+            cell.wing_side = "left"
+        for cell in other.cells:
+            cell.wing_side = "right"
+
         other2.cells[-1].rib2 = other.cells[0].rib1
         other2.cells = other2.cells + other.cells
 

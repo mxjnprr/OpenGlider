@@ -44,6 +44,12 @@ class PatternConfig(Config):
     )
 
     marks_strap = marks.Inside(marks.Line(name="strap"))
+    # band-split diagonals: where neighbouring bands meet on the rib / panel
+    marks_band_split = marks.Inside(marks.Line(name="band_split"))
+    # tick across the allowance at the ends of a band piece's seams
+    marks_band_split_seam = marks.Line(name="band_split_seam")
+    # letters appended to piece names on complete-glider exports: (left, right)
+    wing_side_labels = ("G", "D")
 
     distribution_controlpoints = Distribution.from_linear(20, -1, 1)
     marks_laser_controlpoint = marks.Dot(0.2)

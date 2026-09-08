@@ -232,11 +232,12 @@ class CellTool(BaseTool):
         Supports two modes: Percentage (absolute extrados range, start/end in
         % of chord) and Angle (opening angle around the pull axis).
 
-        A single diagonal is generated per attachment point and cell.  With
-        ``Num. bands`` > 1 it is cut into bands as wide as the intrados base
-        that flare out at the "flare angle" to meet on the extrados (see
-        ``DiagonalRib.band_split``).  The connecting bands get one strip per
-        band, with shoes on the ribs at the "shoe angle".
+        A single diagonal element is generated per attachment point and cell.
+        With ``Num. bands`` > 1 it is made of independent bands (one piece
+        each) as wide as the intrados base that flare out at the "flare
+        angle" to their share of the extrados (see ``DiagonalRib.band_split``).
+        The connecting bands get one independent strip per band, with shoes
+        on the ribs at the "shoe angle".
         """
         import math
 
@@ -400,12 +401,13 @@ class CellTool(BaseTool):
         layout.addWidget(help_label)
 
         HELP_BANDS = (
-            " <b>Num. bands</b> &gt; 1 keeps ONE diagonal per attachment point, cut into "
-            "bands as wide as the intrados base: each band rises straight, then flares out "
-            "at the <i>flare angle</i> to meet its neighbours on the extrados. The "
-            "connecting bands (extrados to extrados) follow the same drawing: a shoe on each "
-            "rib (<i>shoe angle</i>) joined by one thin strip of the intrados width per band, "
-            "in their continuity. "
+            " <b>Num. bands</b> &gt; 1 makes that many INDEPENDENT bands per attachment "
+            "point (one pattern piece each, cut along the grain): each band is as wide as the "
+            "intrados base, rises straight, then flares out at the <i>flare angle</i> to its "
+            "share of the extrados, touching its neighbours. The connecting bands (extrados "
+            "to extrados) follow the same drawing: one piece per band, a shoe on each rib "
+            "(<i>shoe angle</i>) joined by a thin strip of the intrados width, in the "
+            "continuity of the diagonal bands. "
             "The last column previews the extrados range on a mid-span rib; it turns red "
             "when two layers overlap."
         )
@@ -959,9 +961,8 @@ class CellTool(BaseTool):
         self.vector_table.show()
 
 
-# Constants of the band split ("T" diagonals) not exposed in the auto-fill
-# dialog: fabric kept along the extrados at the hole apex (m), corner rounding.
-BAND_SPLIT_MARGIN_TOP = 0.01
+# Constant of the band split ("T" diagonals) not exposed in the auto-fill
+# dialog: corner rounding at the flare shoulders (fraction of the shorter edge).
 BAND_SPLIT_CORNER_RADIUS = 0.25
 
 
@@ -977,7 +978,6 @@ def make_band_split_config(parametric_glider, num=None, connecting=False):
         angle = getattr(parametric_glider, 'diagonal_autofill_flare_angle', 40.0)
     cfg = {
         "flare_angle": float(angle),
-        "margin_top": BAND_SPLIT_MARGIN_TOP,
         "corner_radius": BAND_SPLIT_CORNER_RADIUS,
     }
     if num is not None:
