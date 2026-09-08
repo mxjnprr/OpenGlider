@@ -73,7 +73,7 @@ class RibPlot:
 
                 # diagonals
                 for diagonal in cell.diagonals + cell.straps:
-                    self.insert_drib_mark(diagonal, False)
+                    self.insert_drib_mark(diagonal, False, cell)
 
             elif cell.rib2 == self.rib:
                 for panel in cell.panels:
@@ -90,7 +90,7 @@ class RibPlot:
                             pass
 
                 for diagonal in cell.diagonals + cell.straps:
-                    self.insert_drib_mark(diagonal, True)
+                    self.insert_drib_mark(diagonal, True, cell)
 
         # On a truncated trailing edge the rearmost panel cut coincides with the
         # blunt edge (already drawn as the cut line), so skip panel-cut marks that
@@ -267,13 +267,24 @@ class RibPlot:
         p = self.rib.profile_2d.profilepoint(x, y)
         return p * self.rib.chord
 
-    def insert_drib_mark(self, drib, right=False):
+    def insert_drib_mark(self, drib, right=False, cell=None):
         if right:
             p1 = drib.right_front
             p2 = drib.right_back
         else:
             p1 = drib.left_front
             p2 = drib.left_back
+
+        # band-split elements: mark where neighbouring bands meet on this rib
+        if cell is not None and getattr(drib, "band_split", None):
+            try:
+                bounds = drib.get_band_split_marks(cell, right)
+            except Exception:
+                bounds = []
+            for x, height in bounds:
+                x_signed = -x if height > 0 else x
+                self.insert_mark(x_signed, self.config.marks_band_split)
+                self.insert_mark(x_signed, self.config.marks_laser_diagonal, "L0")
 
         if p1[1] == p2[1] == -1:
             # Intrados surface - just mark the positions

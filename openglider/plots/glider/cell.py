@@ -347,6 +347,22 @@ class PanelPlot:
             insert_diagonal(*strap.right_front, side="right", front=True)
             insert_diagonal(*strap.right_back, side="right", front=False)
 
+        # band-split elements: where neighbouring bands meet on the rib
+        for drib in self.cell.diagonals:
+            if not getattr(drib, "band_split", None):
+                continue
+            for side in ("left", "right"):
+                try:
+                    bounds = drib.get_band_split_marks(self.cell, side == "right")
+                except Exception:
+                    bounds = []
+                for x, height in bounds:
+                    xval = -x if height > 0 else x
+                    if self.panel.cut_front[side] <= xval <= self.panel.cut_back[side]:
+                        p1, p2 = self.get_p1_p2(xval, side)
+                        plotpart.layers["L0"] += self.config.marks_laser_diagonal(p1, p2)
+                        plotpart.layers["marks"] += self.config.marks_band_split(p1, p2)
+
     def _insert_attachment_points(self, plotpart, attachment_points):
         for attachment_point in attachment_points:
             if hasattr(attachment_point, "cell"):
@@ -540,15 +556,37 @@ class PanelPlot:
                     self.logger.debug(f"Failed to insert minirib mark: {e}")
 
 
-def _offset_closed_polygon(points, amount, miter_limit=2.0):
+def _line_intersection(p1, d1, p2, d2):
+    """Intersection of two lines p + t*d, or None when parallel."""
+    det = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(det) < 1e-12:
+        return None
+    dp = p2 - p1
+    t = (dp[0] * d2[1] - dp[1] * d2[0]) / det
+    return p1 + t * d1
+
+
+def _offset_closed_polygon(points, amounts, miter_limit=2.0):
     """
-    Offset a closed polygon outward by ``amount`` (mitred corners, bevelled
-    when the mitre would exceed ``miter_limit`` * amount).
+    Offset a closed polygon outward.  ``amounts`` is either one distance or
+    one distance per edge (edge i runs from point i to point i + 1), so seam
+    allowances and hem allowances can differ.
+
+    Corners are mitred (the two offset edges are intersected); a mitre longer
+    than ``miter_limit`` times the allowance is bevelled by two points that
+    stay on the offset edges.  Edges whose offset would run backwards (tight
+    concave corners, rounded shoulders smaller than the allowance) are
+    dropped so that the result never loops or crosses itself.
     Returns a list of 2D points (end point not repeated).
     """
     pts = [np.asarray(p, dtype=float) for p in points]
     n = len(pts)
-    if n < 3 or abs(amount) < 1e-12:
+    if n < 3:
+        return [list(p) for p in pts]
+    if np.isscalar(amounts):
+        amounts = [float(amounts)] * n
+    amounts = [float(a) for a in amounts]
+    if all(abs(a) < 1e-12 for a in amounts):
         return [list(p) for p in pts]
     area = 0.0
     for i in range(n):
@@ -556,36 +594,89 @@ def _offset_closed_polygon(points, amount, miter_limit=2.0):
         area += p[0] * q[1] - q[0] * p[1]
     ccw = area > 0
 
-    def outward(d):
+    # edges: start point, unit direction, outward normal, allowance
+    edges = []
+    for i in range(n):
+        d = pts[(i + 1) % n] - pts[i]
         length = norm(d)
         if length < 1e-12:
-            return None
+            continue
         d = d / length
-        return np.array([d[1], -d[0]]) if ccw else np.array([-d[1], d[0]])
+        nrm = np.array([d[1], -d[0]]) if ccw else np.array([-d[1], d[0]])
+        edges.append((pts[i], d, nrm, amounts[i]))
+    if len(edges) < 3:
+        return [list(p) for p in pts]
+
+    def corner(e_prev, e_next):
+        """mitre point of two offset edges (lines), or None when parallel"""
+        p1, d1, n1, a1 = e_prev
+        p2, d2, n2, a2 = e_next
+        return _line_intersection(p1 + n1 * a1, d1, p2 + n2 * a2, d2)
+
+    # drop edges whose offset segment runs backwards, until stable
+    active = list(range(len(edges)))
+    for _ in range(len(edges)):
+        m = len(active)
+        if m < 3:
+            break
+        corners = []
+        for k in range(m):
+            e_prev = edges[active[k - 1]]
+            e_cur = edges[active[k]]
+            c = corner(e_prev, e_cur)
+            if c is None:
+                c = e_cur[0] + e_cur[2] * e_cur[3]
+            corners.append(c)
+        drop = []
+        for k in range(m):
+            e_cur = edges[active[k]]
+            seg = corners[(k + 1) % m] - corners[k]
+            if np.dot(seg, e_cur[1]) < -1e-9:
+                drop.append(active[k])
+        if not drop:
+            break
+        # drop the worst offender per pass to stay conservative
+        worst = None
+        for k in range(m):
+            if active[k] in drop:
+                e_cur = edges[active[k]]
+                back = -np.dot(corners[(k + 1) % m] - corners[k], e_cur[1])
+                if worst is None or back > worst[0]:
+                    worst = (back, active[k])
+        active.remove(worst[1])
 
     result = []
-    for i in range(n):
-        p_prev, p_cur, p_next = pts[i - 1], pts[i], pts[(i + 1) % n]
-        n_prev = outward(p_cur - p_prev)
-        n_next = outward(p_next - p_cur)
-        if n_prev is None and n_next is None:
+    m = len(active)
+    for k in range(m):
+        e_prev = edges[active[k - 1]]
+        e_cur = edges[active[k]]
+        p_prev, d_prev, n_prev, a_prev = e_prev
+        p_cur, d_cur, n_cur, a_cur = e_cur
+        mitre = corner(e_prev, e_cur)
+        if mitre is None:
+            result.append(list(p_cur + n_cur * (a_prev + a_cur) / 2.0))
             continue
-        if n_prev is None or n_next is None:
-            nrm = n_prev if n_next is None else n_next
-            result.append(list(p_cur + nrm * amount))
+        # reference corner: where the two original edge lines meet
+        ref = _line_intersection(p_prev, d_prev, p_cur, d_cur)
+        if ref is None:
+            ref = p_cur
+        limit = miter_limit * max(abs(a_prev), abs(a_cur), 1e-9)
+        if norm(mitre - ref) <= limit:
+            result.append(list(mitre))
             continue
-        denom = 1.0 + float(np.dot(n_prev, n_next))
-        if denom < 1e-6:
-            result.append(list(p_cur + n_prev * amount))
-            result.append(list(p_cur + n_next * amount))
-            continue
-        offset = (n_prev + n_next) / denom
-        if norm(offset) > miter_limit:
-            # bevel the sharp corner
-            result.append(list(p_cur + n_prev * amount))
-            result.append(list(p_cur + n_next * amount))
+        # bevel: cut the mitre with a line perpendicular to the bisector at
+        # ``limit`` from the corner; keep the points on their offset lines
+        bis = mitre - ref
+        bis = bis / norm(bis)
+        clip_point = ref + bis * limit
+        clip_dir = np.array([-bis[1], bis[0]])
+        b1 = _line_intersection(clip_point, clip_dir, p_prev + n_prev * a_prev, d_prev)
+        b2 = _line_intersection(clip_point, clip_dir, p_cur + n_cur * a_cur, d_cur)
+        if b1 is None or b2 is None:
+            result.append(list(clip_point))
         else:
-            result.append(list(p_cur + offset * amount))
+            result.append(list(b1))
+            result.append(list(b2))
     return result
 
 
@@ -730,30 +821,256 @@ class DribPlot:
     def flatten(self, attachment_points=None):
         return self._flatten(attachment_points, self.config.drib_num_folds)
 
-    def _band_split_shape(self):
-        """(outline, holes) of a band-split ("T") diagonal in the frame of self.left/right."""
+    def _band_split_pieces(self):
+        """Independent pieces of a band-split element, frame of self.left/right."""
         config = getattr(self.drib, 'band_split', None)
         if not config:
             return None
         try:
-            return self.drib.get_band_split_shape_flat(self.left, self.right, config)
+            return self.drib.get_band_split_pieces_flat(self.left, self.right, config)
         except Exception:
             return None
+
+    def flatten_pieces(self, attachment_points=None):
+        """
+        All plot parts of this element: one per band for a band-split
+        element (independent pieces, own allowances, marks and name), else
+        [flatten()].
+        """
+        pieces = self._band_split_pieces()
+        if not pieces:
+            return [self.flatten(attachment_points)]
+        from openglider.glider.cell.elements import _edge_kinds
+
+        seams = self.drib.get_band_split_seams(self.left, self.right)
+        num_folds = self.config.drib_num_folds
+        hem = self.config.drib_allowance_folds if num_folds > 0 else 0.0
+        allowance = self.config.allowance_general
+        parts = []
+        for k, outline in enumerate(pieces):
+            name = self.drib.name if len(pieces) == 1 else f"{self.drib.name}-{k + 1}"
+            plotpart = PlotPart(material_code=self.drib.material_code, name=name)
+            kinds = _edge_kinds(outline, seams)
+            plotpart._band_outline = outline
+            plotpart._band_kinds = kinds
+            amounts = [allowance if kind == "seam" else hem for kind in kinds]
+            cut = _offset_closed_polygon(outline, amounts)
+            plotpart.layers["cuts"].append(PolyLine2D(cut + [cut[0]]))
+            runs = self._seam_runs(outline, kinds)
+            for run in runs:
+                plotpart.layers["stitches"].append(PolyLine2D([list(map(float, p)) for p in run["points"]]))
+            self._insert_piece_marks(plotpart, runs, allowance)
+            self._insert_piece_text(plotpart, runs, allowance)
+            try:
+                self._insert_attachment_points(plotpart, attachment_points)
+            except Exception:
+                pass
+            parts.append(plotpart)
+        return parts
+
+    def _seam_runs(self, outline, kinds):
+        """
+        Consecutive seam edges of a piece outline: list of dicts with the
+        run points (front -> back along the rib), the rib curve they lie on
+        and the outward normal of the piece along the run.
+        """
+        n = len(outline)
+        pts = [np.asarray(p, dtype=float) for p in outline]
+        area = 0.0
+        for i in range(n):
+            area += pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]
+        ccw = area > 0
+        # start the scan on a free edge so that a run never wraps around
+        start = next((i for i in range(n) if kinds[i] != "seam"), None)
+        if start is None:
+            return []
+        runs, run = [], []
+        for step in range(n):
+            i = (start + step) % n
+            if kinds[i] == "seam":
+                if not run:
+                    run.append(pts[i])
+                run.append(pts[(i + 1) % n])
+            elif run:
+                runs.append(run)
+                run = []
+        if run:
+            runs.append(run)
+
+        result = []
+        for run in runs:
+            d = run[-1] - run[0]
+            if norm(d) < 1e-9:
+                continue
+            d = d / norm(d)
+            outward = np.array([d[1], -d[0]]) if ccw else np.array([-d[1], d[0]])
+            # which rib curve, and which end is the front (start of the curve)
+            best = None
+            for curve in (self.left, self.right):
+                data = np.asarray(curve.data, dtype=float)
+                dist = np.linalg.norm(data - run[len(run) // 2], axis=1).min()
+                if best is None or dist < best[0]:
+                    best = (dist, curve, data)
+            _, curve, data = best
+            i_first = int(np.argmin(np.linalg.norm(data - run[0], axis=1)))
+            i_last = int(np.argmin(np.linalg.norm(data - run[-1], axis=1)))
+            points = run if i_first <= i_last else run[::-1]
+            result.append({"points": points, "curve": curve, "outward": outward})
+        return result
+
+    def _insert_piece_marks(self, plotpart, runs, allowance):
+        """Assembly marks on a piece: a tick across the allowance at both ends
+        of every seam (front end: arrow, back end: double line) plus laser dots."""
+        for run in runs:
+            outward = run["outward"]
+            front, back = run["points"][0], run["points"][-1]
+            for point, mark in ((front, self.config.marks_diagonal_front),
+                                (back, self.config.marks_diagonal_back)):
+                p1 = np.asarray(point, dtype=float)
+                p2 = p1 + outward * allowance
+                plotpart.layers["marks"] += self.config.marks_band_split_seam(p1, p2)
+                plotpart.layers["marks"] += mark(p1, p2)
+                plotpart.layers["L0"] += self.config.marks_laser_diagonal(p1, p2)
+
+    def _piece_label(self, name):
+        """Piece name plus the wing side (G/D) on complete-glider exports."""
+        side = getattr(self.cell, "wing_side", None)
+        labels = getattr(self.config, "wing_side_labels", ("G", "D"))
+        if side == "left":
+            return f"{name} {labels[0]}"
+        if side == "right":
+            return f"{name} {labels[1]}"
+        return name
+
+    def _insert_piece_text(self, plotpart, runs, allowance):
+        """
+        Name written in the seam allowance of the longest seam, centred in
+        the allowance and always upright on the sheet (never upside down),
+        so that a readable name means "good side up".  The letters are
+        shrunk to fit the seam length; when even 3 mm letters do not fit,
+        the name goes to the hem allowance of the longest free edge instead.
+        """
+        if not runs:
+            return
+        text = f" {self._piece_label(plotpart.name)} "
+        hem = self.config.drib_allowance_folds if self.config.drib_num_folds > 0 else 0.0
+        min_size = 0.003
+        candidates = []
+        for run in runs:
+            # follow the seam locally: baseline along the tangent at the middle
+            # of the (possibly curved) seam, so the letters stay in the margin
+            pts = [np.asarray(p, dtype=float) for p in run["points"]]
+            seg = [norm(b - a) for a, b in zip(pts[:-1], pts[1:])]
+            length = float(sum(seg))
+            if length < 1e-6:
+                continue
+            half, acc, i = length / 2.0, 0.0, 0
+            while i < len(seg) - 1 and acc + seg[i] < half:
+                acc += seg[i]
+                i += 1
+            t = (half - acc) / seg[i] if seg[i] > 1e-12 else 0.0
+            mid = pts[i] + (pts[i + 1] - pts[i]) * t
+            tangent = pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]
+            if norm(tangent) < 1e-9:
+                tangent = pts[-1] - pts[0]
+            tangent = tangent / norm(tangent)
+            outward = np.array([-tangent[1], tangent[0]])
+            if np.dot(outward, run["outward"]) < 0:
+                outward = -outward
+            candidates.append((mid, tangent, outward, length, allowance))
+        free = self._longest_free_run(plotpart)
+        if free is not None and hem > 0:
+            p_a, p_b, outward = free
+            length = norm(p_b - p_a)
+            if length > 1e-6:
+                tangent = (p_b - p_a) / length
+                candidates.append(((p_a + p_b) / 2.0, tangent, outward, length, hem))
+        if not candidates:
+            return
+
+        best = None
+        for mid, tangent, outward, length, width in candidates:
+            size = min(width * 0.7, 0.006, (min(length, 0.12) - 0.004) / len(text))
+            if best is None or size > best[0]:
+                best = (size, mid, tangent, outward, length, width)
+        size, mid, tangent, outward, length, width = best
+        if size < min_size:
+            return
+        # read left to right on the sheet (bottom to top when vertical)
+        if tangent[0] < -1e-9 or (abs(tangent[0]) <= 1e-9 and tangent[1] < 0):
+            tangent = -tangent
+        half_len = min(length, 0.12) / 2.0
+        p_a = mid - tangent * half_len
+        p_b = mid + tangent * half_len
+        shift = outward * width * 0.5
+        use_dashed = getattr(self.config, 'laser_text_mode', False)
+        text_layer = "cuts" if use_dashed else "text"
+        plotpart.layers[text_layer] += Text(
+            text,
+            p_a + shift,
+            p_b + shift,
+            size=size,
+            align="center",
+            height=0.8,
+            valign=0.0,
+            dashed=use_dashed,
+            dot_spacing=getattr(self.config, 'dot_spacing', 0.15),
+        ).get_vectors()
+
+    def _longest_free_run(self, plotpart):
+        """(start, end, outward) of the longest straight free edge of the
+        piece outline (the cut line minus the hem gives it back), or None."""
+        outline = getattr(plotpart, "_band_outline", None)
+        kinds = getattr(plotpart, "_band_kinds", None)
+        if outline is None or kinds is None:
+            return None
+        n = len(outline)
+        pts = [np.asarray(p, dtype=float) for p in outline]
+        area = 0.0
+        for i in range(n):
+            area += pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]
+        ccw = area > 0
+        best = None
+        i = 0
+        while i < n:
+            if kinds[i] != "free":
+                i += 1
+                continue
+            j = i
+            direction = None
+            while j < n and kinds[j] == "free":
+                d = pts[(j + 1) % n] - pts[j]
+                length = norm(d)
+                if length < 1e-9:
+                    j += 1
+                    continue
+                d = d / length
+                if direction is not None and np.dot(direction, d) < np.cos(np.radians(5)):
+                    break
+                direction = d if direction is None else direction
+                j += 1
+            run_len = norm(pts[j % n] - pts[i])
+            if best is None or run_len > best[0]:
+                best = (run_len, i, j % n)
+            i = max(j, i + 1)
+        if best is None or best[0] < 1e-6:
+            return None
+        _, i, j = best
+        d = pts[j] - pts[i]
+        d = d / norm(d)
+        outward = np.array([d[1], -d[0]]) if ccw else np.array([-d[1], d[0]])
+        return pts[i], pts[j], outward
 
     def _flatten(self, attachment_points, num_folds):
         plotpart = PlotPart(material_code=self.drib.material_code, name=self.drib.name)
 
-        split_shape = self._band_split_shape()
-        if split_shape is not None:
-            # Trumpet outline (stem as wide as the base, flaring to the
-            # extrados) with the seam allowance, plus the holes between bands.
-            outline, holes = split_shape
-            cut = _offset_closed_polygon(outline, self.config.allowance_general)
+        pieces = self._band_split_pieces()
+        if pieces:
+            # Band-split element: the pieces are made by flatten_pieces();
+            # keep a plain outline here for callers of flatten()
+            first = pieces[0]
+            cut = _offset_closed_polygon(first, self.config.allowance_general)
             plotpart.layers["cuts"].append(PolyLine2D(cut + [cut[0]]))
-            for hole in holes:
-                pts = [list(map(float, p)) for p in hole]
-                if len(pts) >= 3:
-                    plotpart.layers["cuts"].append(PolyLine2D(pts + [pts[0]]))
 
         elif num_folds > 0:
             alw2 = self.config.drib_allowance_folds
@@ -1693,7 +2010,8 @@ class CellPlotMaker:
         dribs = []
         for drib in self.cell.diagonals:
             drib_plot = self.DribPlot(drib, self.cell, self.config)
-            dribs.append(drib_plot.flatten(self.attachment_points))
+            # band-split elements give one independent piece per band
+            dribs.extend(drib_plot.flatten_pieces(self.attachment_points))
 
         return dribs
 
