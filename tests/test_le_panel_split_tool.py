@@ -86,6 +86,10 @@ def _install_stubs():
 
     freecad_mod = types.ModuleType("FreeCAD")
     freecad_mod.ActiveDocument = types.SimpleNamespace(Objects=[], recompute=lambda: None)
+    freecad_mod.Vector = _Node  # tools.vector3D isinstance() check
+    freecad_mod.Console = types.SimpleNamespace(
+        PrintWarning=lambda *a: None, PrintMessage=lambda *a: None, PrintError=lambda *a: None
+    )
     add("FreeCAD", freecad_mod)
 
     view = types.SimpleNamespace(
