@@ -540,6 +540,55 @@ class PanelPlot:
                     self.logger.debug(f"Failed to insert minirib mark: {e}")
 
 
+def _offset_closed_polygon(points, amount, miter_limit=2.0):
+    """
+    Offset a closed polygon outward by ``amount`` (mitred corners, bevelled
+    when the mitre would exceed ``miter_limit`` * amount).
+    Returns a list of 2D points (end point not repeated).
+    """
+    pts = [np.asarray(p, dtype=float) for p in points]
+    n = len(pts)
+    if n < 3 or abs(amount) < 1e-12:
+        return [list(p) for p in pts]
+    area = 0.0
+    for i in range(n):
+        p, q = pts[i], pts[(i + 1) % n]
+        area += p[0] * q[1] - q[0] * p[1]
+    ccw = area > 0
+
+    def outward(d):
+        length = norm(d)
+        if length < 1e-12:
+            return None
+        d = d / length
+        return np.array([d[1], -d[0]]) if ccw else np.array([-d[1], d[0]])
+
+    result = []
+    for i in range(n):
+        p_prev, p_cur, p_next = pts[i - 1], pts[i], pts[(i + 1) % n]
+        n_prev = outward(p_cur - p_prev)
+        n_next = outward(p_next - p_cur)
+        if n_prev is None and n_next is None:
+            continue
+        if n_prev is None or n_next is None:
+            nrm = n_prev if n_next is None else n_next
+            result.append(list(p_cur + nrm * amount))
+            continue
+        denom = 1.0 + float(np.dot(n_prev, n_next))
+        if denom < 1e-6:
+            result.append(list(p_cur + n_prev * amount))
+            result.append(list(p_cur + n_next * amount))
+            continue
+        offset = (n_prev + n_next) / denom
+        if norm(offset) > miter_limit:
+            # bevel the sharp corner
+            result.append(list(p_cur + n_prev * amount))
+            result.append(list(p_cur + n_next * amount))
+        else:
+            result.append(list(p_cur + offset * amount))
+    return result
+
+
 class DribPlot:
     DefaultConf = PatternConfig
 
@@ -681,10 +730,32 @@ class DribPlot:
     def flatten(self, attachment_points=None):
         return self._flatten(attachment_points, self.config.drib_num_folds)
 
+    def _band_split_shape(self):
+        """(outline, holes) of a band-split ("T") diagonal in the frame of self.left/right."""
+        config = getattr(self.drib, 'band_split', None)
+        if not config:
+            return None
+        try:
+            return self.drib.get_band_split_shape_flat(self.left, self.right, config)
+        except Exception:
+            return None
+
     def _flatten(self, attachment_points, num_folds):
         plotpart = PlotPart(material_code=self.drib.material_code, name=self.drib.name)
 
-        if num_folds > 0:
+        split_shape = self._band_split_shape()
+        if split_shape is not None:
+            # Trumpet outline (stem as wide as the base, flaring to the
+            # extrados) with the seam allowance, plus the holes between bands.
+            outline, holes = split_shape
+            cut = _offset_closed_polygon(outline, self.config.allowance_general)
+            plotpart.layers["cuts"].append(PolyLine2D(cut + [cut[0]]))
+            for hole in holes:
+                pts = [list(map(float, p)) for p in hole]
+                if len(pts) >= 3:
+                    plotpart.layers["cuts"].append(PolyLine2D(pts + [pts[0]]))
+
+        elif num_folds > 0:
             alw2 = self.config.drib_allowance_folds
             cut_front = self.config.cut_diagonal_fold(-alw2, num_folds=num_folds)
             cut_back = self.config.cut_diagonal_fold(alw2, num_folds=num_folds)

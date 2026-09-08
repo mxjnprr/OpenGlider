@@ -36,6 +36,463 @@ if TYPE_CHECKING:
     from openglider.glider.cell import Cell
 
 
+def _round_polygon_corners(points, radius_pct, pts_per_corner=6, indices=None):
+    """
+    Round the corners of a closed polygon (points not repeated).
+    ``indices`` restricts the rounding to the given corner indices.
+    """
+    pts = [np.asarray(p, dtype=float) for p in points]
+    n = len(pts)
+    if n < 3 or radius_pct <= 1e-6:
+        return pts
+    out = []
+    for i in range(n):
+        if indices is not None and i not in indices:
+            out.append(pts[i])
+            continue
+        p_prev, p_cur, p_next = pts[i - 1], pts[i], pts[(i + 1) % n]
+        d_in = p_cur - p_prev
+        d_out = p_next - p_cur
+        l_in, l_out = norm(d_in), norm(d_out)
+        if l_in < 1e-9 or l_out < 1e-9:
+            out.append(p_cur)
+            continue
+        cut = min(l_in, l_out) * radius_pct * 0.5
+        a = p_cur - d_in / l_in * cut
+        b = p_cur + d_out / l_out * cut
+        for k in range(pts_per_corner + 1):
+            t = k / pts_per_corner
+            out.append((1 - t) ** 2 * a + 2 * (1 - t) * t * p_cur + t ** 2 * b)
+    return out
+
+
+def _densify_polygon(points, max_length):
+    """Insert points so that no edge of the closed polygon exceeds max_length."""
+    pts = [np.asarray(p, dtype=float) for p in points]
+    out = []
+    n = len(pts)
+    for i in range(n):
+        p, q = pts[i], pts[(i + 1) % n]
+        out.append(p)
+        length = norm(q - p)
+        if length > max_length:
+            pieces = int(math.ceil(length / max_length))
+            for k in range(1, pieces):
+                out.append(p + (q - p) * (k / pieces))
+    return out
+
+
+def _point_in_polygon(point, polygon):
+    """Ray casting test, polygon as a list of 2D points (closed implicitly)."""
+    x, y = float(point[0]), float(point[1])
+    inside = False
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            x_int = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < x_int:
+                inside = not inside
+    return inside
+
+
+def _ray_intersection(o1, d1, o2, d2):
+    """Intersection of two 2D lines o + t*d, or None when parallel."""
+    det = d1[0] * (-d2[1]) - d1[1] * (-d2[0])
+    if abs(det) < 1e-12:
+        return None
+    dx = o2 - o1
+    t = (dx[0] * (-d2[1]) - dx[1] * (-d2[0])) / det
+    return o1 + t * d1
+
+
+def _flare_angle_rad(angle_deg):
+    """
+    Flare angle measured from the attachment line (extrados or rib) in
+    radians, or None when <= 0 (no shaping).  Clamped below 85 deg: the
+    flare must reach the band before the band reaches the attachment line.
+    """
+    angle = float(angle_deg)
+    if angle <= 0:
+        return None
+    return math.radians(min(angle, 85.0))
+
+
+def _effective_strip_count(num, length, width):
+    """
+    Number of strips of ``width`` that fit in ``length`` with at least half a
+    strip of gap between them (never more than ``num``, never less than 1).
+    Applied identically to a diagonal and to the connecting band on the same
+    rib so that both keep the same number of aligned bands.
+    """
+    num = max(int(num), 1)
+    if width <= 0:
+        return num
+    return max(1, min(num, int((length + width / 2.0) // (1.5 * width))))
+
+
+# Connecting bands: the straight strip keeps at least this fraction of the
+# cell width when the shoes of the two ribs would otherwise meet.
+_MIN_STRIP_FRACTION = 0.10
+
+
+def _band_split_geometry(base, far, num, flare_angle, margin_top, corner_pct):
+    """
+    Outline and holes of a band-split diagonal in the flattened 2D frame.
+
+    Every band is a strip as wide as the base (attachment width).  It rises
+    straight from the attachment point and flares out to the extrados, where
+    it meets its neighbours.  The flare edges start on the extrados (share
+    boundaries) and go down to the band at ``flare_angle`` degrees from the
+    extrados line (45 = fabric bias); the outline follows the same rule to
+    the ends of the extrados range, so a single band is a "T".
+    ``flare_angle`` 0 gives back the plain trapezoid.
+
+    :param base: flattened intrados edge (PolyLine2D, attachment side)
+    :param far: flattened extrados edge (PolyLine2D)
+    :returns: (outline, holes) -- closed polygons as lists of 2D points
+        (end point not repeated), or None when the geometry degenerates
+    """
+    base_len = base.get_length()
+    far_len = far.get_length()
+    if base_len < 1e-6 or far_len < 1e-6:
+        return None
+    width = base_len
+    base_pts = [np.asarray(p, dtype=float) for p in base.data]
+    far_pts = [np.asarray(p, dtype=float) for p in far.data]
+    angle = _flare_angle_rad(flare_angle)
+    if angle is None:
+        return base_pts + far_pts[::-1], []
+    num = _effective_strip_count(num, far_len, width)
+    p_ap = np.asarray(base[base.walk(0, base_len / 2.0)], dtype=float)
+
+    def far_at(t):
+        t = min(max(t, 0.0), 1.0)
+        return np.asarray(far[far.walk(0, t * far_len)], dtype=float)
+
+    c_up = far_at(0.5) - p_ap
+    height_total = norm(c_up)
+    if height_total < 1e-6:
+        return None
+
+    # band centre lines: attachment point -> middle of each extrados share
+    dirs, aft = [], []
+    for k in range(num):
+        d = far_at((k + 0.5) / num) - p_ap
+        d = d / max(norm(d), 1e-9)
+        e = np.array([-d[1], d[0]])
+        if np.dot(e, far_at(min((k + 1.0) / num, 1.0)) - far_at(k / num)) < 0:
+            e = -e
+        dirs.append(d)
+        aft.append(e)
+
+    def extrados_frame(t):
+        """(tangent toward the back, normal toward the base) of the extrados at t"""
+        tang = far_at(t + 0.02) - far_at(t - 0.02)
+        tang = tang / max(norm(tang), 1e-9)
+        n_down = np.array([-tang[1], tang[0]])
+        if np.dot(p_ap - far_at(t), n_down) < 0:
+            n_down = -n_down
+        return tang, n_down
+
+    def shoulder(origin, direction, anchor, t_anchor, toward_back):
+        """point of the band edge (origin, direction) hit by the flare edge
+        that starts at ``anchor`` on the extrados and goes down toward the
+        band at the flare angle from the extrados line; returns (point, lam)"""
+        tang, n_down = extrados_frame(t_anchor)
+        along = tang if toward_back else -tang
+        flare_dir = along * math.cos(angle) + n_down * math.sin(angle)
+        point = _ray_intersection(anchor, flare_dir, origin, direction)
+        if point is None or np.dot(point - anchor, flare_dir) <= 1e-6:
+            return None, -1.0
+        return point, float(np.dot(point - origin, direction))
+
+    # outline: base, stem, flare, extrados, flare, stem, back to the base
+    a_front, a_back = base_pts[0], base_pts[-1]
+    f_front, f_back = far_pts[0], far_pts[-1]
+    s_front, lam = shoulder(a_front, dirs[0], f_front, 0.0, True)
+    if lam < 1e-4:
+        s_front = None
+    s_back, lam = shoulder(a_back, dirs[-1], f_back, 1.0, False)
+    if lam < 1e-4:
+        s_back = None
+    outline = [a_front]
+    shoulders = []
+    if s_front is not None:
+        shoulders.append(len(outline))
+        outline.append(s_front)
+    outline += far_pts
+    if s_back is not None:
+        shoulders.append(len(outline))
+        outline.append(s_back)
+    outline += base_pts[::-1][:-1]
+    outline = _round_polygon_corners(outline, corner_pct, indices=shoulders)
+    outline = _densify_polygon(outline, height_total / 8.0)
+
+    # holes between neighbouring bands
+    holes = []
+    for j in range(num - 1):
+        t_b = (j + 1.0) / num
+        b = far_at(t_b)
+        tang, n_down = extrados_frame(t_b)
+        apex = b + n_down * margin_top
+        o_l = p_ap + aft[j] * (width / 2.0)        # aft edge of band j
+        o_r = p_ap - aft[j + 1] * (width / 2.0)    # fore edge of band j + 1
+        v_bottom = _ray_intersection(o_l, dirs[j], o_r, dirs[j + 1])
+        if v_bottom is None:
+            continue
+        s_l, lam_l = shoulder(o_l, dirs[j], apex, t_b, False)
+        s_r, lam_r = shoulder(o_r, dirs[j + 1], apex, t_b, True)
+        if s_l is None or s_r is None:
+            continue
+        # the flare must leave the band above the point where the bands separate
+        if lam_l <= float(np.dot(v_bottom - o_l, dirs[j])) + 1e-4:
+            continue
+        if lam_r <= float(np.dot(v_bottom - o_r, dirs[j + 1])) + 1e-4:
+            continue
+        if np.dot(s_r - s_l, tang) <= 1e-4:
+            continue
+        contour = _round_polygon_corners([v_bottom, s_r, apex, s_l], corner_pct)
+        holes.append(_densify_polygon(contour, height_total / 10.0))
+    return outline, holes
+
+
+def _band_strip_geometry(left, right, strip_width, num, shoe_angle, margin_top, corner_pct):
+    """
+    Outline and holes of a connecting band (both sides on the same surface)
+    drawn like the neighbouring diagonal: a "shoe" covering the full range on
+    each rib, joined by ``num`` thin strips of ``strip_width``.  Strip k is
+    centred on the k-th share of the range, exactly where band k of the
+    diagonal reaches the extrados, so both line up across the rib.  The shoe
+    edges start on the rib (range ends and share boundaries) and reach the
+    strips at ``shoe_angle`` degrees from the rib line; the holes between
+    strips close in a point toward each rib, ``margin_top`` away from it.
+    When the two shoes would meet, the strips keep at least 10 % of the cell
+    width.  ``shoe_angle`` 0 gives the plain rectangle.
+
+    :returns: (outline, holes) with polygons as lists of 2D points
+    """
+    len_l = left.get_length()
+    len_r = right.get_length()
+    if min(len_l, len_r) < 1e-6:
+        return None
+    l_pts = [np.asarray(p, dtype=float) for p in left.data]
+    r_pts = [np.asarray(p, dtype=float) for p in right.data]
+    angle = _flare_angle_rad(shoe_angle)
+    if angle is None:
+        return l_pts + r_pts[::-1], []
+    tan_a = math.tan(angle)
+    num = _effective_strip_count(num, min(len_l, len_r), float(strip_width))
+
+    def at_left(t):
+        t = min(max(t, 0.0), 1.0)
+        return np.asarray(left[left.walk(0, t * len_l)], dtype=float)
+
+    def at_right(t):
+        t = min(max(t, 0.0), 1.0)
+        return np.asarray(right[right.walk(0, t * len_r)], dtype=float)
+
+    m_l, m_r = at_left(0.5), at_right(0.5)
+    u = m_r - m_l
+    span = norm(u)
+    if span < 1e-6:
+        return None
+    u = u / span
+    v = np.array([-u[1], u[0]])
+    if np.dot(v, l_pts[-1] - l_pts[0]) < 0:
+        v = -v
+
+    # a strip cannot be wider than its share of the range
+    half = min(float(strip_width), len_l / num, len_r / num) / 2.0
+    centres = [(k + 0.5) / num for k in range(num)]
+
+    def edge(t, sign):
+        """strip edge line (t = range fraction of the centre line): (point at
+        rib1, point at rib2), offset by +- half across"""
+        return at_left(t) + v * (sign * half), at_right(t) + v * (sign * half)
+
+    def on_edge(e, s):
+        return e[0] + s * (e[1] - e[0])
+
+    s_min, s_max = 0.5 - _MIN_STRIP_FRACTION / 2.0, 0.5 + _MIN_STRIP_FRACTION / 2.0
+
+    def flare(e, anchor, from_left):
+        """fraction s along the strip edge where the shoe edge starting at
+        ``anchor`` (on rib1 if from_left, else rib2) reaches it, going away
+        from the rib at the shoe angle from the rib line"""
+        du = float(np.dot(e[1] - e[0], u))
+        if du < 1e-9:
+            return s_min if from_left else s_max
+        perp = abs(float(np.dot(e[0] - anchor, v)))
+        if from_left:
+            s = (perp * tan_a - float(np.dot(e[0] - anchor, u))) / du
+            return min(max(s, 0.0), s_min)
+        s = 1.0 - (perp * tan_a - float(np.dot(anchor - e[1], u))) / du
+        return max(min(s, 1.0), s_max)
+
+    fore = edge(centres[0], -1)      # fore edge of the first strip
+    back = edge(centres[-1], +1)     # aft edge of the last strip
+    outline = list(l_pts)
+    shoulders = [len(outline), len(outline) + 1]
+    outline += [on_edge(back, flare(back, l_pts[-1], True)),
+                on_edge(back, flare(back, r_pts[-1], False))]
+    outline += r_pts[::-1]
+    shoulders += [len(outline), len(outline) + 1]
+    outline += [on_edge(fore, flare(fore, r_pts[0], False)),
+                on_edge(fore, flare(fore, l_pts[0], True))]
+    outline = _round_polygon_corners(outline, corner_pct, indices=shoulders)
+    outline = _densify_polygon(outline, span / 8.0)
+
+    holes = []
+    for j in range(num - 1):
+        e_a = edge(centres[j], +1)        # aft edge of strip j
+        e_b = edge(centres[j + 1], -1)    # fore edge of strip j + 1
+        if np.dot(e_b[0] - e_a[0], v) <= 1e-4 or np.dot(e_b[1] - e_a[1], v) <= 1e-4:
+            continue  # strips touch: no hole
+        t_b = (j + 1.0) / num  # share boundary = apex of the diagonal hole
+        apex_l = at_left(t_b) + u * margin_top
+        apex_r = at_right(t_b) - u * margin_top
+        s_a_l, s_a_r = flare(e_a, apex_l, True), flare(e_a, apex_r, False)
+        s_b_l, s_b_r = flare(e_b, apex_l, True), flare(e_b, apex_r, False)
+        if s_a_l >= s_a_r - 1e-4 or s_b_l >= s_b_r - 1e-4:
+            continue
+        contour = _round_polygon_corners(
+            [on_edge(e_a, s_a_l), apex_l, on_edge(e_b, s_b_l),
+             on_edge(e_b, s_b_r), apex_r, on_edge(e_a, s_a_r)],
+            corner_pct,
+        )
+        holes.append(_densify_polygon(contour, span / 10.0))
+    return outline, holes
+
+
+def _triangulate_parametric(points2d, edge, outline, holes):
+    """
+    PSLG triangulation in the (x, y) parametric space of DiagonalRib.get_mesh.
+
+    :param points2d: grid points
+    :param edge: indices of the grid outline (used when ``outline`` is None)
+    :param outline: explicit boundary polygon (list of points) or None
+    :param holes: list of (contour, centre)
+    :returns: the raw triangulation (points / elements) or None
+    """
+    if outline and len(outline) >= 3:
+        pts = [[float(p[0]), float(p[1])] for p in points2d if _point_in_polygon(p, outline)]
+        start = len(pts)
+        pts += [[float(p[0]), float(p[1])] for p in outline]
+        boundaries = [list(range(start, start + len(outline))) + [start]]
+    else:
+        pts = [[float(p[0]), float(p[1])] for p in points2d]
+        boundaries = [list(edge) + [edge[0]]]
+
+    hole_centres = []
+    for contour, centre in holes:
+        if len(contour) < 3:
+            continue
+        idx = []
+        for p in contour:
+            pts.append([max(0.002, min(0.998, float(p[0]))), max(0.002, min(0.998, float(p[1])))])
+            idx.append(len(pts) - 1)
+        boundaries.append(idx + [idx[0]])
+        hole_centres.append([float(centre[0]), float(centre[1])])
+
+    # Snap to a grid and deduplicate to keep the PSLG well formed
+    grid = 1e-6
+    unique, remap, deduped = {}, {}, []
+    for i, p in enumerate(pts):
+        key = (round(p[0] / grid) * grid, round(p[1] / grid) * grid)
+        if key in unique:
+            remap[i] = unique[key]
+        else:
+            unique[key] = len(deduped)
+            deduped.append([key[0], key[1]])
+            remap[i] = unique[key]
+    clean_bounds = []
+    for b in boundaries:
+        rb = [remap[i] for i in b]
+        cleaned = [rb[0]]
+        for j in range(1, len(rb)):
+            if rb[j] != cleaned[-1]:
+                cleaned.append(rb[j])
+        if len(cleaned) > 3:
+            clean_bounds.append(cleaned)
+    if not clean_bounds:
+        return None
+    try:
+        tri = triangulate.Triangulation(
+            deduped, clean_bounds, holes=hole_centres if hole_centres else None
+        )
+        mesh = tri.triangulate(options="Qzp")
+    except Exception:
+        return None
+    if len(mesh.elements) == 0:
+        return None
+    return mesh
+
+
+def _flat_to_parametric(flat_left, flat_right, point, guess=None):
+    """
+    Invert the bilinear map used by DiagonalRib.get_mesh:
+    P(x, y) = left[x * (nl - 1)] * (1 - y) + right[x * (nr - 1)] * y
+    Returns (x, y) clamped to [0, 1].
+    """
+    q = np.asarray(point, dtype=float)
+    nl = len(flat_left) - 1
+    nr = len(flat_right) - 1
+    left = np.asarray(flat_left.data, dtype=float)
+    right = np.asarray(flat_right.data, dtype=float)
+
+    def curve(data, n, x):
+        ik = x * n
+        i = int(min(max(math.floor(ik), 0), n - 1))
+        k = ik - i
+        seg = data[i + 1] - data[i]
+        return data[i] + k * seg, seg * n
+
+    def cold_start():
+        lc, _ = curve(left, nl, 0.5)
+        rc, _ = curve(right, nr, 0.5)
+        axis = rc - lc
+        axis_len2 = float(np.dot(axis, axis))
+        y0 = float(np.dot(q - lc, axis) / axis_len2) if axis_len2 > 1e-18 else 0.5
+        return 0.5, min(max(y0, 0.0), 1.0)
+
+    def newton(x, y):
+        residual = float("inf")
+        for _ in range(30):
+            pl, dl = curve(left, nl, x)
+            pr, dr = curve(right, nr, x)
+            f = pl * (1.0 - y) + pr * y - q
+            residual = norm(f)
+            if residual < 1e-9:
+                break
+            jx = dl * (1.0 - y) + dr * y
+            jy = pr - pl
+            det = jx[0] * jy[1] - jx[1] * jy[0]
+            if abs(det) < 1e-18:
+                break
+            dx = (-f[0] * jy[1] + f[1] * jy[0]) / det
+            dy = (-jx[0] * f[1] + jx[1] * f[0]) / det
+            x = min(max(x + dx, -0.2), 1.2)
+            y = min(max(y + dy, -0.2), 1.2)
+        x = min(max(x, 0.0), 1.0)
+        y = min(max(y, 0.0), 1.0)
+        pl, _ = curve(left, nl, x)
+        pr, _ = curve(right, nr, x)
+        return (x, y), norm(pl * (1.0 - y) + pr * y - q)
+
+    starts = [tuple(guess)] if guess is not None else []
+    starts += [cold_start(), (0.5, 0.0), (0.5, 1.0), (0.5, 0.5)]
+    best, best_res = None, float("inf")
+    for start in starts:
+        sol, res = newton(*start)
+        if res < best_res:
+            best, best_res = sol, res
+        if best_res < 1e-7:
+            break
+    return best
+
+
 class DiagonalRib:
     def __init__(
         self,
@@ -46,6 +503,7 @@ class DiagonalRib:
         material_code="",
         name="unnamed",
         edge_curve=0.0,
+        band_split=None,
     ):
         """
         [left_front, left_back, right_front, right_back]
@@ -57,6 +515,10 @@ class DiagonalRib:
         :param material_code: color/material (optional)
         :param name: optional name of DiagonalRib (optional)
         :param edge_curve: curvature of front/back edges (0=straight, 0.5=moderate ellipse)
+        :param band_split: optional dict turning a full diagonal (intrados ->
+            extrados) into bands as wide as the intrados base that flare out
+            at a given angle to meet on the extrados ("T" diagonal, see
+            :meth:`get_band_split_shape_flat` and ``BAND_SPLIT_DEFAULTS``)
         """
         # Attributes
         self.left_front = left_front
@@ -66,9 +528,10 @@ class DiagonalRib:
         self.material_code = material_code
         self.name = name
         self.edge_curve = edge_curve
+        self.band_split = dict(band_split) if band_split else None
 
     def __json__(self):
-        return {
+        dct = {
             "left_front": self.left_front,
             "left_back": self.left_back,
             "right_front": self.right_front,
@@ -77,6 +540,9 @@ class DiagonalRib:
             "name": self.name,
             "edge_curve": self.edge_curve,
         }
+        if self.band_split:
+            dct["band_split"] = self.band_split
+        return dct
 
     @property
     def width_left(self):
@@ -318,6 +784,99 @@ class DiagonalRib:
             holes += self._strap_holes_parametric(strap_config)
 
         return holes
+
+    # ------------------------------------------------------------------
+    # Band split: one diagonal cut into N bands joined at the extrados by
+    # a "T" bar.  The bands fan out from the attachment point (intrados
+    # base) and the holes between them stop below the extrados so that the
+    # top stays one continuous strip.  The junction band/bar is flared at
+    # ``t_angle`` (90 deg = flat T, smaller = Y shaped gusset).
+    # ------------------------------------------------------------------
+    BAND_SPLIT_DEFAULTS = {
+        "num": 1,               # number of bands
+        "flare_angle": 40.0,    # flare edge angle from the extrados / rib line (deg), 0 = plain
+        "margin_top": 0.01,     # fabric kept along the extrados at the hole apex (m)
+        "corner_radius": 0.25,  # corner rounding (fraction of the shorter edge)
+        # "strip_width": m      # connecting bands only: width of the thin strip
+    }
+
+    def _band_split_sides(self, flat_left, flat_right):
+        """Return (base_poly, far_poly) of a full diagonal, or None."""
+        left_h = (self.left_front[1], self.left_back[1])
+        right_h = (self.right_front[1], self.right_back[1])
+        left_base = left_h[0] == -1.0 and left_h[1] == -1.0
+        right_base = right_h[0] == -1.0 and right_h[1] == -1.0
+        if left_base and not right_base and min(right_h) > 0:
+            return flat_left, flat_right
+        if right_base and not left_base and min(left_h) > 0:
+            return flat_right, flat_left
+        return None
+
+    def _is_same_side_band(self):
+        """Both sides on the extrados (or both on the intrados): a connecting band."""
+        heights = (self.left_front[1], self.left_back[1], self.right_front[1], self.right_back[1])
+        return all(h > 0 for h in heights) or all(h == -1.0 for h in heights)
+
+    def get_band_split_shape_flat(self, flat_left, flat_right, config=None):
+        """
+        Outline and holes of the band-split ("T") diagonal.
+
+        Works in the flattened 2D frame given by ``flat_left``/``flat_right``
+        (the two curves returned by :meth:`get_flattened`) so that the 2D
+        pattern and the 3D mesh use exactly the same geometry.
+
+        A full intrados -> extrados diagonal becomes bands as wide as the
+        base, flaring out to the extrados at ``flare_angle``.  A connecting
+        band (both sides on the same surface) with a ``strip_width`` in its
+        config becomes two shoes joined by ``num`` thin strips of that width,
+        lined up with the bands of the neighbouring diagonal.
+
+        :returns: (outline, holes) as lists of 2D points, or None when the
+            element is neither of those
+        """
+        cfg = dict(self.BAND_SPLIT_DEFAULTS)
+        cfg.update(config if config is not None else (self.band_split or {}))
+        sides = self._band_split_sides(flat_left, flat_right)
+        if sides is not None:
+            base, far = sides
+            return _band_split_geometry(
+                base, far, cfg["num"], cfg["flare_angle"], cfg["margin_top"], cfg["corner_radius"]
+            )
+        strip_width = cfg.get("strip_width")
+        if strip_width and self._is_same_side_band():
+            return _band_strip_geometry(
+                flat_left, flat_right, strip_width, cfg["num"],
+                cfg["flare_angle"], cfg["margin_top"], cfg["corner_radius"],
+            )
+        return None
+
+    def _band_split_shape_parametric(self, cell):
+        """Outline + holes of the band split mapped to the (x, y) space of get_mesh."""
+        try:
+            flat_left, flat_right = self.get_flattened(cell)
+            shape = self.get_band_split_shape_flat(flat_left, flat_right)
+        except Exception:
+            return None, []
+        if shape is None:
+            return None, []
+        outline, holes = shape
+
+        def to_param(contour):
+            params, guess = [], None
+            for point in contour:
+                guess = _flat_to_parametric(flat_left, flat_right, point, guess)
+                params.append(list(guess))
+            return params
+
+        outline_param = to_param(outline)
+        holes_param = []
+        for hole in holes:
+            params = to_param(hole)
+            if len(params) >= 3:
+                cx = sum(p[0] for p in params) / len(params)
+                cy = sum(p[1] for p in params) / len(params)
+                holes_param.append((params, [cx, cy]))
+        return outline_param, holes_param
 
     def _strap_holes_parametric(self, config):
         """
@@ -564,7 +1123,11 @@ class DiagonalRib:
         get a mesh from a diagonal (2 poly lines)
         """
         # Increase grid resolution when holes are present for accurate filtering
-        has_holes = getattr(self, 'cone_hole_config', None) or getattr(self, 'band_hole_config', None)
+        has_holes = (
+            getattr(self, 'cone_hole_config', None)
+            or getattr(self, 'band_hole_config', None)
+            or getattr(self, 'band_split', None)
+        )
         if has_holes and insert_points < 10:
             insert_points = 10
         
@@ -617,97 +1180,30 @@ class DiagonalRib:
             if project_3d:
                 points2d = _mesh.map_to_2d(point_array)
 
-            # Generate hole contours in parametric space
-            hole_polygons = self._get_hole_polygons_parametric(cell)
-            
-            if hole_polygons:
-                # Build boundaries and hole data for PSLG triangulation
-                edge_closed = edge + [edge[0]]
-                boundaries = [edge_closed]
-                hole_centers = []
-                extra_points_2d = []
-                extra_points_3d = []
-                
-                for contour_2d, center_2d in hole_polygons:
-                    if len(contour_2d) < 3:
-                        continue
-                    
-                    hole_start = len(points2d) + len(extra_points_2d)
-                    hole_idx = []
-                    
-                    for pt_2d in contour_2d:
-                        x_p = max(0.002, min(0.998, pt_2d[0]))
-                        y_p = max(0.002, min(0.998, pt_2d[1]))
-                        pt_3d = (
+            # Band split ("T"): trumpet outline + holes; other hole configs
+            split_outline, hole_polygons = None, []
+            if getattr(self, 'band_split', None):
+                split_outline, hole_polygons = self._band_split_shape_parametric(cell)
+            hole_polygons = list(hole_polygons) + self._get_hole_polygons_parametric(cell)
+
+            if split_outline or hole_polygons:
+                mesh = _triangulate_parametric(points2d, edge, split_outline, hole_polygons)
+                if mesh is not None:
+                    # 3D coordinates from the parametric mesh points (handles
+                    # outline / hole vertices and any Steiner point)
+                    mesh_pts_3d = []
+                    for pt2d in mesh.points:
+                        x_p = max(0.0, min(1.0, pt2d[0]))
+                        y_p = max(0.0, min(1.0, pt2d[1]))
+                        mesh_pts_3d.append(
                             left[x_p * (num_left - 1)] * (1.0 - y_p)
                             + right[x_p * (num_right - 1)] * y_p
                         )
-                        extra_points_2d.append([x_p, y_p])
-                        extra_points_3d.append(pt_3d)
-                        hole_idx.append(hole_start + len(hole_idx))
-                    
-                    hole_idx.append(hole_idx[0])  # close loop
-                    boundaries.append(hole_idx)
-                    hole_centers.append(center_2d)
-                
-                if extra_points_2d:
-                    all_pts_2d = points2d + extra_points_2d
-                    
-                    # Sanitize: snap to grid + deduplicate to prevent PSLG segfault
-                    GRID = 1e-6
-                    snapped = [[round(p[0]/GRID)*GRID, round(p[1]/GRID)*GRID] for p in all_pts_2d]
-                    
-                    unique_map = {}
-                    remap = {}
-                    deduped_pts = []
-                    for i, p in enumerate(snapped):
-                        key = (p[0], p[1])
-                        if key in unique_map:
-                            remap[i] = unique_map[key]
-                        else:
-                            new_idx = len(deduped_pts)
-                            unique_map[key] = new_idx
-                            deduped_pts.append(p)
-                            remap[i] = new_idx
-                    
-                    # Remap boundaries and remove consecutive duplicate indices
-                    clean_bounds = []
-                    for b in boundaries:
-                        rb = [remap[i] for i in b]
-                        cleaned = [rb[0]]
-                        for j in range(1, len(rb)):
-                            if rb[j] != cleaned[-1]:
-                                cleaned.append(rb[j])
-                        if len(cleaned) > 2:
-                            clean_bounds.append(cleaned)
-                    
-                    try:
-                        tri = triangulate.Triangulation(
-                            deduped_pts, clean_bounds,
-                            holes=hole_centers if hole_centers else None
-                        )
-                        mesh = tri.triangulate(options="Qzp")
-                        
-                        if len(mesh.elements) > 0:
-                            # Compute 3D coordinates from all mesh.points (2D parametric)
-                            # This handles any Steiner points that Triangle may have added
-                            mesh_pts_3d = []
-                            for pt2d in mesh.points:
-                                x_p = max(0.0, min(1.0, pt2d[0]))
-                                y_p = max(0.0, min(1.0, pt2d[1]))
-                                pt_3d = (
-                                    left[x_p * (num_left - 1)] * (1.0 - y_p)
-                                    + right[x_p * (num_right - 1)] * y_p
-                                )
-                                mesh_pts_3d.append(pt_3d)
-                            
-                            return Mesh.from_indexed(
-                                np.array(mesh_pts_3d),
-                                {"diagonals": list(mesh.elements)},
-                            )
-                    except Exception:
-                        pass  # Fall through to standard triangulation
-            
+                    return Mesh.from_indexed(
+                        np.array(mesh_pts_3d),
+                        {"diagonals": list(mesh.elements)},
+                    )
+
             # Standard triangulation (no holes or PSLG fallback)
             tri = triangulate.Triangulation(points2d, [edge])
             mesh = tri.triangulate(options="Qz")

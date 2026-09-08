@@ -24,6 +24,16 @@ from openglider.utils import ZipCmp
 from openglider.utils.distribution import Distribution
 from openglider.utils.table import Table
 
+# Diagonal auto-fill defaults per line layer:
+# (intrados width cm, extrados start % chord, extrados end % chord, bands)
+# The extrados range is absolute (positions from the leading edge).
+DIAGONAL_AUTOFILL_DEFAULT_PARAMS = {
+    "A": (4.0, 5.0, 15.0, 1),
+    "B": (4.0, 15.0, 30.0, 1),
+    "C": (4.0, 30.0, 50.0, 1),
+    "D": (4.0, 50.0, 75.0, 1),
+}
+
 
 class ParametricGlider:
     """
@@ -214,17 +224,19 @@ class ParametricGlider:
         self.intrados_sleeves_ns = kwargs.get('intrados_sleeves_ns', [])
 
         # Edit Cells - Diagonals Auto-fill configuration
-        self.diagonal_autofill_params = kwargs.get('diagonal_autofill_params', {
-            "A": (4.0, 5.0, 15.0, 1),   # (intrados_cm, extrados_start_%, extrados_end_%, num_bands)
-            "B": (4.0, 15.0, 30.0, 1),
-            "C": (4.0, 30.0, 50.0, 1),
-            "D": (4.0, 50.0, 75.0, 1),
-        })
+        # (intrados_cm, extrados_start_%, extrados_end_%, num_bands)
+        self.diagonal_autofill_params = kwargs.get(
+            'diagonal_autofill_params', dict(DIAGONAL_AUTOFILL_DEFAULT_PARAMS)
+        )
         self.diagonal_autofill_offset = kwargs.get('diagonal_autofill_offset', 0)  # mm
         self.diagonal_autofill_mode = kwargs.get('diagonal_autofill_mode', 'percent')
         self.diagonal_autofill_angles = kwargs.get('diagonal_autofill_angles', {
             "A": 45.0, "B": 45.0, "C": 45.0, "D": 45.0,
         })
+        # Band split ("T" diagonals): flare edge / band angle in degrees for the
+        # diagonal bands, and for the shoes of the connecting bands (0 = plain)
+        self.diagonal_autofill_flare_angle = kwargs.get('diagonal_autofill_flare_angle', 40.0)
+        self.diagonal_autofill_shoe_angle = kwargs.get('diagonal_autofill_shoe_angle', 40.0)
 
         # Lines Auto-Placement configuration
         self.lines_placement_config = kwargs.get('lines_placement_config', {
@@ -1085,14 +1097,16 @@ class ParametricGlider:
                     is_full = (left_is_intrados and right_is_extrados) or \
                               (right_is_intrados and left_is_extrados)
                     
-                    if is_full:
+                    # Band-split ("T") diagonals carry their own holes.
+                    if is_full and not getattr(drib, 'band_split', None):
                         drib.cone_hole_config = cone_config
                     
                     # Detect horizontal bands (both sides extrados, same height)
                     is_band = (left_is_extrados and right_is_extrados and
                               abs(left_h[0] - right_h[0]) < 0.01 and
                               abs(left_h[1] - right_h[1]) < 0.01)
-                    if is_band:
+                    # Shoe-and-strip bands (band_split) have no room for ellipses.
+                    if is_band and not getattr(drib, 'band_split', None):
                         drib.band_hole_config = cone_config
 
         # === INTRADOS STRAP HOLES ===
@@ -1791,17 +1805,16 @@ class ParametricGlider:
             "intrados_sleeves_enabled_ns": getattr(self, "intrados_sleeves_enabled_ns", True),
             "intrados_sleeves_ns": getattr(self, "intrados_sleeves_ns", []),
             # Edit Cells - Diagonals Auto-fill configuration
-            "diagonal_autofill_params": getattr(self, "diagonal_autofill_params", {
-                "A": (4.0, 5.0, 15.0, 1),
-                "B": (4.0, 15.0, 30.0, 1),
-                "C": (4.0, 30.0, 50.0, 1),
-                "D": (4.0, 50.0, 75.0, 1),
-            }),
+            "diagonal_autofill_params": getattr(
+                self, "diagonal_autofill_params", dict(DIAGONAL_AUTOFILL_DEFAULT_PARAMS)
+            ),
             "diagonal_autofill_offset": getattr(self, "diagonal_autofill_offset", 0),
             "diagonal_autofill_mode": getattr(self, "diagonal_autofill_mode", "percent"),
             "diagonal_autofill_angles": getattr(self, "diagonal_autofill_angles", {
                 "A": 45.0, "B": 45.0, "C": 45.0, "D": 45.0,
             }),
+            "diagonal_autofill_flare_angle": getattr(self, "diagonal_autofill_flare_angle", 40.0),
+            "diagonal_autofill_shoe_angle": getattr(self, "diagonal_autofill_shoe_angle", 40.0),
             # Lines Auto-Placement configuration
             "lines_placement_config": getattr(self, "lines_placement_config", {
                 "demi_ecartement": 0.2,
