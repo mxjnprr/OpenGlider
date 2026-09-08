@@ -31,6 +31,7 @@ class GliderWorkbench(Gui.Workbench):
         "BallooningMergeCommand",
         "LineCommand",
         "LineObserveCommand",
+        "TrimmingCommand",
         "TwistCommand",
         "CellCommand",
         "MiniRibsCommand",
@@ -79,6 +80,7 @@ class GliderWorkbench(Gui.Workbench):
         Gui.addCommand("MiniRibsCommand", tools.MiniRibsCommand())
         Gui.addCommand("LineCommand", tools.LineCommand())
         Gui.addCommand("LineObserveCommand", tools.LineObserveCommand())
+        Gui.addCommand("TrimmingCommand", tools.TrimmingCommand())
 
         Gui.addCommand("ImportGlider", tools.ImportGlider())
         Gui.addCommand("Gl2dExport", tools.Gl2dExport())
