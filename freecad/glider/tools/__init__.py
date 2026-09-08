@@ -21,6 +21,7 @@ from . import (
     miniribs_tool,
     le_panel_split_tool,
     singleskin_tool,
+    trimming_tool,
     twist_tool,
 )
 from . import panel_method as pm
@@ -279,6 +280,18 @@ class ArcCommand(BaseCommand):
 
     def tool(self, obj):
         return arc_tool.ArcTool(obj)
+
+
+class TrimmingCommand(BaseCommand):
+    def GetResources(self):
+        return {
+            "Pixmap": "arc_command.svg",
+            "MenuText": "trimming",
+            "ToolTip": "transcribe prototype line-length trims onto the model",
+        }
+
+    def tool(self, obj):
+        return trimming_tool.TrimmingTool(obj)
 
 
 class AoaCommand(BaseCommand):
