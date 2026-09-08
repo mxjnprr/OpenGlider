@@ -119,6 +119,11 @@ class Ballooning:
     def copy(self):
         return copy.deepcopy(self)
 
+    def symmetric(self):
+        """Copy with the extrados (upper) law applied to both skins -- used by
+        the rounded rib-less wingtip, whose two skins meet on one curve."""
+        return Ballooning(copy.deepcopy(self.upper), copy.deepcopy(self.upper))
+
     @classmethod
     def phi(cls, *baloon):
         """
@@ -215,6 +220,13 @@ class BallooningBezier(Ballooning):
     def apply_splines(self):
         self.upper = self.upper_spline.interpolation()
         self.lower = self.lower_spline.interpolation()
+
+    def symmetric(self):
+        """Copy with the extrados spline on both sides (see Ballooning)."""
+        new = self.copy()
+        upper = [list(p) for p in self.upper_spline.controlpoints]
+        new.controlpoints = (upper, [list(p) for p in upper])
+        return new
 
     def __imul__(self, factor):  # TODO: Check consistency
         """Multiplication of BezierBallooning"""

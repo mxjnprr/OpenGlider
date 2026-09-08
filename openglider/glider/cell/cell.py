@@ -268,7 +268,7 @@ class Cell(CachedObject):
             )  # L-NEW
 
             for c in cells:
-                if bl > 0:
+                if bl > 0 and lnew > 1e-12:
                     newval = l / lnew * (bl + 1 / 2) - 1 / 2
                     c.ballooning_phi.append(
                         Ballooning.arcsinc(1 / (1 + newval))
@@ -589,7 +589,13 @@ class Cell(CachedObject):
         left_bal = [np.array([0, 0])]
         right_bal = [np.array([l_0, 0])]
 
-        def get_point(p1, p2, l_0, l_l, l_r, left=True):
+        def get_point(p1, p2, l_0, l_l, l_r, left=True, fallback=None):
+            if l_0 < 1e-9:
+                # Both rails share this point (zero cell width, e.g. the seam
+                # ends of a rounded rib-less tip): the triangle degenerates, so
+                # simply continue the rail in the current development direction.
+                direction = np.array([0.0, 1.0]) if fallback is None else fallback
+                return p1 + l_l * direction
             lx = (l_0**2 + l_l**2 - l_r**2) / (2 * l_0)
             ly_sq = l_l**2 - lx**2
             if ly_sq > 0:
@@ -623,9 +629,17 @@ class Cell(CachedObject):
                     left=False,
                 )
             else:
-                pr_2 = get_point(p2, p1, l_0, d_r, get_length(i, i + 1), left=False)
+                fallback = None
+                if len(right_bal) > 1:
+                    step = right_bal[-1] - right_bal[-2]
+                    if openglider.vector.norm(step) > 1e-12:
+                        fallback = openglider.vector.normalize(step)
+                pr_2 = get_point(
+                    p2, p1, l_0, d_r, get_length(i, i + 1), left=False, fallback=fallback
+                )
                 pl_2 = get_point(
-                    p1, pr_2, get_length(i, i + 1), d_l, get_length(i + 1, i + 1)
+                    p1, pr_2, get_length(i, i + 1), d_l, get_length(i + 1, i + 1),
+                    fallback=fallback,
                 )
 
             left_bal.append(pl_2)
