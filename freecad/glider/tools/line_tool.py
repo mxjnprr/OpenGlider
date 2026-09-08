@@ -183,6 +183,17 @@ class LineTool(BaseTool):
         self.line_layout.setWidget(2, text_field, QtGui.QLabel("name"))
         self.line_layout.setWidget(2, input_field, self.QLineName)
         self.QLineName.textChanged.connect(self.line_name_changed)
+        self.QLineShared = QtGui.QCheckBox("tension shared with the mirrored line")
+        self.QLineShared.setToolTip(
+            "Suspente partagée gauche/droite : cette suspente et sa symétrique\n"
+            "se rejoignent en un seul nœud sur le plan de symétrie et portent la\n"
+            "même tension (ex. freins centraux reliés aux deux poignées).\n"
+            "Le nœud haut est maintenu sur le plan de symétrie et la tension de\n"
+            "chaque brin est calculée avec l'équilibre symétrique."
+        )
+        self.line_layout.setWidget(3, text_field, QtGui.QLabel("shared L/R"))
+        self.line_layout.setWidget(3, input_field, self.QLineShared)
+        self.QLineShared.stateChanged.connect(self.update_line_shared)
 
         self.attach_x_val = QtGui.QDoubleSpinBox()
         self.attach_y_val = QtGui.QDoubleSpinBox()
@@ -384,6 +395,7 @@ class LineTool(BaseTool):
                 obj.target_length = line.target_length if line.target_length else 1.0
                 obj.name = line.name or "unnamed"
                 obj.layer = line.layer or ""
+                obj.shared = getattr(line, "shared", False)
                 self.shape += [obj]
                 self.layer_combobox.addItem(line.layer)
         
@@ -620,6 +632,11 @@ class LineTool(BaseTool):
                     selected_objs[0].line_type, QtCore.Qt.MatchExactly
                 )[0]
                 self.Qline_list.setCurrentItem(line_type_item)
+                self.QLineShared.blockSignals(True)
+                self.QLineShared.setChecked(
+                    all(getattr(obj, "shared", False) for obj in selected_objs)
+                )
+                self.QLineShared.blockSignals(False)
                 if len(selected_objs) != 1:
                     self.QLineName.setDisabled(True)
                 else:
@@ -660,6 +677,11 @@ class LineTool(BaseTool):
     def update_line_type(self, *args):
         for obj in self.shape.selected_objects:
             obj.line_type = self.Qline_list.currentItem().line_type.name
+
+    def update_line_shared(self, *args):
+        shared = bool(self.QLineShared.isChecked())
+        for obj in self.shape.selected_objects:
+            obj.shared = shared
 
     def update_lw_att_pos(self, *args):
         x = self.attach_x_val.value()
@@ -725,6 +747,7 @@ class LineTool(BaseTool):
             obj.target_length = line.target_length
             obj.name = line.name
             obj.layer = line.layer
+            obj.shared = getattr(line, "shared", False)
             self.shape += [obj]
             self.layer_combobox.addItem(line.layer)
         self.layer_combobox.model().sort(0)
@@ -746,6 +769,7 @@ class LineTool(BaseTool):
                 l.line_type = LineType.types[obj.line_type]
                 l.layer = obj.layer
                 l.name = obj.name
+                l.shared = bool(getattr(obj, "shared", False))
                 lines.append(l)
                 if isinstance(l.upper_node, UpperNode2D):
                     l.upper_node.name = obj.name
@@ -886,6 +910,7 @@ class ConnectionLine(Line):
         self.line_type = "default"
         self.layer = ""
         self.name = "line_name"
+        self.shared = False  # tension shared with the mirrored line (Y bridle)
 
     def is_uppermost_line(self):
         return isinstance(self.marker1, Upper_Att_Marker) or isinstance(
