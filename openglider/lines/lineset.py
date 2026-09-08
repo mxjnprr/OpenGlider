@@ -13,6 +13,10 @@ from openglider.vector.functions import norm, normalize
 
 logger = logging.getLogger(__name__)
 
+# The glider is modelled as one half, mirrored about the x-z plane (y = 0).
+# Multiplying a vector by this mask keeps its in-plane components only.
+SYMMETRY_PLANE_MASK = np.array([1.0, 0.0, 1.0])
+
 
 class LineSet:
     """
@@ -212,6 +216,10 @@ class LineSet:
             if line.upper_node.type == 1:  # no gallery line
                 lower_point = line.lower_node.vec
                 tangential = self.get_tangential_comp(line, lower_point)
+                if line.shared:
+                    tangential = self._shared_line_direction(
+                        line, lower_point, tangential
+                    )
                 line.upper_node.vec = lower_point + tangential * line.init_length
 
                 self._calc_geo(self.get_upper_connected_lines(line.upper_node))
@@ -266,15 +274,81 @@ class LineSet:
                     else:
                         force += line.force * line.diff_vector
                 # vec = line_lower.upper_node.vec - line_lower.lower_node.vec
-                line_lower.force = norm(np.dot(force, normalize(vec)))
+                if line_lower.shared:
+                    line_lower.force = self._shared_line_force(force, vec)
+                else:
+                    line_lower.force = norm(np.dot(force, normalize(vec)))
 
             else:
                 force = line_lower.upper_node.force
-                force_projected = proj_force(force, normalize(vec))
+                direction = normalize(vec)
+                if line_lower.shared:
+                    # the mirror image of this leg takes the y-components
+                    force = np.asarray(force, dtype=float) * SYMMETRY_PLANE_MASK
+                    direction = direction * SYMMETRY_PLANE_MASK
+                force_projected = proj_force(force, direction)
                 if force_projected is None:
                     line_lower.force = 10
                 else:
                     line_lower.force = norm(force_projected)
+
+    # -----SHARED LINES-----#
+    # A "shared" line (line.shared) is one leg of a symmetric pair: this leg
+    # goes to a lower attachment point of this half (e.g. the right brake
+    # handle) and its mirror image goes to the mirrored point (left handle).
+    # Both legs and the upper lines of both halves meet in a single knot on the
+    # symmetry plane and, by symmetry, the two legs carry the same tension.
+    # Only this half is modelled, so:
+    #  - the knot (upper node of the leg) is kept on the symmetry plane,
+    #  - the y-components of the forces at the knot cancel with the mirror
+    #    image and are dropped from the balance,
+    #  - the tension of this leg balances the in-plane resultant of the upper
+    #    lines of this half only (the other half loads the other leg).
+
+    @staticmethod
+    def _shared_line_direction(line, lower_point, direction):
+        """
+        Constrain the direction of a shared line so that its upper node lies
+        on the symmetry plane (y=0): the y-component is imposed by the line
+        length, the in-plane part keeps the direction of ``direction``.
+        """
+        length = line.init_length
+        if not length or length <= 0:
+            return direction
+        dir_y = -lower_point[1] / length
+        if abs(dir_y) >= 1.0:
+            logger.warning(
+                f"shared line {line.name}: length {length:.3f} m is too short to "
+                f"reach the symmetry plane from y={lower_point[1]:.3f} m"
+            )
+            return direction
+        in_plane = np.asarray(direction, dtype=float) * SYMMETRY_PLANE_MASK
+        length_in_plane = norm(in_plane)
+        if length_in_plane < 1e-10:
+            in_plane = np.array([0.0, 0.0, 1.0])
+            length_in_plane = 1.0
+        in_plane = in_plane / length_in_plane * np.sqrt(1.0 - dir_y**2)
+        return in_plane + np.array([0.0, dir_y, 0.0])
+
+    @staticmethod
+    def _shared_line_force(upper_force, vec):
+        """
+        Tension in one leg of a shared line.
+
+        ``upper_force`` is the resultant of the upper lines of this half at the
+        knot. The other half adds the mirror image of it, so only the in-plane
+        part remains and is carried by the two legs together:
+        ``2 * F_leg * d_in_plane = 2 * upper_force_in_plane``.
+        """
+        force = np.asarray(upper_force, dtype=float) * SYMMETRY_PLANE_MASK
+        direction = normalize(vec) * SYMMETRY_PLANE_MASK
+        direction_sq = np.dot(direction, direction)
+        if direction_sq < 1e-10:
+            logger.warning(
+                "shared line runs normal to the symmetry plane, tension undefined"
+            )
+            return norm(force)
+        return abs(np.dot(force, direction)) / direction_sq
 
     def get_upper_connected_lines(self, node):
         return [line for line in self.lines if line.lower_node is node]
@@ -655,6 +729,8 @@ class LineSet:
                     below = ", ".join(lower.name or "?" for lower in lowers)
                 else:
                     below = riser.name or "?"
+                if line.shared:
+                    below += " (partagée G/D)"
 
                 uppers = self.get_upper_connected_lines(line.upper_node)
                 if uppers:
@@ -729,6 +805,10 @@ class LineSet:
             residual_force += line.force * line.diff_vector
         for line in lower_lines:
             residual_force -= line.force * line.diff_vector
+        if any(line.shared for line in lower_lines):
+            # knot on the symmetry plane: the mirror image cancels the
+            # y-components (upper lines of the other half and the other leg)
+            residual_force = residual_force * SYMMETRY_PLANE_MASK
         return residual_force
 
     def copy(self):

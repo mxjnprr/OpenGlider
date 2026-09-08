@@ -220,6 +220,7 @@ class LineSet2D:
                     target_length=line.target_length,
                     line_type=line.line_type,
                     name=line.name,
+                    shared=getattr(line, "shared", False),
                 )
                 lines.append(line)
 
@@ -757,6 +758,7 @@ class Line2D:
         line_type="default",
         layer=None,
         name=None,
+        shared=False,
     ):
         self.lower_node = lower_node
         self.upper_node = upper_node
@@ -765,6 +767,10 @@ class Line2D:
         self.line_type = line_types.LineType.get(line_type)
         self.layer = layer or ""
         self.name = name
+        # tension shared equally with the mirrored line: both legs meet in one
+        # knot on the symmetry plane (e.g. central brake lines tied to both
+        # brake handles).  See openglider.lines.LineSet (shared lines).
+        self.shared = bool(shared)
 
     def __json__(self):
         return {
@@ -774,4 +780,5 @@ class Line2D:
             "line_type": self.line_type.name,
             "layer": self.layer,
             "name": self.name,
+            "shared": self.shared,
         }

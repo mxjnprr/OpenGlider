@@ -113,9 +113,17 @@ class Line(CachedObject):
         number=None,
         name=None,
         color="",
+        shared=False,
     ):
         """
         Line Class
+
+        :param shared: this line and its left/right mirror image meet in one
+            knot on the symmetry plane (y=0) and carry the same tension, e.g.
+            the central brake lines tied to both brake handles.  The lineset
+            keeps the upper node on the symmetry plane and computes the
+            tension of this leg from the mirrored force balance
+            (see :meth:`LineSet.calc_forces`).
         """
         self.number = number
         self.type = line_type  # type of line
@@ -135,6 +143,7 @@ class Line(CachedObject):
         self.sag_par_2 = None
 
         self.name = name or "line_name_not_set"
+        self.shared = bool(shared)
 
         self.lineset = None  # the parent have to be set after initialization
 
@@ -152,12 +161,17 @@ class Line(CachedObject):
         """
         true if upper and lower nodes of the line were already computed
         """
-        # the node vectors can be None or numpy.arrays. So we have to check for both types
-        try:
-            return all(list(self.lower_node.vec) + list(self.upper_node.vec))
-        except TypeError:
-            # one of the nodes vec is None
-            return False
+        # the node vectors can be None or numpy.arrays. A coordinate that is
+        # exactly 0 (e.g. a node on the symmetry plane) still counts as computed.
+        for vec in (self.lower_node.vec, self.upper_node.vec):
+            if vec is None:
+                return False
+            try:
+                if np.any(np.isnan(np.asarray(vec, dtype=float))):
+                    return False
+            except (TypeError, ValueError):
+                return False
+        return True
 
     @property
     def v_inf_0(self):
@@ -335,11 +349,20 @@ class Line(CachedObject):
             "line_type": self.type.name,
             "target_length": self.target_length,
             "name": self.name,
+            "shared": self.shared,
         }
 
     @classmethod
     def __from_json__(
-        cls, number, lower_node, upper_node, v_inf, line_type, target_length, name
+        cls,
+        number,
+        lower_node,
+        upper_node,
+        v_inf,
+        line_type,
+        target_length,
+        name,
+        shared=False,
     ):
         return cls(
             lower_node,
@@ -349,6 +372,7 @@ class Line(CachedObject):
             target_length,
             number,
             name,
+            shared=shared,
         )
 
     def get_connected_ribs(self, glider):
