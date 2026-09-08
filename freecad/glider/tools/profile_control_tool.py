@@ -31,6 +31,28 @@ from .tools import (
 )
 
 
+AIRFOIL_UID_ROLE = QtCore.Qt.UserRole
+
+
+class _AirfoilListWidget(QtGui.QListWidget):
+    """Profile list with internal drag-and-drop reordering.
+
+    Qt re-creates the dropped item (only its data roles survive the move), so
+    the profiles are keyed by an integer uid stored in ``Qt.UserRole`` instead
+    of a Python attribute on the item.  ``on_reordered`` is called once the
+    move is complete, i.e. after Qt has removed the dragged source row.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.on_reordered = None
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        if self.on_reordered is not None:
+            QtCore.QTimer.singleShot(0, self.on_reordered)
+
+
 class AirfoilControlTool(BaseTool):
     """Unified Airfoil Control Tool with tabbed interface"""
     widget_name = "Airfoil Control"
@@ -105,24 +127,27 @@ class AirfoilControlTool(BaseTool):
         """Tab 0: Airfoil Selection - manage base profiles"""
         COMPARE_COLORS = ["blue", "cyan", "magenta", "orange", "gold", "purple"]
         self._airfoil_colors = COMPARE_COLORS
-        self._airfoil_undo = {}  # item id -> list of previous airfoil states
-        
+        self._airfoil_undo = {}  # uid -> list of previous airfoil states
+        # uid -> airfoil.  The list items only carry the uid (Qt.UserRole),
+        # which survives a drag-and-drop reorder; the objects live here.
+        self._airfoils = {}
+        self._next_airfoil_uid = 0
+        # rib index (str) -> uid of the overriding profile (Overrides tab)
+        self._override_uids = {}
+
         tab = QtGui.QWidget()
         layout = QtGui.QVBoxLayout(tab)
-        
+
         # Profile list with checkboxes for comparison overlay
         layout.addWidget(QtGui.QLabel("Profiles:"))
-        self.airfoil_list = QtGui.QListWidget()
+        self.airfoil_list = _AirfoilListWidget()
         self.airfoil_list.setMaximumHeight(150)
         self.airfoil_list.setDragDropMode(QtGui.QAbstractItemView.InternalMove)
-        
+        self.airfoil_list.on_reordered = self._on_airfoil_list_reordered
+
         for profile in self.parametric_glider.profiles:
-            item = QtGui.QListWidgetItem(profile.name)
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.Unchecked)
-            item.airfoil = profile
-            self.airfoil_list.addItem(item)
-        
+            self._add_airfoil_item(profile, select=False)
+
         self.airfoil_list.setCurrentRow(0)
         layout.addWidget(self.airfoil_list)
         
@@ -147,8 +172,9 @@ class AirfoilControlTool(BaseTool):
         # Apply as default button
         self.airfoil_apply_btn = QtGui.QPushButton("Apply as default (entire wing)")
         self.airfoil_apply_btn.setToolTip(
-            "Set the selected profile as the base profile for the entire wing.\n"
-            "Moves it to index 0 so the Distribution tab uses it."
+            "Move the selected profile to index 0: the distribution curve\n"
+            "(index 0 everywhere by default) then uses it for the entire wing.\n"
+            "The other profiles are kept and rib overrides follow their profile."
         )
         layout.addWidget(self.airfoil_apply_btn)
         
@@ -205,16 +231,161 @@ class AirfoilControlTool(BaseTool):
         layout.addStretch()
         self.tab_widget.addTab(tab, "Airfoil Selection")
     
+
+    # ---- airfoil list <-> parametric glider ----
+    def _add_airfoil_item(self, airfoil, row=None, select=True):
+        """Register ``airfoil`` and add its list item (at ``row`` or at the end)."""
+        uid = self._next_airfoil_uid
+        self._next_airfoil_uid += 1
+        self._airfoils[uid] = airfoil
+        item = QtGui.QListWidgetItem(airfoil.name or f"airfoil{uid}")
+        item.setData(AIRFOIL_UID_ROLE, uid)
+        self._set_airfoil_item_flags(item)
+        item.setCheckState(QtCore.Qt.Unchecked)
+        if row is None:
+            self.airfoil_list.addItem(item)
+        else:
+            self.airfoil_list.insertItem(row, item)
+        if select:
+            self.airfoil_list.setCurrentItem(item)
+        return item
+
+    @staticmethod
+    def _set_airfoil_item_flags(item):
+        item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
+
+    @staticmethod
+    def _airfoil_uid(item):
+        if item is None:
+            return None
+        uid = item.data(AIRFOIL_UID_ROLE)
+        return None if uid is None else int(uid)
+
+    def _airfoil_of(self, item):
+        """The Profile2D behind a list item (None for a stale/unknown item)."""
+        return self._airfoils.get(self._airfoil_uid(item))
+
+    def _airfoil_uids(self):
+        """uids in list order (unknown items and transient duplicates skipped)."""
+        uids = []
+        for index in range(self.airfoil_list.count()):
+            uid = self._airfoil_uid(self.airfoil_list.item(index))
+            if uid in self._airfoils and uid not in uids:
+                uids.append(uid)
+        return uids
+
+    def _sync_profiles_from_list(self):
+        """Mirror the list into ``parametric_glider.profiles`` and refresh every
+        widget that lists profiles (override combos, distribution list/grid,
+        shark nose preview).
+
+        Overrides are tracked by profile identity (uid), so re-ordering or
+        deleting profiles never silently re-targets a rib's override; an
+        override whose profile was deleted is dropped.
+        """
+        uids, profiles = [], []
+        for index in range(self.airfoil_list.count()):
+            item = self.airfoil_list.item(index)
+            uid = self._airfoil_uid(item)
+            if uid not in self._airfoils or uid in uids:
+                continue
+            airfoil = self._airfoils[uid]
+            if item.text():
+                airfoil.name = item.text()
+            uids.append(uid)
+            profiles.append(airfoil)
+        if not profiles:
+            return
+        self.parametric_glider.profiles = profiles
+
+        overrides = {}
+        for rib, uid in list(self._override_uids.items()):
+            if uid in uids:
+                overrides[rib] = uids.index(uid)
+            else:
+                del self._override_uids[rib]
+        self.parametric_glider.profile_overrides = overrides
+
+        if hasattr(self, "override_table"):
+            self._rebuild_override_combos()
+            self._refresh_override_defaults()
+        if hasattr(self, "profile_list"):
+            self._refresh_distribution_profile_list()
+        if hasattr(self, "dist_grid"):
+            self._update_distribution_grid()
+        if hasattr(self, "sharknose_scene"):
+            self._update_sharknose_preview()
+
+    def _on_airfoil_list_reordered(self):
+        """After a drag-and-drop move: restore the item flags (Qt re-creates the
+        dropped item with default flags), re-sync and regenerate."""
+        for index in range(self.airfoil_list.count()):
+            self._set_airfoil_item_flags(self.airfoil_list.item(index))
+        self._sync_profiles_from_list()
+        self._update_airfoil_display()
+        self.update_view_glider()
+
+    def _rebuild_override_combos(self):
+        """Refill the override combos from the current profile list, keeping
+        each rib's selection by profile identity."""
+        uids = self._airfoil_uids()
+        names = [f"{j}. {self._airfoils[uid].name}" for j, uid in enumerate(uids)]
+        for i in range(self.override_table.rowCount()):
+            combo = self.override_table.cellWidget(i, 2)
+            if combo is None:
+                continue
+            uid = self._override_uids.get(str(i))
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("(Use distribution)")
+            for name in names:
+                combo.addItem(name)
+            combo.setCurrentIndex(uids.index(uid) + 1 if uid in uids else 0)
+            combo.blockSignals(False)
+
+    def _default_profile_text(self, factor):
+        """Describe what the distribution curve yields for ``factor``."""
+        profiles = self.parametric_glider.profiles
+        if not profiles:
+            return "N/A"
+        factor = max(0.0, min(len(profiles) - 1, float(factor)))
+        i = int(factor)
+        k = factor - i
+        if k < 0.005 or i + 1 >= len(profiles):
+            return profiles[i].name
+        if k > 0.995:
+            return profiles[i + 1].name
+        return (
+            f"{profiles[i].name} {100 * (1 - k):.0f}% + "
+            f"{profiles[i + 1].name} {100 * k:.0f}%"
+        )
+
+    def _refresh_override_defaults(self):
+        """Refresh the 'Default' column (distribution result) of the override table."""
+        x_values = self.parametric_glider.shape.rib_x_values
+        profile_merge = self.parametric_glider.profile_merge_curve.interpolation(num=50)
+        for i, x in enumerate(x_values):
+            item = self.override_table.item(i, 1)
+            if item is not None:
+                item.setText(self._default_profile_text(profile_merge(abs(x))))
+
+    def _refresh_distribution_profile_list(self):
+        self.profile_list.clear()
+        for i, p in enumerate(self.parametric_glider.profiles):
+            self.profile_list.addItem(f"{i}. {p.name}")
+
     def _on_airfoil_selection_changed(self, *args):
         """Update 2D visualization when selection changes."""
         self._update_airfoil_display()
     
     def _on_airfoil_item_changed(self, item):
-        """Update display when a checkbox is toggled or name is edited."""
-        if hasattr(item, 'airfoil') and item.airfoil is not None:
-            item.airfoil.name = item.text()
+        """Rename or checkbox toggle: keep names and dependent lists in sync."""
+        airfoil = self._airfoil_of(item)
+        if airfoil is not None and item.text():
+            airfoil.name = item.text()
+        self._sync_profiles_from_list()
         self._update_airfoil_display()
-    
+
     def _update_airfoil_display(self):
         """Draw selected airfoil (thick) and checked airfoils (thin, colored) for comparison."""
         self.airfoil_sep.removeAllChildren()
@@ -227,7 +398,7 @@ class AirfoilControlTool(BaseTool):
             if index == current_row:
                 continue
             if item.checkState() == QtCore.Qt.Checked:
-                airfoil = getattr(item, 'airfoil', None)
+                airfoil = self._airfoil_of(item)
                 if airfoil is not None:
                     color = self._airfoil_colors[color_idx % len(self._airfoil_colors)]
                     color_idx += 1
@@ -239,7 +410,7 @@ class AirfoilControlTool(BaseTool):
         if current_row >= 0:
             item = self.airfoil_list.item(current_row)
             if item is not None:
-                airfoil = getattr(item, 'airfoil', None)
+                airfoil = self._airfoil_of(item)
                 if airfoil is not None:
                     self.airfoil_sep.addChild(
                         Line_old(vector3D(airfoil.data), color="red", width=2).object
@@ -250,33 +421,32 @@ class AirfoilControlTool(BaseTool):
         j = self.airfoil_list.count()
         airfoil = BezierProfile2D.compute_naca(4412)
         airfoil.name = f"airfoil{j}"
-        item = QtGui.QListWidgetItem(airfoil.name)
-        item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
-        item.setCheckState(QtCore.Qt.Unchecked)
-        item.airfoil = airfoil
-        self.airfoil_list.addItem(item)
-        self.airfoil_list.setCurrentItem(item)
-    
+        self._add_airfoil_item(airfoil)
+        self._sync_profiles_from_list()
+
     def _airfoil_copy(self):
         """Copy the currently selected airfoil."""
-        if self.airfoil_list.currentItem() is None:
+        source = self._airfoil_of(self.airfoil_list.currentItem())
+        if source is None:
             return
-        airfoil = deepcopy(self.airfoil_list.currentItem().airfoil)
+        airfoil = deepcopy(source)
         airfoil.name = airfoil.name + "_copy"
-        item = QtGui.QListWidgetItem(airfoil.name)
-        item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
-        item.setCheckState(QtCore.Qt.Unchecked)
-        item.airfoil = airfoil
-        self.airfoil_list.addItem(item)
-        self.airfoil_list.setCurrentItem(item)
-    
+        self._add_airfoil_item(airfoil)
+        self._sync_profiles_from_list()
+
     def _airfoil_delete(self):
-        """Delete the currently selected airfoil."""
+        """Delete the currently selected airfoil (the last one cannot be deleted)."""
         row = self.airfoil_list.currentRow()
-        if row >= 0:
-            self.airfoil_list.takeItem(row)
-            self._update_airfoil_display()
-    
+        if row < 0 or self.airfoil_list.count() <= 1:
+            return
+        item = self.airfoil_list.takeItem(row)
+        uid = self._airfoil_uid(item)
+        self._airfoils.pop(uid, None)
+        self._airfoil_undo.pop(uid, None)
+        self._sync_profiles_from_list()
+        self._update_airfoil_display()
+        self.update_view_glider()
+
     def _airfoil_import(self):
         """Import airfoil(s) from .dat or .json file."""
         filenames, _ = QtGui.QFileDialog.getOpenFileNames(
@@ -285,6 +455,7 @@ class AirfoilControlTool(BaseTool):
             "",
             "Airfoil files (*.dat *.json)",
         )
+        imported = 0
         for filename in filenames:
             try:
                 name, ext = os.path.splitext(filename)
@@ -295,20 +466,16 @@ class AirfoilControlTool(BaseTool):
                         airfoil = jsonify.load(fp)["data"]
                 else:
                     continue
-                item = QtGui.QListWidgetItem(airfoil.name)
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable)
-                item.setCheckState(QtCore.Qt.Unchecked)
-                item.airfoil = airfoil
-                self.airfoil_list.addItem(item)
-                self.airfoil_list.setCurrentItem(item)
+                self._add_airfoil_item(airfoil)
+                imported += 1
             except Exception:
                 pass
-    
+        if imported:
+            self._sync_profiles_from_list()
+
     def _airfoil_export(self):
         """Export the currently selected airfoil to .dat or .json."""
-        if self.airfoil_list.currentItem() is None:
-            return
-        airfoil = self.airfoil_list.currentItem().airfoil
+        airfoil = self._airfoil_of(self.airfoil_list.currentItem())
         if airfoil is None:
             return
         filename, _ = QtGui.QFileDialog.getSaveFileName(
@@ -326,36 +493,35 @@ class AirfoilControlTool(BaseTool):
                     jsonify.dump(airfoil, fp)
 
     def _airfoil_apply_as_default(self):
-        """Apply the currently selected airfoil as profile 0 for the entire wing."""
+        """Move the selected airfoil to index 0.
+
+        The distribution curve sits at index 0 everywhere by default, so the
+        whole wing then uses this profile.  The other profiles are kept (they
+        stay available for overrides / distribution) and the rib overrides
+        follow their profile.
+        """
         row = self.airfoil_list.currentRow()
         if row < 0:
             return
-        item = self.airfoil_list.currentItem()
-        airfoil = getattr(item, 'airfoil', None)
-        if airfoil is None:
-            return
-        # Move selected item to position 0 in the list
         if row != 0:
-            self.airfoil_list.takeItem(row)
+            item = self.airfoil_list.takeItem(row)
             self.airfoil_list.insertItem(0, item)
             self.airfoil_list.setCurrentRow(0)
-        # Set as sole profile
-        self.parametric_glider.profiles = [deepcopy(airfoil)]
+        self._sync_profiles_from_list()
+        self._update_airfoil_display()
         self.update_view_glider()
-    
+
     def _airfoil_smooth(self):
         """Smooth the current airfoil in the selected X range using local averaging."""
         if self.airfoil_list.currentItem() is None:
             return
         item = self.airfoil_list.currentItem()
-        airfoil = getattr(item, 'airfoil', None)
+        airfoil = self._airfoil_of(item)
         if airfoil is None:
             return
         # Save state for undo
-        item_id = id(item)
-        if item_id not in self._airfoil_undo:
-            self._airfoil_undo[item_id] = []
-        self._airfoil_undo[item_id].append(deepcopy(airfoil))
+        uid = self._airfoil_uid(item)
+        self._airfoil_undo.setdefault(uid, []).append(deepcopy(airfoil))
         self.airfoil_undo_btn.setEnabled(True)
         
         x_from = self.airfoil_smooth_xfrom.value()
@@ -391,16 +557,15 @@ class AirfoilControlTool(BaseTool):
     
     def _airfoil_undo_smooth(self):
         """Undo the last smooth operation on the current airfoil."""
-        if self.airfoil_list.currentItem() is None:
-            return
         item = self.airfoil_list.currentItem()
-        item_id = id(item)
-        stack = self._airfoil_undo.get(item_id, [])
-        if not stack:
+        uid = self._airfoil_uid(item)
+        stack = self._airfoil_undo.get(uid, [])
+        if uid is None or not stack:
             return
-        item.airfoil = stack.pop()
+        self._airfoils[uid] = stack.pop()
         if not stack:
             self.airfoil_undo_btn.setEnabled(False)
+        self._sync_profiles_from_list()
         self._update_airfoil_display()
 
     def _create_distribution_tab(self):
@@ -443,8 +608,7 @@ class AirfoilControlTool(BaseTool):
         # Profile list
         layout.addWidget(QtGui.QLabel("Available profiles:"))
         self.profile_list = QtGui.QListWidget()
-        for i, p in enumerate(self.parametric_glider.profiles):
-            self.profile_list.addItem(f"{i}. {p.name}")
+        self._refresh_distribution_profile_list()
         layout.addWidget(self.profile_list)
         
         layout.addStretch()
@@ -454,56 +618,66 @@ class AirfoilControlTool(BaseTool):
         """Tab 2: Rib-specific profile overrides"""
         tab = QtGui.QWidget()
         layout = QtGui.QVBoxLayout(tab)
-        
+
+        info = QtGui.QLabel(
+            "An overridden rib uses the selected profile as-is: the distribution, "
+            "the thickness scaling and the shark nose are NOT applied to it "
+            "(e.g. a plain profile on the closed wingtip cells).\n"
+            "Ribs are numbered from the centre (R0) to the tip; rib i borders "
+            "cells i-1 and i of the Shark Nose tab."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
         # Enable checkbox
         self.overrides_enabled = QtGui.QCheckBox("Enable rib-specific overrides")
         self.overrides_enabled.setChecked(
             getattr(self.parametric_glider, 'profile_overrides_enabled', False)
         )
-        self.overrides_enabled.stateChanged.connect(self._update_overrides)
         layout.addWidget(self.overrides_enabled)
-        
+
         # Override table
         self.override_table = QtGui.QTableWidget()
         self.override_table.setColumnCount(3)
-        self.override_table.setHorizontalHeaderLabels(["Rib", "Default", "Override"])
+        self.override_table.setHorizontalHeaderLabels(["Rib", "Default (distribution)", "Override"])
         self.override_table.horizontalHeader().setStretchLastSection(True)
-        
+
+        # Stored overrides are profile indices; track them by profile identity
+        # from now on so list edits (reorder / delete / import) cannot silently
+        # re-target a rib.
+        uids = self._airfoil_uids()
+        stored = getattr(self.parametric_glider, 'profile_overrides', None) or {}
+        self._override_uids = {}
+        for rib, idx in stored.items():
+            try:
+                idx = int(idx)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(uids):
+                self._override_uids[str(rib)] = uids[idx]
+
         x_values = self.parametric_glider.shape.rib_x_values
-        profile_merge = self.parametric_glider.profile_merge_curve.interpolation(num=50)
-        overrides = getattr(self.parametric_glider, 'profile_overrides', {})
-        
         self.override_table.setRowCount(len(x_values))
-        for i, x in enumerate(x_values):
-            # Rib number
+        for i in range(len(x_values)):
             rib_item = QtGui.QTableWidgetItem(f"R{i}")
             rib_item.setFlags(rib_item.flags() & ~QtCore.Qt.ItemIsEditable)
             self.override_table.setItem(i, 0, rib_item)
-            
-            # Default profile from merge curve
-            factor = profile_merge(abs(x))
-            default_idx = int(min(factor, len(self.parametric_glider.profiles) - 1))
-            default_name = self.parametric_glider.profiles[default_idx].name if self.parametric_glider.profiles else "N/A"
-            default_item = QtGui.QTableWidgetItem(default_name)
+
+            default_item = QtGui.QTableWidgetItem("")
             default_item.setFlags(default_item.flags() & ~QtCore.Qt.ItemIsEditable)
             self.override_table.setItem(i, 1, default_item)
-            
-            # Override combo
+
             combo = QtGui.QComboBox()
-            combo.addItem("(Use distribution)")
-            for j, p in enumerate(self.parametric_glider.profiles):
-                combo.addItem(f"{j}. {p.name}")
-            
-            # Set current override if exists
-            if str(i) in overrides:
-                combo.setCurrentIndex(overrides[str(i)] + 1)
-            
             combo.currentIndexChanged.connect(self._update_overrides)
             self.override_table.setCellWidget(i, 2, combo)
-            
+
+        self._rebuild_override_combos()
+        self._refresh_override_defaults()
+        self.overrides_enabled.stateChanged.connect(self._update_overrides)
+
         layout.addWidget(self.override_table)
         self.tab_widget.addTab(tab, "Overrides")
-        
+
     def _create_sharknose_tab(self):
         """Tab 3: Shark Nose nose concavity with cell selection and 2D preview"""
         tab = QtGui.QWidget()
@@ -516,6 +690,12 @@ class AirfoilControlTool(BaseTool):
         )
         self.sharknose_enabled.stateChanged.connect(self._update_sharknose)
         layout.addWidget(self.sharknose_enabled)
+        note = QtGui.QLabel(
+            "Ribs with an explicit profile override (Overrides tab) keep their "
+            "profile unchanged."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
         
         # Parameters in form layout
         form = QtGui.QFormLayout()
@@ -546,8 +726,10 @@ class AirfoilControlTool(BaseTool):
         
         layout.addLayout(form)
         
-        # 2D Profile Preview
-        layout.addWidget(QtGui.QLabel("Nose preview:"))
+        # 2D Profile Preview (always drawn so the parameters can be tuned; the
+        # label says whether the deformation is actually applied to the wing)
+        self.sharknose_preview_label = QtGui.QLabel()
+        layout.addWidget(self.sharknose_preview_label)
         self.sharknose_scene = QtGui.QGraphicsScene()
         self.sharknose_view = QtGui.QGraphicsView(self.sharknose_scene)
         self.sharknose_view.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -1338,6 +1520,7 @@ class AirfoilControlTool(BaseTool):
         """Called when distribution control point is released"""
         self._update_distribution_curve()
         self._update_distribution_table()
+        self._refresh_override_defaults()
         self.update_view_glider()
         
     def _on_thickness_drag(self):
@@ -1459,6 +1642,7 @@ class AirfoilControlTool(BaseTool):
         self.dist_controlpoints.control_points[-1].constrained = [0.0, 1.0, 0.0]
         self._update_distribution_curve()
         self._update_distribution_table()
+        self._refresh_override_defaults()
     
     def _update_aoa_points(self, num):
         """Update number of AoA control points"""
@@ -1802,6 +1986,7 @@ class AirfoilControlTool(BaseTool):
         self._update_distribution_curve()
         self._update_distribution_grid()
         self._update_distribution_table()
+        self._refresh_override_defaults()
         self.update_view_glider()
     
     # ---- Thickness table ----
@@ -1969,18 +2154,22 @@ class AirfoilControlTool(BaseTool):
         self.update_view_glider()
         
     def _update_overrides(self, *args):
-        """Update profile overrides from table"""
+        """Update profile overrides from the table (kept by profile identity)."""
         self.parametric_glider.profile_overrides_enabled = self.overrides_enabled.isChecked()
-        
+        uids = self._airfoil_uids()
+        self._override_uids = {}
         overrides = {}
         for i in range(self.override_table.rowCount()):
             combo = self.override_table.cellWidget(i, 2)
-            if combo and combo.currentIndex() > 0:
-                overrides[str(i)] = combo.currentIndex() - 1
-        
+            if combo is None:
+                continue
+            idx = combo.currentIndex() - 1
+            if 0 <= idx < len(uids):
+                self._override_uids[str(i)] = uids[idx]
+                overrides[str(i)] = idx
         self.parametric_glider.profile_overrides = overrides
         self.update_view_glider()
-        
+
     def _update_sharknose(self, *args):
         """Update shark nose parameters and cell selection"""
         self.parametric_glider.sharknose_enabled = self.sharknose_enabled.isChecked()
@@ -2000,6 +2189,13 @@ class AirfoilControlTool(BaseTool):
     
     def _update_sharknose_preview(self):
         """Update the 2D nose preview showing original and shark-nosed profiles."""
+        if self.sharknose_enabled.isChecked():
+            self.sharknose_preview_label.setText("Nose preview (applied to the selected cells):")
+        else:
+            self.sharknose_preview_label.setText(
+                "Nose preview only: the shark nose is NOT applied to the wing "
+                "while 'Enable shark nose' is unchecked."
+            )
         self.sharknose_scene.clear()
         
         # Get the first profile as reference
@@ -2186,16 +2382,9 @@ class AirfoilControlTool(BaseTool):
 
     def accept(self):
         """Accept changes and close"""
-        # Save profiles from airfoil selection tab
-        profiles = []
-        for index in range(self.airfoil_list.count()):
-            item = self.airfoil_list.item(index)
-            airfoil = getattr(item, 'airfoil', None)
-            if airfoil is not None:
-                airfoil.name = item.text()
-                profiles.append(airfoil)
-        if profiles:
-            self.parametric_glider.profiles = profiles
+        # Profiles / overrides follow the airfoil list (kept in sync live;
+        # this catches an in-progress rename).
+        self._sync_profiles_from_list()
         
         if hasattr(self, 'dist_controlpoints'):
             self.dist_controlpoints.remove_callbacks()

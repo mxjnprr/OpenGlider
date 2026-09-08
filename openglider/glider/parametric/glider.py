@@ -1980,45 +1980,43 @@ class ParametricGlider:
         Returns:
             Profile2D with all modifications applied
         """
-        # 1. Check for rib-specific override
-        if (getattr(self, 'profile_overrides_enabled', False) and 
-            rib_index is not None and 
-            str(rib_index) in getattr(self, 'profile_overrides', {})):
-            override_idx = self.profile_overrides[str(rib_index)]
-            if 0 <= override_idx < len(self.profiles):
-                profile = self.profiles[override_idx].copy()
-            else:
-                profile = self._interpolate_profiles(factor)
-        else:
+        # 1. Rib-specific override: the selected profile is used *as-is*.
+        #    The distribution, the thickness scaling and the procedural shark
+        #    nose are all skipped for an overridden rib -- otherwise choosing a
+        #    plain profile for a rib could never remove the shark nose, and a
+        #    profile that already carries one (e.g. baked by the trim solver)
+        #    would get it applied twice.
+        profile = self.get_profile_override(rib_index)
+        if profile is None:
             # 2. Standard interpolation
             profile = self._interpolate_profiles(factor)
-        
-        # 3. Apply thickness scaling
-        if getattr(self, 'thickness_curve_enabled', False) and pos_x is not None:
-            thickness_factor = self._get_thickness_factor(pos_x)
-            if thickness_factor != 1.0:
-                profile = self._apply_thickness_scaling(profile, thickness_factor)
-        
-        # 4. Apply shark nose if enabled AND rib belongs to a selected cell
-        if getattr(self, 'sharknose_enabled', False):
-            sharknose_cells = getattr(self, 'sharknose_cells', None)
-            # Check if rib_index corresponds to a cell in sharknose_cells
-            # A rib at index i borders cells i-1 and i (for i > 0)
-            # We apply sharknose if either adjacent cell is selected
-            apply_sharknose = True
-            if sharknose_cells is not None and rib_index is not None:
-                # Check if either adjacent cell is in the selected list
-                cell_indices = []
-                if rib_index > 0:
-                    cell_indices.append(rib_index - 1)
-                if rib_index < len(self.shape.rib_x_values) - 1:
-                    cell_indices.append(rib_index)
-                apply_sharknose = any(c in sharknose_cells for c in cell_indices)
-            
-            if apply_sharknose:
-                sharknose_factor = self._get_sharknose_factor(pos_x)
-                if sharknose_factor > 0:
-                    profile = self._apply_sharknose(profile, sharknose_factor)
+
+            # 3. Apply thickness scaling
+            if getattr(self, 'thickness_curve_enabled', False) and pos_x is not None:
+                thickness_factor = self._get_thickness_factor(pos_x)
+                if thickness_factor != 1.0:
+                    profile = self._apply_thickness_scaling(profile, thickness_factor)
+
+            # 4. Apply shark nose if enabled AND rib belongs to a selected cell
+            if getattr(self, 'sharknose_enabled', False):
+                sharknose_cells = getattr(self, 'sharknose_cells', None)
+                # Check if rib_index corresponds to a cell in sharknose_cells
+                # A rib at index i borders cells i-1 and i (for i > 0)
+                # We apply sharknose if either adjacent cell is selected
+                apply_sharknose = True
+                if sharknose_cells is not None and rib_index is not None:
+                    # Check if either adjacent cell is in the selected list
+                    cell_indices = []
+                    if rib_index > 0:
+                        cell_indices.append(rib_index - 1)
+                    if rib_index < len(self.shape.rib_x_values) - 1:
+                        cell_indices.append(rib_index)
+                    apply_sharknose = any(c in sharknose_cells for c in cell_indices)
+
+                if apply_sharknose:
+                    sharknose_factor = self._get_sharknose_factor(pos_x)
+                    if sharknose_factor > 0:
+                        profile = self._apply_sharknose(profile, sharknose_factor)
         
         # 5. Override last rib profile if enabled (stabilo/wingtip)
         last_enabled = getattr(self, 'last_profile_enabled', False)
@@ -2032,6 +2030,27 @@ class ParametricGlider:
         
         return Profile2D(profile.data)
     
+    def get_profile_override(self, rib_index):
+        """Return a copy of the profile explicitly assigned to ``rib_index``.
+
+        ``None`` when overrides are disabled, the rib has no entry, or the
+        entry points outside ``self.profiles`` (rib indices follow
+        ``shape.rib_x_values``; keys may be str or int).
+        """
+        if rib_index is None or not getattr(self, 'profile_overrides_enabled', False):
+            return None
+        overrides = getattr(self, 'profile_overrides', None) or {}
+        override_idx = overrides.get(str(rib_index), overrides.get(rib_index))
+        if override_idx is None:
+            return None
+        try:
+            override_idx = int(override_idx)
+        except (TypeError, ValueError):
+            return None
+        if 0 <= override_idx < len(self.profiles):
+            return self.profiles[override_idx].copy()
+        return None
+
     def _interpolate_profiles(self, factor):
         """Standard profile interpolation between adjacent profiles."""
         factor = max(0, min(len(self.profiles) - 1, factor))
