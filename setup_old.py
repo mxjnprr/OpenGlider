@@ -1,5 +1,4 @@
 #! /usr/bin/python2
-# -*- coding: utf-8; -*-
 #
 # (c) 2013 booya (http://booya.at)
 #
@@ -19,12 +18,13 @@
 # along with OpenGlider.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+
 from setuptools import setup
 
 directory = os.path.dirname(__file__)
 version_file = os.path.join(directory, 'openglider', 'version.py')
 
-with open(version_file, 'r') as file:
+with open(version_file) as file:
     file_content = file.read()
 
 exec(file_content) # defines __version__

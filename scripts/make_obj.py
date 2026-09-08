@@ -1,8 +1,8 @@
 #!/bin/python2
-import sys
-import os
 import math
-import numpy as np
+import os
+import sys
+
 from openglider.glider import Glider
 from openglider.vector.functions import normalize
 

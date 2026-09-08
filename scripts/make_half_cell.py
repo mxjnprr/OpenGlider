@@ -1,13 +1,9 @@
-import tempfile
 from openglider.airfoil.parametric import BezierProfile2D
-
-from openglider.glider.cell import Cell
-from openglider.glider.rib import Rib
 from openglider.glider import Glider
 from openglider.glider.ballooning import BallooningBezier
-from openglider.graphics import Graphics3D, Polygon, Line
+from openglider.glider.cell import Cell
 from openglider.glider.in_out.export_3d import export_obj
-
+from openglider.glider.rib import Rib
 
 path = "/tmp/cell.obj"
 # a tool to optimize a parafoil for a given cell geometry

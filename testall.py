@@ -1,7 +1,8 @@
 #!/bin/env python
 
-from optparse import OptionParser
 import sys
+from optparse import OptionParser
+
 try:
     import unittest2 as unittest
 except (ImportError, NameError):
