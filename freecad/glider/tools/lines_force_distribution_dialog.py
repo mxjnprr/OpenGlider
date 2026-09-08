@@ -31,6 +31,7 @@ class LinesForceDistributionDialog(QtGui.QDialog):
         ("Uniform (tributary only)", "uniform"),
     ]
     NORMALIZE = [
+        ("Total load (PTV) -> newtons at 1 g", "load"),
         ("Peak force = 1.0", "max"),
         ("Mean force = 1.0", "mean"),
     ]
@@ -47,8 +48,11 @@ class LinesForceDistributionDialog(QtGui.QDialog):
         layout = QtGui.QVBoxLayout(self)
 
         intro = QtGui.QLabel(
-            "Assigns a relative force to every attachment point from a lift "
-            "distribution. The forks below balance automatically."
+            "Assigns a force to every attachment point from a lift distribution: "
+            "each point carries the lift of the wing area closest to it "
+            "(span-wise and chord-wise). Works with rows of different spacing "
+            "(A/B/C every 3rd rib, brakes every 2nd rib), stabilo points... "
+            "The forks below balance automatically."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color: gray; font-size: 10px;")
@@ -87,7 +91,24 @@ class LinesForceDistributionDialog(QtGui.QDialog):
         self.normalize_combo = QtGui.QComboBox()
         for label, _ in self.NORMALIZE:
             self.normalize_combo.addItem(label)
+        self.normalize_combo.currentIndexChanged.connect(self._update_enabled)
         form.addRow("Normalize:", self.normalize_combo)
+
+        # Total load (all-up weight) for the "load" normalisation
+        self.total_load = QtGui.QDoubleSpinBox()
+        self.total_load.setRange(10.0, 1000.0)
+        self.total_load.setSingleStep(5.0)
+        self.total_load.setDecimals(1)
+        self.total_load.setValue(100.0)
+        self.total_load.setSuffix(" kg")
+        form.addRow("Total load (pilot + glider):", self.total_load)
+        load_help = QtGui.QLabel(
+            "Forces in newtons at 1 g, so the line strength / max-g-force "
+            "readout of the Lines tool is meaningful."
+        )
+        load_help.setWordWrap(True)
+        load_help.setStyleSheet("color: gray; font-size: 10px;")
+        form.addRow("", load_help)
 
         layout.addWidget(form_group)
 
@@ -106,9 +127,12 @@ class LinesForceDistributionDialog(QtGui.QDialog):
         self._update_enabled()
 
     def _update_enabled(self, *args):
-        """Ellipse exponent only matters for the elliptical law."""
+        """Ellipse exponent only matters for the elliptical law, the total
+        load only for the "load" normalisation."""
         is_elliptical = self.spanwise_combo.currentIndex() == 0
         self.exponent.setEnabled(is_elliptical)
+        is_load = self.NORMALIZE[self.normalize_combo.currentIndex()][1] == "load"
+        self.total_load.setEnabled(is_load)
 
     def load_from_glider(self):
         config = getattr(self.parametric_glider, "force_distribution_config", None)
@@ -128,6 +152,8 @@ class LinesForceDistributionDialog(QtGui.QDialog):
                 self.normalize_combo.setCurrentIndex(i)
         if "spanwise_exponent" in config:
             self.exponent.setValue(config["spanwise_exponent"])
+        if config.get("total_load"):
+            self.total_load.setValue(config["total_load"])
         self._update_enabled()
 
     def save_to_glider(self, params):
@@ -139,6 +165,7 @@ class LinesForceDistributionDialog(QtGui.QDialog):
             "spanwise_exponent": self.exponent.value(),
             "chordwise": self.CHORDWISE[self.chordwise_combo.currentIndex()][1],
             "normalize": self.NORMALIZE[self.normalize_combo.currentIndex()][1],
+            "total_load": self.total_load.value(),
         }
         self.save_to_glider(params)
         return params

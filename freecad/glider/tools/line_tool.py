@@ -212,6 +212,10 @@ class LineTool(BaseTool):
         self.lw_att_lay.addWidget(self.attach_name)
 
         self.up_att_force = QtGui.QDoubleSpinBox()
+        # forces are newtons at 1 g (see "Distribute forces..."), the Qt
+        # default maximum of 99.99 would silently clamp them
+        self.up_att_force.setRange(0.0, 100000.0)
+        self.up_att_force.setDecimals(3)
         self.up_att_force.setSingleStep(0.1)
         self.up_att_lay.setWidget(0, text_field, QtGui.QLabel("force"))
         self.up_att_lay.setWidget(0, input_field, self.up_att_force)
@@ -352,9 +356,13 @@ class LineTool(BaseTool):
                 if isinstance(obj, Upper_Att_Marker):
                     obj.force = obj._node.force
             self.selection_changed()
+            total = sum(result.values())
+            peak = max(result.values()) if result else 0.0
             App.Console.PrintMessage(
                 f"Force distribution: updated {len(result)} attachment points "
-                f"({params['spanwise']} / {params['chordwise']}).\n"
+                f"({params['spanwise']} / {params['chordwise']} / "
+                f"{params['normalize']}), half wing sum {total:.1f}, "
+                f"peak {peak:.2f}.\n"
             )
         except Exception as e:
             App.Console.PrintError(f"Force distribution error: {str(e)}\n")
@@ -653,15 +661,24 @@ class LineTool(BaseTool):
                 self.attach_name.setText(selected_objs[0].name)
             elif show_upper_att_widget(selected_objs):
                 self.tool_widget.setCurrentWidget(self.up_att_wid)
+                # only show the values: setValue() emits valueChanged, which
+                # would write the first point's force / position to every
+                # selected point
+                self.up_att_force.blockSignals(True)
                 self.up_att_force.setValue(selected_objs[0].force)
+                self.up_att_force.blockSignals(False)
                 rib_nr = set([i.rib_nr for i in selected_objs])
+                self.up_att_rib.blockSignals(True)
                 if len(rib_nr) > 1:
                     self.up_att_rib.setDisabled(True)
                 else:
                     self.up_att_rib.setValue(list(rib_nr)[0])
                     self.up_att_rib.setEnabled(True)
+                self.up_att_rib.blockSignals(False)
                 pos = selected_objs[0].rib_pos
+                self.up_att_pos.blockSignals(True)
                 self.up_att_pos.setValue(pos)
+                self.up_att_pos.blockSignals(False)
                 self.up_att_pos.setEnabled(True)
             else:
                 self.tool_widget.setCurrentWidget(self.none_widget)
